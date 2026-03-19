@@ -262,6 +262,7 @@ function toIndexed(geometry, nonIndexedWeights = null) {
 
   const positions = [];
   const normals   = [];
+  const normalSums = [];
   const weights   = nonIndexedWeights ? [] : null;
   const indices   = [];
   const vertMap   = new Map();
@@ -281,13 +282,29 @@ function toIndexed(geometry, nonIndexedWeights = null) {
       idx = positions.length / 3;
       positions.push(px, py, pz);
       normals.push(nx_, ny_, nz_);
+      normalSums.push(nx_, ny_, nz_);
       if (weights) weights.push(nonIndexedWeights[i]);
       vertMap.set(key, idx);
-    } else if (weights && nonIndexedWeights[i] > weights[idx]) {
-      // MAX: if any incident original face was excluded, the shared vertex is excluded
-      weights[idx] = nonIndexedWeights[i];
+    } else {
+      normalSums[idx * 3]     += nx_;
+      normalSums[idx * 3 + 1] += ny_;
+      normalSums[idx * 3 + 2] += nz_;
+      if (weights && nonIndexedWeights[i] > weights[idx]) {
+        // MAX: if any incident original face was excluded, the shared vertex is excluded
+        weights[idx] = nonIndexedWeights[i];
+      }
     }
     indices.push(idx);
+  }
+
+  for (let i = 0; i < positions.length / 3; i++) {
+    const nx = normalSums[i * 3];
+    const ny = normalSums[i * 3 + 1];
+    const nz = normalSums[i * 3 + 2];
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    normals[i * 3]     = nx / len;
+    normals[i * 3 + 1] = ny / len;
+    normals[i * 3 + 2] = nz / len;
   }
 
   return { positions, normals, weights, indices };

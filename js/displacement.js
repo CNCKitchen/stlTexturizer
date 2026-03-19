@@ -55,7 +55,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   // underlying geometry is still faceted (the subdivision didn't change it),
   // so printed edges remain sharp.
 
-  // ── Pass 1: accumulate area-weighted face normals per unique position ─────
+  // ── Pass 1: accumulate area-weighted smooth normals per unique position ───
   // Map: posKey → [nx, ny, nz] (unnormalised sum)
   const smoothNrmMap = new Map();
   // zoneAreaMap: posKey → [xArea, yArea, zArea]  (cubic mapping only)
@@ -137,13 +137,14 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
       tmpPos.fromBufferAttribute(posAttr, t + v);
       const k = posKey(tmpPos.x, tmpPos.y, tmpPos.z);
       if (userExcluded && excludedPosSet) excludedPosSet.add(k);
+      tmpNrm.fromBufferAttribute(nrmAttr, t + v);
       const existing = smoothNrmMap.get(k);
       if (existing) {
-        existing[0] += faceNrm.x;
-        existing[1] += faceNrm.y;
-        existing[2] += faceNrm.z;
+        existing[0] += tmpNrm.x * faceArea;
+        existing[1] += tmpNrm.y * faceArea;
+        existing[2] += tmpNrm.z * faceArea;
       } else {
-        smoothNrmMap.set(k, [faceNrm.x, faceNrm.y, faceNrm.z]);
+        smoothNrmMap.set(k, [tmpNrm.x * faceArea, tmpNrm.y * faceArea, tmpNrm.z * faceArea]);
       }
       if (czX > 0 || czY > 0 || czZ > 0) {
         const za = zoneAreaMap.get(k);
@@ -176,12 +177,12 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
 
     const sn = smoothNrmMap.get(k);
 
-    // Cubic: zone-area-weighted sampling with a stable per-face dominant axis.
+    // Cubic at sharp seams: zone-area-weighted sampling with a stable per-face dominant axis.
     // Non-seam vertices use their single zone purely; seam-edge vertices that
     // adjoin two zones get a face-area-proportional blend.  This guarantees all
     // three vertices of every triangle receive consistent displacement, making
     // the mesh watertight with no mixed-projection artefact rows at the seam.
-    if (settings.mappingMode === 6 /* MODE_CUBIC */) {
+    if (settings.mappingMode === 6 /* MODE_CUBIC */ && (settings.mappingBlend ?? 0) < 0.001) {
       const za = zoneAreaMap.get(k);
       const total = za ? za[0] + za[1] + za[2] : 0;
       if (total > 0) {

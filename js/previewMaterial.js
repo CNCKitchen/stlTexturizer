@@ -54,7 +54,7 @@ const fragmentShader = /* glsl */`
   uniform vec3      boundsCenter;
   uniform float     bottomAngleLimit; // degrees from horizontal; 0 = disabled
   uniform float     topAngleLimit;    // degrees from horizontal; 0 = disabled
-  uniform float     mappingBlend;     // 0 = sharp seams, 1 = fully blended (cylindrical)
+  uniform float     mappingBlend;     // 0 = sharp seams, 1 = fully blended
 
   varying vec3 vModelPos;
   varying vec3 vModelNormal;
@@ -70,6 +70,37 @@ const fragmentShader = /* glsl */`
     if (absN.x >= absN.y - CUBIC_AXIS_EPSILON && absN.x >= absN.z - CUBIC_AXIS_EPSILON) return 0;
     if (absN.y >= absN.z - CUBIC_AXIS_EPSILON) return 1;
     return 2;
+  }
+
+  vec3 cubicBlendWeights(vec3 n) {
+    vec3 absN = abs(n);
+    int axis = dominantCubicAxis(n);
+    float primary = axis == 0 ? absN.x : axis == 1 ? absN.y : absN.z;
+    float secondary = axis == 0 ? max(absN.y, absN.z)
+                    : axis == 1 ? max(absN.x, absN.z)
+                                : max(absN.x, absN.y);
+
+    if (mappingBlend < 0.001 || primary - secondary <= CUBIC_AXIS_EPSILON) {
+      if (axis == 0) return vec3(1.0, 0.0, 0.0);
+      if (axis == 1) return vec3(0.0, 1.0, 0.0);
+      return vec3(0.0, 0.0, 1.0);
+    }
+
+    vec3 oneHot = axis == 0 ? vec3(1.0, 0.0, 0.0)
+                : axis == 1 ? vec3(0.0, 1.0, 0.0)
+                            : vec3(0.0, 0.0, 1.0);
+
+    float seamWidth = max(mappingBlend * 0.35, CUBIC_AXIS_EPSILON * 2.0);
+    float seamMixRaw = 1.0 - clamp((primary - secondary) / seamWidth, 0.0, 1.0);
+    float seamMix = mappingBlend * seamMixRaw * seamMixRaw * (3.0 - 2.0 * seamMixRaw);
+    if (seamMix <= 0.001) return oneHot;
+
+    float power = 1.0 + (1.0 - seamMix) * 11.0;
+    vec3 softWeights = pow(absN, vec3(power));
+    softWeights /= dot(softWeights, vec3(1.0)) + 1e-6;
+
+    vec3 blendedWeights = mix(oneHot, softWeights, seamMix);
+    return blendedWeights / (dot(blendedWeights, vec3(1.0)) + 1e-6);
   }
 
   // Sample after applying scale + tiling
@@ -142,14 +173,19 @@ const fragmentShader = /* glsl */`
       return hXY * blend.z + hXZ * blend.y + hYZ * blend.x;
 
     } else {
-      // Cubic (box) – always pick exactly one projection per triangle.
+      // Cubic (box) – use smooth normals for blend weights so high blend values
+      // can hide seams, but fall back to the face-stable triangle normal when
+      // the triangle sits on an ambiguous near-45° tie.
       float hYZ = sampleMap(vec2((pos.y - boundsMin.y) / md, (pos.z - boundsMin.z) / md));
       float hXZ = sampleMap(vec2((pos.x - boundsMin.x) / md, (pos.z - boundsMin.z) / md));
       float hXY = sampleMap(vec2((pos.x - boundsMin.x) / md, (pos.y - boundsMin.y) / md));
-      int axis = dominantCubicAxis(PN);
-      if (axis == 0) return hYZ;
-      if (axis == 1) return hXZ;
-      return hXY;
+      vec3 blendN = vModelNormal;
+      vec3 absFaceN = abs(PN);
+      float facePrimary = max(absFaceN.x, max(absFaceN.y, absFaceN.z));
+      float faceSecondary = absFaceN.x + absFaceN.y + absFaceN.z - facePrimary - min(absFaceN.x, min(absFaceN.y, absFaceN.z));
+      if (facePrimary - faceSecondary <= CUBIC_AXIS_EPSILON) blendN = PN;
+      vec3 wts = cubicBlendWeights(blendN);
+      return hYZ * wts.x + hXZ * wts.y + hXY * wts.z;
     }
   }
 

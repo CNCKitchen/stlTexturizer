@@ -27,6 +27,71 @@ export function getDominantCubicAxis(normal) {
   return 'z';
 }
 
+export function isAmbiguousCubicNormal(normal) {
+  const ax = Math.abs(normal.x);
+  const ay = Math.abs(normal.y);
+  const az = Math.abs(normal.z);
+  const axis = getDominantCubicAxis(normal);
+  const primary = axis === 'x' ? ax : axis === 'y' ? ay : az;
+  const secondary = axis === 'x' ? Math.max(ay, az) : axis === 'y' ? Math.max(ax, az) : Math.max(ax, ay);
+  return primary - secondary <= CUBIC_AXIS_EPSILON;
+}
+
+export function getCubicBlendWeights(normal, blend) {
+  const axis = getDominantCubicAxis(normal);
+  const ax = Math.abs(normal.x);
+  const ay = Math.abs(normal.y);
+  const az = Math.abs(normal.z);
+  const primary = axis === 'x' ? ax : axis === 'y' ? ay : az;
+  const secondary = axis === 'x' ? Math.max(ay, az) : axis === 'y' ? Math.max(ax, az) : Math.max(ax, ay);
+
+  if (blend <= 0.001 || isAmbiguousCubicNormal(normal)) {
+    return {
+      x: axis === 'x' ? 1 : 0,
+      y: axis === 'y' ? 1 : 0,
+      z: axis === 'z' ? 1 : 0,
+    };
+  }
+
+  const oneHot = {
+    x: axis === 'x' ? 1 : 0,
+    y: axis === 'y' ? 1 : 0,
+    z: axis === 'z' ? 1 : 0,
+  };
+
+  // Only blend inside a seam band around the cube-face boundary. This keeps
+  // strongly dominant faces fully textured even when the slider is barely on.
+  const seamWidth = Math.max(blend * 0.35, CUBIC_AXIS_EPSILON * 2);
+  const seamMixRaw = 1 - Math.min(1, Math.max(0, (primary - secondary) / seamWidth));
+  const seamMix = blend * seamMixRaw * seamMixRaw * (3 - 2 * seamMixRaw);
+  if (seamMix <= 0.001) return oneHot;
+
+  // blend=1 should produce a genuinely soft triplanar-style transition.
+  // Lower blend values progressively sharpen the weights back toward a single
+  // dominant axis without snapping until the slider reaches zero.
+  const power = 1 + (1 - seamMix) * 11;
+  const sx = Math.pow(ax, power);
+  const sy = Math.pow(ay, power);
+  const sz = Math.pow(az, power);
+  const smoothSum = sx + sy + sz + 1e-6;
+  const smooth = {
+    x: sx / smoothSum,
+    y: sy / smoothSum,
+    z: sz / smoothSum,
+  };
+
+  const mx = oneHot.x * (1 - seamMix) + smooth.x * seamMix;
+  const my = oneHot.y * (1 - seamMix) + smooth.y * seamMix;
+  const mz = oneHot.z * (1 - seamMix) + smooth.z * seamMix;
+  const sum = mx + my + mz;
+
+  return {
+    x: mx / sum,
+    y: my / sum,
+    z: mz / sum,
+  };
+}
+
 /**
  * Compute normalised UV coordinates [0, 1) (tiling) for a vertex.
  *
@@ -118,22 +183,23 @@ export function computeUV(pos, normal, mode, settings, bounds) {
     }
 
     case MODE_CUBIC: {
-      let uRaw, vRaw;
-      switch (getDominantCubicAxis(normal)) {
-        case 'x':
-          uRaw = (pos.y - min.y) / md;
-          vRaw = (pos.z - min.z) / md;
-          break;
-        case 'y':
-          uRaw = (pos.x - min.x) / md;
-          vRaw = (pos.z - min.z) / md;
-          break;
-        default:
-          uRaw = (pos.x - min.x) / md;
-          vRaw = (pos.y - min.y) / md;
-          break;
-      }
-      return applyTransform(uRaw, vRaw, scaleU, scaleV, offsetU, offsetV, rotRad);
+      const weights = getCubicBlendWeights(normal, settings.mappingBlend ?? 0.0);
+      const tYZ = applyTransform((pos.y - min.y) / md, (pos.z - min.z) / md, scaleU, scaleV, offsetU, offsetV, rotRad);
+      const tXZ = applyTransform((pos.x - min.x) / md, (pos.z - min.z) / md, scaleU, scaleV, offsetU, offsetV, rotRad);
+      const tXY = applyTransform((pos.x - min.x) / md, (pos.y - min.y) / md, scaleU, scaleV, offsetU, offsetV, rotRad);
+
+      if (weights.x > 0.999) return tYZ;
+      if (weights.y > 0.999) return tXZ;
+      if (weights.z > 0.999) return tXY;
+
+      return {
+        triplanar: true,
+        samples: [
+          { u: tXY.u, v: tXY.v, w: weights.z },
+          { u: tXZ.u, v: tXZ.v, w: weights.y },
+          { u: tYZ.u, v: tYZ.v, w: weights.x },
+        ],
+      };
     }
 
     case MODE_TRIPLANAR:
