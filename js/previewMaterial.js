@@ -156,12 +156,13 @@ const vertexShader = /* glsl */`
   attribute vec3  smoothNormal;
   attribute vec3  faceNormal;
   attribute float faceMask;
+  attribute float boundaryFalloffAttr;
 
   varying vec3  vModelPos;    // ORIGINAL model-space position → UV computation in fragment
   varying vec3  vModelNormal; // model-space face normal       → stable UV blending
   varying vec3  vViewPos;     // view-space position (possibly displaced) → TBN & specular
   varying vec3  vNormal;      // view-space normal → lighting
-  varying float vFaceMask;    // combined mask (angle + user exclusion)
+  varying float vFaceMask;    // combined mask (angle + user exclusion + boundary falloff)
 
   void main() {
     vec3 safeN = length(normal) > 1e-6 ? normalize(normal) : vec3(0.0, 0.0, 1.0);
@@ -177,7 +178,7 @@ const vertexShader = /* glsl */`
       angleMask = min(angleMask, surfaceAngle > bottomAngleLimit ? 1.0 : 0.0);
     if (fN.z >= 0.0 && topAngleLimit >= 1.0)
       angleMask = min(angleMask, surfaceAngle > topAngleLimit ? 1.0 : 0.0);
-    float totalMask = angleMask * faceMask;
+    float totalMask = angleMask * faceMask * boundaryFalloffAttr;
     vFaceMask = totalMask;
 
     if (useDisplacement == 1) {
@@ -204,6 +205,11 @@ const vertexShader = /* glsl */`
 const fragmentShader = /* glsl */`
   precision highp float;
   ${sharedGLSL}
+
+  uniform sampler2D boundaryEdgeTex;
+  uniform int       boundaryEdgeCount;
+  uniform float     boundaryEdgeTexWidth;
+  uniform float     boundaryFalloffDist;
 
   varying vec3  vModelPos;
   varying vec3  vModelNormal;
@@ -236,6 +242,27 @@ const fragmentShader = /* glsl */`
 
     // ── Combined mask (angle + user exclusion) from vertex shader ────────
     float maskBlend = vFaceMask;
+
+    // Per-fragment boundary falloff for bump-only mode.  On coarse meshes the
+    // vertex attribute cannot produce a gradient (too few vertices), so we
+    // compute the distance from each pixel to the nearest boundary edge.
+    if (useDisplacement == 0 && boundaryFalloffDist > 0.001 && boundaryEdgeCount > 0) {
+      float minDist = boundaryFalloffDist;
+      for (int i = 0; i < 64; i++) {
+        if (i >= boundaryEdgeCount) break;
+        float uA = (float(i * 2) + 0.5) / boundaryEdgeTexWidth;
+        float uB = (float(i * 2 + 1) + 0.5) / boundaryEdgeTexWidth;
+        vec3 ea = texture2D(boundaryEdgeTex, vec2(uA, 0.5)).xyz;
+        vec3 eb = texture2D(boundaryEdgeTex, vec2(uB, 0.5)).xyz;
+        vec3 ab = eb - ea;
+        float abLen2 = dot(ab, ab);
+        float t = clamp(dot(vModelPos - ea, ab) / max(abLen2, 1e-10), 0.0, 1.0);
+        float d = length(vModelPos - (ea + t * ab));
+        if (d < minDist) { minDist = d; if (d < 1e-4) break; }
+      }
+      maskBlend *= clamp(minDist / boundaryFalloffDist, 0.0, 1.0);
+    }
+
     h *= maskBlend;
     dhx *= maskBlend;
     dhy *= maskBlend;
@@ -323,6 +350,7 @@ export function updateMaterial(material, displacementTexture, settings) {
   u.seamBandWidth.value           = settings.seamBandWidth           ?? 0.35;
   u.symmetricDisplacement.value   = settings.symmetricDisplacement   ? 1 : 0;
   u.useDisplacement.value         = settings.useDisplacement         ? 1 : 0;
+  u.boundaryFalloffDist.value       = settings.boundaryFalloff           ?? 0.0;
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
@@ -349,6 +377,10 @@ function buildUniforms(tex, settings) {
     seamBandWidth:            { value: settings.seamBandWidth            ?? 0.35 },
     symmetricDisplacement:    { value: settings.symmetricDisplacement   ? 1 : 0 },
     useDisplacement:          { value: settings.useDisplacement         ? 1 : 0 },
+    boundaryEdgeTex:          { value: createFallbackDataTexture() },
+    boundaryEdgeCount:        { value: 0 },
+    boundaryEdgeTexWidth:     { value: 1.0 },
+    boundaryFalloffDist:        { value: settings.boundaryFalloff ?? 0.0 },
   };
 }
 
@@ -360,5 +392,14 @@ function createFallbackTexture() {
   ctx.fillRect(0, 0, 4, 4);
   const t = new THREE.CanvasTexture(canvas);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+function createFallbackDataTexture() {
+  const data = new Float32Array(4);
+  const t = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat, THREE.FloatType);
+  t.minFilter = THREE.NearestFilter;
+  t.magFilter = THREE.NearestFilter;
+  t.needsUpdate = true;
   return t;
 }

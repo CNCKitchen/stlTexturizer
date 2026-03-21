@@ -91,6 +91,10 @@ export const TRANSLATIONS = {
     'excl.hintExclude':              'Masked surfaces appear orange and will not receive displacement during export.',
     'excl.hintInclude':              'Selected surfaces appear green and will be the only ones to receive displacement during export.',
 
+    // Boundary falloff
+    'labels.boundaryFalloff':          'Boundary Falloff \u24d8',
+    'tooltips.boundaryFalloff':        'Gradually reduces displacement to zero near masked boundaries, preventing triangle overlap where textured and non-textured regions meet.',
+
     // Symmetric displacement
     'labels.symmetricDisplacement':  'Symmetric displacement \u24d8',
     'tooltips.symmetricDisplacement':'When on, 50% grey = no displacement; white pushes out, black pushes in. Keeps part volume roughly constant.',
@@ -238,6 +242,10 @@ export const TRANSLATIONS = {
     'excl.facesSelected':            '{n} Fl\u00e4chen ausgew\u00e4hlt',
     'excl.hintExclude':              'Maskierte Fl\u00e4chen erscheinen orange und erhalten beim Export keine Verschiebung.',
     'excl.hintInclude':              'Ausgew\u00e4hlte Fl\u00e4chen erscheinen gr\u00fcn und sind die einzigen, die beim Export eine Verschiebung erhalten.',
+
+    // Boundary falloff
+    'labels.boundaryFalloff':          'Rand\u00fcbergang \u24d8',
+    'tooltips.boundaryFalloff':        'Reduziert die Verschiebung schrittweise auf Null nahe maskierter Grenzen, um Dreiecks\u00fcberschneidungen an \u00dcberg\u00e4ngen zu vermeiden.',
 
     // Symmetric displacement
     'labels.symmetricDisplacement':  'Symmetrische Verschiebung \u24d8',

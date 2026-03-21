@@ -160,6 +160,11 @@
         <div id="amplitude-warning" class="amplitude-warning hidden" data-i18n="warnings.amplitudeOverlap">
           ⚠ Amplitude exceeds 10% of the smallest model dimension — geometry overlaps may occur in the exported STL.
         </div>
+        <div class="form-row slider-row">
+          <label for="boundary-falloff" data-i18n="labels.boundaryFalloff" data-i18n-title="tooltips.boundaryFalloff" title="Gradually reduces displacement to zero near masked boundaries, preventing triangle overlap where textured and non-textured regions meet.">Boundary Falloff ⓘ</label>
+          <input type="range" id="boundary-falloff" min="0" max="10" step="0.1" value="1" />
+          <input type="number" class="val" id="boundary-falloff-val" value="1" min="0" max="10" step="0.1" />
+        </div>
         <div class="form-row">
           <label class="checkbox-label" for="symmetric-displacement"
             data-i18n-title="tooltips.symmetricDisplacement"

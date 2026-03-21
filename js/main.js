@@ -23,6 +23,12 @@ let previewMaterial   = null;
 let isExporting       = false;
 let previewDebounce   = null;
 
+// Boundary edge data texture for per-fragment falloff in bump-only preview
+let _boundaryEdgeTex   = null;
+let _boundaryEdgeCount = 0;
+let _falloffDirty      = true;   // recompute falloff on next updateFaceMask
+let _falloffGeometry   = null;   // geometry the falloff was last computed for
+
 // ── Exclusion state ───────────────────────────────────────────────────────────
 let excludedFaces      = new Set();   // triangle indices in currentGeometry
 let triangleAdjacency  = null;        // Map from buildAdjacency
@@ -53,6 +59,7 @@ const settings = {
   topAngleLimit:    0,
   mappingBlend:     1,
   seamBandWidth:    0.5,
+  boundaryFalloff:  1,
   symmetricDisplacement: false,
   useDisplacement: false,
 };
@@ -111,6 +118,8 @@ const seamBlendSlider        = document.getElementById('seam-blend');
 const seamBlendVal           = document.getElementById('seam-blend-val');
 const seamBandWidthSlider    = document.getElementById('seam-band-width');
 const seamBandWidthVal       = document.getElementById('seam-band-width-val');
+const boundaryFalloffSlider    = document.getElementById('boundary-falloff');
+const boundaryFalloffVal       = document.getElementById('boundary-falloff-val');
 const symmetricDispToggle    = document.getElementById('symmetric-displacement');
 const dispPreviewToggle      = document.getElementById('displacement-preview');
 
@@ -324,10 +333,11 @@ function wireEvents() {
   linkSlider(rotationSlider,  rotationVal,  v => { settings.rotation  = v; return Math.round(v); });
   linkSlider(amplitudeSlider, amplitudeVal, v => { settings.amplitude = v; checkAmplitudeWarning(); return v.toFixed(2); });
   amplitudeVal.addEventListener('change', checkAmplitudeWarning);
+  linkSlider(boundaryFalloffSlider, boundaryFalloffVal, v => { settings.boundaryFalloff = v; _falloffDirty = true; return v.toFixed(1); });
   linkSlider(refineLenSlider, refineLenVal, v => { settings.refineLength  = v; return v.toFixed(2); }, false);
   linkSlider(maxTriSlider, maxTriVal, v => { settings.maxTriangles = v; return formatM(v); }, false);
-  linkSlider(bottomAngleLimitSlider, bottomAngleLimitVal, v => { settings.bottomAngleLimit = v; return v; });
-  linkSlider(topAngleLimitSlider,    topAngleLimitVal,    v => { settings.topAngleLimit    = v; return v; });
+  linkSlider(bottomAngleLimitSlider, bottomAngleLimitVal, v => { settings.bottomAngleLimit = v; _falloffDirty = true; return v; });
+  linkSlider(topAngleLimitSlider,    topAngleLimitVal,    v => { settings.topAngleLimit    = v; _falloffDirty = true; return v; });
   linkSlider(seamBlendSlider,        seamBlendVal,        v => { settings.mappingBlend     = v; return v.toFixed(2); });
   linkSlider(seamBandWidthSlider,    seamBandWidthVal,    v => { settings.seamBandWidth    = v; return v.toFixed(2); });
   symmetricDispToggle.addEventListener('change', () => {
@@ -788,6 +798,7 @@ function handlePlaceOnFaceClick(e) {
 
 function refreshExclusionOverlay() {
   if (!currentGeometry) return;
+  _falloffDirty = true;
   if (selectionMode) {
     // Include Only mode: tint the complement (non-selected faces) with a pastel blue
     // so the model stays visible against the dark background before any faces are painted.
@@ -1137,6 +1148,293 @@ function updateFaceMask(geometry) {
   if (!geometry.attributes.faceNormal) {
     addFaceNormals(geometry);
   }
+
+  if (_falloffDirty || geometry !== _falloffGeometry) {
+    computeBoundaryFalloffAttr(geometry, maskArr);
+    computeBoundaryEdges(geometry, maskArr);
+    _falloffDirty = false;
+    _falloffGeometry = geometry;
+  }
+  syncBoundaryEdgeUniforms();
+}
+
+/**
+ * Compute a per-vertex `boundaryFalloffAttr` float attribute on the geometry.
+ * Vertices near the boundary between masked and non-masked regions get values
+ * ramping from 0 (at boundary) to 1 (at or beyond boundaryFalloff distance).
+ * The shader multiplies displacement/bump by this attribute.
+ *
+ * @param {THREE.BufferGeometry} geometry
+ * @param {Float32Array}         userMaskArr – per-vertex user-exclusion mask from updateFaceMask
+ */
+function computeBoundaryFalloffAttr(geometry, userMaskArr) {
+  const posAttr = geometry.attributes.position;
+  const posCount = posAttr.count;
+  const triCount = posCount / 3;
+  const falloff = settings.boundaryFalloff ?? 0;
+  const falloffArr = new Float32Array(posCount);
+  falloffArr.fill(1.0);
+
+  if (falloff <= 0) {
+    geometry.setAttribute('boundaryFalloffAttr', new THREE.Float32BufferAttribute(falloffArr, 1));
+    return;
+  }
+
+  // Compute per-face combined mask (angle masking + user exclusion).
+  // Mirrors the vertex shader logic so the preview boundary matches export.
+  const faceNrmAttr = geometry.attributes.faceNormal;
+  const faceMask = new Float32Array(triCount); // 0 = masked, 1 = textured
+  for (let t = 0; t < triCount; t++) {
+    const userVal = userMaskArr[t * 3]; // same for all 3 verts of this face
+    if (userVal < 0.5) { faceMask[t] = 0; continue; }
+
+    let angleMask = 1.0;
+    if (faceNrmAttr) {
+      const fnz = faceNrmAttr.getZ(t * 3);
+      const fnx = faceNrmAttr.getX(t * 3);
+      const fny = faceNrmAttr.getY(t * 3);
+      const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz);
+      const nz = len > 1e-6 ? fnz / len : 0;
+      const surfaceAngle = Math.acos(Math.min(1, Math.abs(nz))) * (180 / Math.PI);
+      if (nz < 0 && settings.bottomAngleLimit >= 1)
+        angleMask = surfaceAngle > settings.bottomAngleLimit ? 1.0 : 0.0;
+      if (nz >= 0 && settings.topAngleLimit >= 1)
+        angleMask = Math.min(angleMask, surfaceAngle > settings.topAngleLimit ? 1.0 : 0.0);
+    }
+    faceMask[t] = angleMask;
+  }
+
+  // Build per-unique-position map and identify boundary positions.
+  const QUANT = 1e4;
+  const posKey = (x, y, z) =>
+    `${Math.round(x * QUANT)}_${Math.round(y * QUANT)}_${Math.round(z * QUANT)}`;
+
+  const posFromKey = new Map();  // posKey → [x, y, z]
+  // Per-position: [maskedArea, totalArea] to find boundary vertices
+  const maskFracMap = new Map();
+  const tmpV = new THREE.Vector3();
+  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
+  const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), fn = new THREE.Vector3();
+
+  for (let t = 0; t < triCount; t++) {
+    vA.fromBufferAttribute(posAttr, t * 3);
+    vB.fromBufferAttribute(posAttr, t * 3 + 1);
+    vC.fromBufferAttribute(posAttr, t * 3 + 2);
+    e1.subVectors(vB, vA);
+    e2.subVectors(vC, vA);
+    fn.crossVectors(e1, e2);
+    const area = fn.length();
+    const masked = faceMask[t] < 0.5;
+
+    for (let v = 0; v < 3; v++) {
+      tmpV.fromBufferAttribute(posAttr, t * 3 + v);
+      const k = posKey(tmpV.x, tmpV.y, tmpV.z);
+      if (!posFromKey.has(k)) posFromKey.set(k, [tmpV.x, tmpV.y, tmpV.z]);
+      const mf = maskFracMap.get(k);
+      if (mf) {
+        if (masked) mf[0] += area;
+        mf[1] += area;
+      } else {
+        maskFracMap.set(k, [masked ? area : 0, area]);
+      }
+    }
+  }
+
+  // Boundary positions: shared between masked and non-masked faces
+  const boundaryPositions = [];
+  for (const [k, pos] of posFromKey) {
+    const mf = maskFracMap.get(k);
+    const frac = mf[1] > 0 ? mf[0] / mf[1] : 0;
+    if (frac > 0 && frac < 1) boundaryPositions.push(pos);
+  }
+
+  if (boundaryPositions.length === 0) {
+    geometry.setAttribute('boundaryFalloffAttr', new THREE.Float32BufferAttribute(falloffArr, 1));
+    return;
+  }
+
+  // Spatial grid of boundary positions for fast nearest-neighbor search
+  let gMinX = Infinity, gMinY = Infinity, gMinZ = Infinity;
+  let gMaxX = -Infinity, gMaxY = -Infinity, gMaxZ = -Infinity;
+  for (const bp of boundaryPositions) {
+    if (bp[0] < gMinX) gMinX = bp[0]; if (bp[0] > gMaxX) gMaxX = bp[0];
+    if (bp[1] < gMinY) gMinY = bp[1]; if (bp[1] > gMaxY) gMaxY = bp[1];
+    if (bp[2] < gMinZ) gMinZ = bp[2]; if (bp[2] > gMaxZ) gMaxZ = bp[2];
+  }
+  const gPad = falloff + 1e-3;
+  gMinX -= gPad; gMinY -= gPad; gMinZ -= gPad;
+  gMaxX += gPad; gMaxY += gPad; gMaxZ += gPad;
+
+  const gRes = Math.max(4, Math.min(128, Math.ceil(Math.cbrt(boundaryPositions.length) * 2)));
+  const gDx = (gMaxX - gMinX) / gRes || 1;
+  const gDy = (gMaxY - gMinY) / gRes || 1;
+  const gDz = (gMaxZ - gMinZ) / gRes || 1;
+  const bGrid = new Map();
+  const bCellKey = (ix, iy, iz) => (ix * gRes + iy) * gRes + iz;
+
+  for (const bp of boundaryPositions) {
+    const ix = Math.max(0, Math.min(gRes - 1, Math.floor((bp[0] - gMinX) / gDx)));
+    const iy = Math.max(0, Math.min(gRes - 1, Math.floor((bp[1] - gMinY) / gDy)));
+    const iz = Math.max(0, Math.min(gRes - 1, Math.floor((bp[2] - gMinZ) / gDz)));
+    const ck = bCellKey(ix, iy, iz);
+    const cell = bGrid.get(ck);
+    if (cell) cell.push(bp); else bGrid.set(ck, [bp]);
+  }
+
+  const searchX = Math.ceil(falloff / gDx);
+  const searchY = Math.ceil(falloff / gDy);
+  const searchZ = Math.ceil(falloff / gDz);
+
+  // Compute per-unique-position falloff factor
+  const falloffCache = new Map(); // posKey → factor [0,1]
+  for (const [k, pos] of posFromKey) {
+    const mf = maskFracMap.get(k);
+    const frac = mf[1] > 0 ? mf[0] / mf[1] : 0;
+    if (frac > 0) continue; // masked or boundary vertex — keep 1.0 (mask handles it)
+
+    const px = pos[0], py = pos[1], pz = pos[2];
+    const cix = Math.max(0, Math.min(gRes - 1, Math.floor((px - gMinX) / gDx)));
+    const ciy = Math.max(0, Math.min(gRes - 1, Math.floor((py - gMinY) / gDy)));
+    const ciz = Math.max(0, Math.min(gRes - 1, Math.floor((pz - gMinZ) / gDz)));
+
+    let minDist2 = falloff * falloff;
+    for (let dix = -searchX; dix <= searchX; dix++) {
+      const nix = cix + dix;
+      if (nix < 0 || nix >= gRes) continue;
+      for (let diy = -searchY; diy <= searchY; diy++) {
+        const niy = ciy + diy;
+        if (niy < 0 || niy >= gRes) continue;
+        for (let diz = -searchZ; diz <= searchZ; diz++) {
+          const niz = ciz + diz;
+          if (niz < 0 || niz >= gRes) continue;
+          const cell = bGrid.get(bCellKey(nix, niy, niz));
+          if (!cell) continue;
+          for (const bp of cell) {
+            const dx = px - bp[0], dy = py - bp[1], dz = pz - bp[2];
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < minDist2) minDist2 = d2;
+          }
+        }
+      }
+    }
+    const dist = Math.sqrt(minDist2);
+    const factor = Math.min(1, dist / falloff);
+    if (factor < 1) falloffCache.set(k, factor);
+  }
+
+  // Write per-vertex attribute
+  for (let i = 0; i < posCount; i++) {
+    tmpV.fromBufferAttribute(posAttr, i);
+    const k = posKey(tmpV.x, tmpV.y, tmpV.z);
+    if (falloffCache.has(k)) falloffArr[i] = falloffCache.get(k);
+  }
+
+  geometry.setAttribute('boundaryFalloffAttr', new THREE.Float32BufferAttribute(falloffArr, 1));
+}
+
+/**
+ * Compute boundary edge segments between masked and non-masked faces and
+ * pack them into a DataTexture for per-fragment distance queries in the
+ * bump-only preview shader.  Each edge is stored as two RGBA texels
+ * (endpoint A xyz, endpoint B xyz).
+ */
+function computeBoundaryEdges(geometry, userMaskArr) {
+  const posAttr = geometry.attributes.position;
+  const posCount = posAttr.count;
+  const triCount = posCount / 3;
+  const falloff = settings.boundaryFalloff ?? 0;
+
+  if (_boundaryEdgeTex) { _boundaryEdgeTex.dispose(); _boundaryEdgeTex = null; }
+  _boundaryEdgeCount = 0;
+  if (falloff <= 0) return;
+
+  const faceNrmAttr = geometry.attributes.faceNormal;
+  const faceMaskBool = new Uint8Array(triCount);
+  for (let t = 0; t < triCount; t++) {
+    if (userMaskArr[t * 3] < 0.5) { faceMaskBool[t] = 0; continue; }
+    let angleMask = 1.0;
+    if (faceNrmAttr) {
+      const fnx = faceNrmAttr.getX(t * 3);
+      const fny = faceNrmAttr.getY(t * 3);
+      const fnz = faceNrmAttr.getZ(t * 3);
+      const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz);
+      const nz = len > 1e-6 ? fnz / len : 0;
+      const surfAngle = Math.acos(Math.min(1, Math.abs(nz))) * (180 / Math.PI);
+      if (nz < 0 && settings.bottomAngleLimit >= 1)
+        angleMask = surfAngle > settings.bottomAngleLimit ? 1.0 : 0.0;
+      if (nz >= 0 && settings.topAngleLimit >= 1)
+        angleMask = Math.min(angleMask, surfAngle > settings.topAngleLimit ? 1.0 : 0.0);
+    }
+    faceMaskBool[t] = angleMask > 0.5 ? 1 : 0;
+  }
+
+  const QUANT = 1e4;
+  const pk = (x, y, z) =>
+    `${Math.round(x * QUANT)}_${Math.round(y * QUANT)}_${Math.round(z * QUANT)}`;
+  const ek = (k1, k2) => k1 < k2 ? k1 + '|' + k2 : k2 + '|' + k1;
+  const tmpV = new THREE.Vector3();
+
+  const edgeFaces = new Map();
+  const edgePos   = new Map();
+
+  for (let t = 0; t < triCount; t++) {
+    const keys = [], pts = [];
+    for (let v = 0; v < 3; v++) {
+      tmpV.fromBufferAttribute(posAttr, t * 3 + v);
+      keys.push(pk(tmpV.x, tmpV.y, tmpV.z));
+      pts.push([tmpV.x, tmpV.y, tmpV.z]);
+    }
+    for (let e = 0; e < 3; e++) {
+      const edgeKey = ek(keys[e], keys[(e + 1) % 3]);
+      const list = edgeFaces.get(edgeKey);
+      if (list) list.push(t);
+      else {
+        edgeFaces.set(edgeKey, [t]);
+        edgePos.set(edgeKey, [pts[e], pts[(e + 1) % 3]]);
+      }
+    }
+  }
+
+  const MAX_EDGES = 64;
+  const edges = [];
+  for (const [key, faces] of edgeFaces) {
+    if (edges.length >= MAX_EDGES) break;
+    let hasMasked = false, hasTextured = false;
+    for (const f of faces) {
+      if (faceMaskBool[f] === 0) hasMasked = true;
+      else hasTextured = true;
+      if (hasMasked && hasTextured) break;
+    }
+    if (hasMasked && hasTextured) edges.push(edgePos.get(key));
+  }
+
+  if (edges.length === 0) return;
+
+  const texWidth = edges.length * 2;
+  const data = new Float32Array(texWidth * 4);
+  for (let i = 0; i < edges.length; i++) {
+    const [a, b] = edges[i];
+    const off = i * 8;
+    data[off] = a[0]; data[off + 1] = a[1]; data[off + 2] = a[2]; data[off + 3] = 0;
+    data[off + 4] = b[0]; data[off + 5] = b[1]; data[off + 6] = b[2]; data[off + 7] = 0;
+  }
+
+  _boundaryEdgeTex = new THREE.DataTexture(data, texWidth, 1, THREE.RGBAFormat, THREE.FloatType);
+  _boundaryEdgeTex.minFilter = THREE.NearestFilter;
+  _boundaryEdgeTex.magFilter = THREE.NearestFilter;
+  _boundaryEdgeTex.needsUpdate = true;
+  _boundaryEdgeCount = edges.length;
+}
+
+function syncBoundaryEdgeUniforms() {
+  if (!previewMaterial || !previewMaterial.uniforms.boundaryEdgeTex) return;
+  const u = previewMaterial.uniforms;
+  if (_boundaryEdgeTex) {
+    u.boundaryEdgeTex.value = _boundaryEdgeTex;
+    u.boundaryEdgeTexWidth.value = _boundaryEdgeTex.image.width;
+  }
+  u.boundaryEdgeCount.value = _boundaryEdgeCount;
+  u.boundaryFalloffDist.value = settings.boundaryFalloff ?? 0;
 }
 
 /**
@@ -1299,6 +1597,7 @@ function updatePreview() {
     updateMaterial(previewMaterial, activeMapEntry.texture, fullSettings);
   }
 
+  syncBoundaryEdgeUniforms();
   exportBtn.disabled = false;
 }
 
