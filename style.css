@@ -858,6 +858,11 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 
 .sponsor-link:hover { background: var(--accent-hover); }
 
+.sponsor-link--paypal {
+  background: #009cde;
+}
+.sponsor-link--paypal:hover { background: #007bb5; }
+
 .sponsor-no-show {
   display: flex;
   align-items: center;

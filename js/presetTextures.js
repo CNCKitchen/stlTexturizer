@@ -29,18 +29,24 @@ function fitDimensions(imgW, imgH) {
 // ── Image-based presets ───────────────────────────────────────────────────────
 
 const IMAGE_PRESETS = [
-  { name: 'Basket',    url: 'textures/basket.jpg'   },
-  { name: 'Brick',     url: 'textures/brick.jpg'    },
-  { name: 'Bubble',    url: 'textures/bubble.jpg'   },
-  { name: 'Crystal',   url: 'textures/crystal.jpg'  },
-  { name: 'Hexagon',   url: 'textures/hexagon.jpg'  },
-  { name: 'Knitting',  url: 'textures/knitting.jpg' },
-  { name: 'Knurling',  url: 'textures/knurling.jpg' },
-  { name: 'Leather',   url: 'textures/leather.jpg'  },
-  { name: 'Leather 2', url: 'textures/leather2.jpg' },
-  { name: 'Weave',     url: 'textures/weave.jpg'    },
-  { name: 'Wood',      url: 'textures/wood.jpg'     },
-  { name: 'Noise',     url: 'textures/noise.jpg'    },
+  { name: 'Basket',       url: 'textures/basket.jpg'       },
+  { name: 'Brick',        url: 'textures/brick.jpg'        },
+  { name: 'Bubble',       url: 'textures/bubble.jpg'       },
+  { name: 'Crystal',      url: 'textures/crystal.jpg'      },
+  { name: 'Grip Surface', url: 'textures/gripSurface.jpg'  },
+  { name: 'Hexagon',      url: 'textures/hexagon.jpg'      },
+  { name: 'Hexagons',     url: 'textures/hexagons.jpg'     },
+  { name: 'Knitting',     url: 'textures/knitting.jpg'     },
+  { name: 'Knurling',     url: 'textures/knurling.jpg'     },
+  { name: 'Leather',      url: 'textures/leather.jpg'      },
+  { name: 'Leather 2',    url: 'textures/leather2.jpg'     },
+  { name: 'Melt',         url: 'textures/melt.jpg'         },
+  { name: 'Noise',        url: 'textures/noise.jpg'        },
+  { name: 'Rhombic',      url: 'textures/rhombic.jpg'      },
+  { name: 'Voronoi',      url: 'textures/voronoi.jpg'      },
+  { name: 'Weave',        url: 'textures/weave.jpg'        },
+  { name: 'Weave 02',     url: 'textures/weave_02.jpg'     },
+  { name: 'Wood',         url: 'textures/wood.jpg'         },
 ];
 
 function loadImagePreset({ name, url }) {

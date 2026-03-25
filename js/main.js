@@ -1408,6 +1408,11 @@ function addSmoothNormals(geometry) {
 async function toggleDisplacementPreview(enable) {
   settings.useDisplacement = enable;
 
+  // Exit surface masking mode when the 3D preview is activated
+  if (enable && exclusionTool) {
+    setExclusionTool(null);
+  }
+
   if (!enable) {
     // Revert to original geometry with bump-only shading.
     if (currentGeometry && previewMaterial) {

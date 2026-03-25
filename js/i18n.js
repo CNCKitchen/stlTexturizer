@@ -141,6 +141,7 @@ export const TRANSLATIONS = {
     'sponsor.title':           'Thanks for using CNC Kitchen STL Texturizer!',
     'sponsor.body':            'This tool is provided <strong>completely free</strong> by CNC Kitchen.<br>While your STL is being processed, why not check out the store that helps us keep making cool stuff for you?',
     'sponsor.visitStore':      '\uD83D\uDED2 Visit CNCKitchen.STORE',
+    'sponsor.donate':          '\uD83D\uDC99 Donate on PayPal',
     'sponsor.dontShow':        "Don\u2019t show this again",
     'sponsor.closeAndContinue':'Close &amp; Continue',
 
@@ -292,6 +293,7 @@ export const TRANSLATIONS = {
     'sponsor.title':           'Danke f\u00fcr die Nutzung des CNC Kitchen STL Texturizers!',
     'sponsor.body':            'Dieses Tool wird von CNC Kitchen <strong>komplett kostenlos</strong> bereitgestellt.<br>W\u00e4hrend dein STL verarbeitet wird, schau doch mal im Shop vorbei, der uns hilft, coole Sachen f\u00fcr dich zu machen!',
     'sponsor.visitStore':      '\uD83D\uDED2 CNCKitchen.STORE besuchen',
+    'sponsor.donate':          '\uD83D\uDC99 Via PayPal spenden',
     'sponsor.dontShow':        'Nicht mehr anzeigen',
     'sponsor.closeAndContinue':'Schlie\u00dfen &amp; Weiter',
 
