@@ -183,6 +183,32 @@ export function initViewer(canvas) {
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.screenSpacePanning = true;
+  controls.enableZoom = false; // we handle zoom ourselves for cursor-centric behaviour
+
+  // Cursor-centric zoom: zoom toward the mouse pointer instead of screen centre
+  renderer.domElement.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = renderer.domElement.getBoundingClientRect();
+    const ndcX =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+    const ndcY = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
+
+    // World position under cursor before zoom
+    const before = new THREE.Vector3(ndcX, ndcY, 0).unproject(camera);
+
+    // Apply zoom
+    const factor = e.deltaY > 0 ? 1 / 1.1 : 1.1;
+    camera.zoom = Math.max(0.05, Math.min(200, camera.zoom * factor));
+    camera.updateProjectionMatrix();
+
+    // World position under cursor after zoom
+    const after = new THREE.Vector3(ndcX, ndcY, 0).unproject(camera);
+
+    // Shift camera + target so the world point stays under the cursor
+    const delta = before.clone().sub(after);
+    camera.position.add(delta);
+    controls.target.add(delta);
+    controls.update();
+  }, { passive: false });
 
   // Resize observer
   const resizeObserver = new ResizeObserver(() => onResize());

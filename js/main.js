@@ -292,6 +292,7 @@ function wireEvents() {
     clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
   };
   scaleUSlider.addEventListener('input', () => applyScaleU(posToScale(parseFloat(scaleUSlider.value))));
+  scaleUSlider.addEventListener('dblclick', () => applyScaleU(posToScale(parseFloat(scaleUSlider.defaultValue))));
   scaleUVal.addEventListener('change', () => applyScaleU(parseFloat(scaleUVal.value)));
 
   // Scale V — when lock is on, mirror to U
@@ -304,6 +305,7 @@ function wireEvents() {
     clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
   };
   scaleVSlider.addEventListener('input', () => applyScaleV(posToScale(parseFloat(scaleVSlider.value))));
+  scaleVSlider.addEventListener('dblclick', () => applyScaleV(posToScale(parseFloat(scaleVSlider.defaultValue))));
   scaleVVal.addEventListener('change', () => applyScaleV(parseFloat(scaleVVal.value)));
 
   // Lock toggle
@@ -412,6 +414,11 @@ function wireEvents() {
     brushRadius = parseFloat(exclBrushRadiusSlider.value) / 2;
     exclBrushRadiusVal.value = parseFloat(exclBrushRadiusSlider.value);
   });
+  exclBrushRadiusSlider.addEventListener('dblclick', () => {
+    exclBrushRadiusSlider.value = exclBrushRadiusSlider.defaultValue;
+    brushRadius = parseFloat(exclBrushRadiusSlider.value) / 2;
+    exclBrushRadiusVal.value = parseFloat(exclBrushRadiusSlider.value);
+  });
   exclBrushRadiusVal.addEventListener('change', () => {
     let diam = Math.max(0.2, Math.min(100, parseFloat(exclBrushRadiusVal.value) || 10));
     brushRadius = diam / 2;
@@ -423,6 +430,12 @@ function wireEvents() {
     bucketThreshold = parseFloat(exclThresholdSlider.value);
     exclThresholdVal.value = bucketThreshold;
     _lastHoverTriIdx = -1; // invalidate hover so next mousemove re-computes
+  });
+  exclThresholdSlider.addEventListener('dblclick', () => {
+    exclThresholdSlider.value = exclThresholdSlider.defaultValue;
+    bucketThreshold = parseFloat(exclThresholdSlider.value);
+    exclThresholdVal.value = bucketThreshold;
+    _lastHoverTriIdx = -1;
   });
   exclThresholdVal.addEventListener('change', () => {
     bucketThreshold = Math.max(0, Math.min(180, parseFloat(exclThresholdVal.value) || 20));
@@ -899,6 +912,17 @@ function updateBucketHover(e) {
 function linkSlider(slider, valInput, onChangeFn, livePreview = true) {
   const isSpan = valInput.tagName === 'SPAN';
   slider.addEventListener('input', () => {
+    const v = parseFloat(slider.value);
+    const display = onChangeFn(v);
+    if (isSpan) valInput.textContent = display; else valInput.value = display;
+    if (livePreview) {
+      clearTimeout(previewDebounce);
+      previewDebounce = setTimeout(updatePreview, 80);
+    }
+  });
+  // Double-click resets to default value
+  slider.addEventListener('dblclick', () => {
+    slider.value = slider.defaultValue;
     const v = parseFloat(slider.value);
     const display = onChangeFn(v);
     if (isSpan) valInput.textContent = display; else valInput.value = display;
