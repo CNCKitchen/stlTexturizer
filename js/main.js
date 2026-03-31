@@ -153,6 +153,15 @@ const _LOG_MAX = Math.log(10);
 const scaleToPos = v => Math.round((Math.log(Math.max(0.05, Math.min(10, v))) - _LOG_MIN) / (_LOG_MAX - _LOG_MIN) * 1000);
 const posToScale = p => parseFloat(Math.exp(_LOG_MIN + (p / 1000) * (_LOG_MAX - _LOG_MIN)).toFixed(2));
 
+function _applyScaleU(v) {
+  v = Math.max(0.05, Math.min(10, v));
+  settings.scaleU = v;
+  scaleUSlider.value = scaleToPos(v);
+  scaleUVal.value = v;
+  if (settings.lockScale) { settings.scaleV = v; scaleVSlider.value = scaleToPos(v); scaleVVal.value = v; }
+  clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 let PRESETS = [];
@@ -230,6 +239,7 @@ function selectPreset(idx, swatchEl) {
   activeMapEntry = PRESETS[idx];
   activeMapName.textContent = PRESETS[idx].name;
   resetTextureSmoothing();
+  if (activeMapEntry.defaultScale != null) _applyScaleU(activeMapEntry.defaultScale);
   updatePreview();
 }
 
@@ -299,14 +309,7 @@ function wireEvents() {
   });
 
   // Scale U — when lock is on, mirror to V
-  const applyScaleU = (v) => {
-    v = Math.max(0.05, Math.min(10, v));
-    settings.scaleU = v;
-    scaleUSlider.value = scaleToPos(v);
-    scaleUVal.value = v;
-    if (settings.lockScale) { settings.scaleV = v; scaleVSlider.value = scaleToPos(v); scaleVVal.value = v; }
-    clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
-  };
+  const applyScaleU = (v) => _applyScaleU(v);
   scaleUSlider.addEventListener('input', () => applyScaleU(posToScale(parseFloat(scaleUSlider.value))));
   scaleUSlider.addEventListener('dblclick', () => applyScaleU(posToScale(parseFloat(scaleUSlider.defaultValue))));
   scaleUVal.addEventListener('change', () => applyScaleU(parseFloat(scaleUVal.value)));

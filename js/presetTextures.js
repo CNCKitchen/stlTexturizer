@@ -29,27 +29,34 @@ function fitDimensions(imgW, imgH) {
 // ── Image-based presets ───────────────────────────────────────────────────────
 
 const IMAGE_PRESETS = [
-  { name: 'Basket',       url: 'textures/basket.jpg'       },
-  { name: 'Brick',        url: 'textures/brick.jpg'        },
-  { name: 'Bubble',       url: 'textures/bubble.jpg'       },
-  { name: 'Carbon Fiber', url: 'textures/carbonFiber.jpg'  },
-  { name: 'Crystal',      url: 'textures/crystal.jpg'      },
-  { name: 'Dots',         url: 'textures/dots.jpg'         },
-  { name: 'Grip Surface', url: 'textures/gripSurface.jpg'  },
-  { name: 'Hexagons',     url: 'textures/hexagons.jpg'     },
-  { name: 'Knitting',     url: 'textures/knitting.jpg'     },
-  { name: 'Knurling',     url: 'textures/knurling.jpg'     },
-  { name: 'Leather',      url: 'textures/leather.jpg'      },
-  { name: 'Leather 2',    url: 'textures/leather2.jpg'     },
-  { name: 'Noise',        url: 'textures/noise.jpg'        },
-  { name: 'Voronoi',      url: 'textures/voronoi.jpg'      },
-  { name: 'Weave',        url: 'textures/weave.jpg'        },
-  { name: 'Weave 02',     url: 'textures/weave_02.jpg'     },
-  { name: 'Weave 03',     url: 'textures/weave_03.jpg'     },
-  { name: 'Wood',         url: 'textures/wood.jpg'         },
+  { name: 'Basket',       url: 'textures/basket.jpg',       defaultScale: 0.5 },
+  { name: 'Brick',        url: 'textures/brick.jpg',        defaultScale: 0.5 },
+  { name: 'Bubble',       url: 'textures/bubble.jpg',       defaultScale: 0.5 },
+  { name: 'Carbon Fiber', url: 'textures/carbonFiber.jpg',  defaultScale: 0.5 },
+  { name: 'Crystal',      url: 'textures/crystal.jpg',      defaultScale: 0.5 },
+  { name: 'Dots',         url: 'textures/dots.jpg',         defaultScale: 0.1 },
+  { name: 'Grip Surface', url: 'textures/gripSurface.jpg',  defaultScale: 0.5 },
+  { name: 'Hexagon',      url: 'textures/hexagon.jpg',               defaultScale: 0.5 },
+  { name: 'Hexagons',     url: 'textures/hexagons.jpg',     defaultScale: 1.0 },
+  { name: 'Isogrid',      url: 'textures/isogrid.png',               defaultScale: 0.5 },
+  { name: 'Knitting',     url: 'textures/knitting.jpg',     defaultScale: 0.25 },
+  { name: 'Knurling',     url: 'textures/knurling.jpg',     defaultScale: 0.15 },
+  { name: 'Leather',      url: 'textures/leather.jpg',      defaultScale: 0.5 },
+  { name: 'Leather 2',    url: 'textures/leather2.jpg',     defaultScale: 0.5 },
+  { name: 'Noise',        url: 'textures/noise.jpg',        defaultScale: 0.3 },
+  { name: 'Stripes',      url: 'textures/stripes.png',               defaultScale: 0.5 },
+  { name: 'Stripes 02',   url: 'textures/stripes_02.png',            defaultScale: 1.0 },
+  { name: 'Voronoi',      url: 'textures/voronoi.jpg',      defaultScale: 0.5 },
+  { name: 'Weave',        url: 'textures/weave.jpg',        defaultScale: 0.5 },
+  { name: 'Weave 02',     url: 'textures/weave_02.jpg',     defaultScale: 0.5 },
+  { name: 'Weave 03',     url: 'textures/weave_03.jpg',     defaultScale: 0.5 },
+  { name: 'Wood',         url: 'textures/wood.jpg',         defaultScale: 0.5 },
+  { name: 'Wood Grain 02',url: 'textures/woodgrain_02.jpg',          defaultScale: 1.0 },
+  { name: 'Wood Grain 03',url: 'textures/woodgrain_03.jpg',          defaultScale: 1.0 },
 ];
 
-function loadImagePreset({ name, url }) {
+function loadImagePreset(preset) {
+  const { name, url } = preset;
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -65,7 +72,7 @@ function loadImagePreset({ name, url }) {
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.name = name;
 
-      resolve({ name, thumbCanvas: thumb, fullCanvas: full, texture, imageData, width: w, height: h });
+      resolve({ name, thumbCanvas: thumb, fullCanvas: full, texture, imageData, width: w, height: h, defaultScale: preset.defaultScale });
     };
     img.onerror = () => reject(new Error(`Failed to load preset image: ${url}`));
     img.src = url;
