@@ -69,17 +69,22 @@ Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a
 
 ## Usage
 
-1. From your command line, clone the repository: `git clone https://github.com/CNCKitchen/stlTexturizer.git` or download the zipped version of the project here https://github.com/CNCKitchen/stlTexturizer/archive/refs/heads/main.zip and unzip it.
+1. From your command line, clone this repository: 
+
+    `git clone https://github.com/CNCKitchen/stlTexturizer.git` 
+
+    or download the zipped version of the project [here](https://github.com/CNCKitchen/stlTexturizer/archive/refs/heads/main.zip) and unzip it.
+
 2. From your command line, navigate to the project folder: `cd stlTexturizer`
 3. Launch the project locally via any of the following commands from your command line:
   
-  ```sh
-  python3 -m http.server 8000
-  # or
-  npx http-server
-  ```
+      ```sh
+      python3 -m http.server 8080
+      # or
+      npx http-server
+      ```
 
-4. Once the service is running, open http://localhost:8000 in in a modern browser (Chrome, Edge, Firefox, Safari).
+4. Once the service is running, open http://localhost:8080 in a modern browser (Chrome, Edge, Firefox, Safari).
 5. Drop a model onto the viewport or click **Load STL…** (supports STL, OBJ, 3MF).
 6. Select a texture preset from the sidebar (or upload a custom image).
 7. Choose a projection mode and adjust UV scale, offset, rotation, and amplitude.
