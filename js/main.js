@@ -11,7 +11,7 @@ import { decimate }           from './decimation.js';
 import { exportSTL }          from './exporter.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
-import { t, initLang, setLang, getLang, applyTranslations } from './i18n.js';
+import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -239,6 +239,9 @@ const imprintLink    = document.getElementById('imprint-link');
 const imprintOverlay = document.getElementById('imprint-overlay');
 const imprintClose   = document.getElementById('imprint-close');
 
+// ── Language selector DOM refs ────────────────────────────────────────────────────
+const languageSelector = document.querySelector('.lang-seg');
+
 // ── Scale slider log helpers ──────────────────────────────────────────────────
 // Slider stores 0–1000; actual scale spans 0.05–10 on a log axis.
 // Middle position 500 → scale ~0.71 (log midpoint between 0.05 and 10).
@@ -265,15 +268,46 @@ initViewer(canvas);
 // Apply saved theme to 3D viewport on startup
 setViewerTheme(document.documentElement.getAttribute('data-theme') === 'light');
 
+// Populate the language selector
+function populateLanguageSelector() {
+  if (!languageSelector) return;
+  languageSelector.innerHTML = '';
+  
+  const select = document.createElement('select');
+  select.className = 'lang-dropdown';
+  
+  for (const langKey in TRANSLATIONS) {
+    const opt = document.createElement('option');
+    opt.value = langKey;
+    opt.className = 'lang-option';
+    opt.textContent = TRANSLATIONS[langKey]['lang.name'] || langKey.toUpperCase();
+    select.appendChild(opt);
+  }
+  
+  select.addEventListener('change', (e) => {
+    setLang(e.target.value);
+    // Re-translate <option> elements (innerHTML won't reach these)
+    document.querySelectorAll('select[id="mapping-mode"] option[data-i18n-opt]').forEach(opt => {
+      opt.textContent = t(opt.dataset.i18nOpt);
+    });
+    // Refresh dynamic count text to current language
+    if (currentGeometry) refreshExclusionOverlay();
+  });
+  
+  languageSelector.appendChild(select);
+}
+populateLanguageSelector();
+
 // Initialise language (reads localStorage / browser preference, applies translations)
 initLang();
 
-// Sync lang buttons to current language
+// Sync lang dropdown to current language
 (function() {
   const lang = getLang();
-  document.querySelectorAll('.lang-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.langCode === lang);
-  });
+  const select = languageSelector.querySelector('select');
+  if (select) {
+    select.value = lang;
+  }
 })();
 
 // Theme toggle
@@ -340,22 +374,6 @@ function selectPreset(idx, swatchEl) {
 // ── Event wiring ──────────────────────────────────────────────────────────────
 
 function wireEvents() {
-  // ── Language toggle ──
-  document.querySelectorAll('.lang-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const lang = btn.dataset.langCode;
-      setLang(lang);
-      document.querySelectorAll('.lang-btn').forEach(b =>
-        b.classList.toggle('active', b.dataset.langCode === lang));
-      // Re-translate <option> elements (innerHTML won't reach these)
-      document.querySelectorAll('select[id="mapping-mode"] option[data-i18n-opt]').forEach(opt => {
-        opt.textContent = t(opt.dataset.i18nOpt);
-      });
-      // Refresh dynamic count text to current language
-      if (currentGeometry) refreshExclusionOverlay();
-    });
-  });
-
   // ── Model loading ──
   stlFileInput.addEventListener('change', (e) => {
     if (e.target.files[0]) handleModelFile(e.target.files[0]);

@@ -15,17 +15,6 @@
                             : window.matchMedia('(prefers-color-scheme: dark)').matches;
       if (!prefersDark) document.documentElement.setAttribute('data-theme', 'light');
     })();
-    // Apply saved language before first paint to avoid flash
-    (function() {
-      const l = localStorage.getItem('stlt-lang');
-      if (l === 'de' || l === 'en') {
-        document.documentElement.setAttribute('data-lang', l);
-        document.documentElement.setAttribute('lang', l);
-      } else if (navigator.language && navigator.language.toLowerCase().startsWith('de')) {
-        document.documentElement.setAttribute('data-lang', 'de');
-        document.documentElement.setAttribute('lang', 'de');
-      }
-    })();
   </script>
   <script type="importmap">
   {
@@ -45,8 +34,6 @@
     </div>
     <div class="header-actions">
       <div class="lang-seg">
-        <button class="lang-btn active" data-lang-code="en">EN</button>
-        <button class="lang-btn" data-lang-code="de">DE</button>
       </div>
       <button id="theme-toggle" class="theme-toggle"
         data-i18n-title="theme.toggleTitle"
