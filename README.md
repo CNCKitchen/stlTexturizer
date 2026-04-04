@@ -6,13 +6,31 @@ A browser-based tool for applying surface displacement textures to 3D meshes —
 
 Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a new displaced STL ready for slicing.
 
+## Local development
+
+```sh
+docker compose up --build
+```
+
+## Production build
+
+```sh
+TARGET=executor docker compose up --build
+```
+
+## Usage
+
+Navigate the page: <http://localhost:3000>
+
 ## Features
 
 ### Textures
+
 - **18 built-in seamless textures** — basket, brick, bubble, carbon fiber, crystal, dots, grip surface, hexagons, knitting, knurling, leather, leather 2, noise, voronoi, weave (×3 variants), wood
 - **Custom textures** — upload your own image as a displacement map
 
 ### Projection Modes
+
 - **Triplanar** (default) — blends three planar projections based on surface normals; best for complex shapes
 - **Cubic (Box)** — projects from 6 box faces with edge-seam blending and smart axis dominance
 - **Cylindrical** — wraps texture around a cylindrical axis with configurable cap angle
@@ -20,6 +38,7 @@ Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a
 - **Planar XY / XZ / YZ** — flat axis-aligned projections
 
 ### UV & Transform Controls
+
 - **Scale U/V** — independent or locked scaling (0.05–10×, logarithmic)
 - **Offset U/V** — position the texture on each axis
 - **Rotation** — rotate texture before projection
@@ -28,12 +47,14 @@ Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a
 - **Cap Angle** (Cylindrical) — threshold for switching to top/bottom cap projection
 
 ### Displacement
+
 - **Amplitude** — scales displacement depth from 0 % to 100 %
 - **Symmetric displacement** — 50 % grey stays neutral, white pushes out, black pushes in (preserves volume)
 - **3D displacement preview** — real-time GPU-accelerated preview toggle showing actual vertex displacement
 - **Amplitude overlap warning** — alerts when depth exceeds 10 % of the smallest model dimension
 
 ### Surface Masking
+
 - **Angle masking** — suppress texture on near-horizontal top and/or bottom faces (0°–90° threshold each)
 - **Face exclusion / inclusion painting** — paint individual faces to exclude (orange) or exclusively include (green) them
   - Brush tool — single-triangle click or adjustable-radius circle brush
@@ -42,11 +63,13 @@ Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a
   - Clear all — reset masking
 
 ### Mesh Processing
+
 - **Adaptive subdivision** — subdivides edges until they are ≤ a target length; respects sharp creases (>30° dihedral)
 - **QEM decimation** — simplifies the result to a target triangle count using Quadric Error Metrics with boundary protection, link-condition checks, normal-flip rejection, and crease preservation
 - **Safety cap** — hard limit of 10 M triangles during subdivision to prevent out-of-memory
 
 ### 3D Viewer
+
 - **Orbit / pan / zoom** controls
 - **Wireframe toggle** — visualise mesh topology
 - **Mesh info** — live triangle count, file size, bounding-box dimensions
@@ -54,16 +77,19 @@ Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a
 - **Place on Face** — click a face to orient it downward onto the print bed
 
 ### File Support
+
 - **.STL** — binary and ASCII
 - **.OBJ** — via Three.js OBJLoader
 - **.3MF** — ZIP-based format (via fflate decompression)
 
 ### Export
+
 - Downloads a **binary STL** with displacement baked in
 - Progress reporting through subdivision → displacement → decimation → writing stages
 - Configurable edge-length threshold and output triangle limit
 
 ### Other
+
 - **Light / Dark theme** — respects OS preference, persisted per browser
 - **Multilingual** — English and German UI with auto-detection
 

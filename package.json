@@ -1,0 +1,33 @@
+{
+  "name": "stltexturizer",
+  "version": "1.0.0",
+  "description": "**Live demo:** https://cnckitchen.github.io/stlTexturizer/",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mikhail-shevtsov-wiregate/stlTexturizer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mikhail-shevtsov-wiregate/stlTexturizer/issues"
+  },
+  "homepage": "https://github.com/mikhail-shevtsov-wiregate/stlTexturizer#readme",
+  "devDependencies": {
+    "@vitejs/plugin-legacy": "^8.0.1",
+    "vite": "^8.0.3",
+    "vite-plugin-static-copy": "^4.0.1"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "three": "^0.183.2"
+  }
+}
