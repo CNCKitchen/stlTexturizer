@@ -1,0 +1,10 @@
+services:
+  app:
+    build:
+      context: .
+      target: ${TARGET:-developer}
+    working_dir: /app
+    volumes:
+      - "${PWD:-./}:/${TARGET:-app}"
+    ports:
+      - "3000:3000"
