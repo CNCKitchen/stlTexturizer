@@ -11,7 +11,8 @@ Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a
 
 ### Textures
 - **24 built-in seamless textures** — basket, brick, bubble, carbon fiber, crystal, dots, grid, grip surface, hexagon, hexagons, isogrid, knitting, knurling, leather 2, noise, stripes (×2 variants), voronoi, weave (×3 variants), wood (×3 variants)
-- **Custom textures** — upload your own image as a displacement map
+- **Custom textures** — upload one or multiple images as displacement maps; they appear in the grid alongside the built-in presets for easy switching
+- **Community texture repos** — add GitHub repositories as texture sources (see [Custom Texture Repos](#custom-texture-repos) below)
 - **Texture smoothing** — configurable blur to soften the displacement map before applying
 
 ### Projection Modes
@@ -79,6 +80,39 @@ Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a
 6. Click **Export STL** to download the displaced mesh.
 
 > **Note:** All processing runs entirely in the browser — no data is uploaded to any server.
+
+## Custom Texture Repos
+
+You can load displacement maps from public GitHub repositories directly into BumpMesh. This lets the community share texture packs without bundling them into the app.
+
+### How it works
+
+1. Click **Add texture repo** in the Displacement Map section.
+2. Enter a GitHub repository in `owner/repo` format (e.g. `myuser/my-textures`) or paste a full GitHub URL.
+3. The textures are fetched and added to the grid. You can switch between them just like built-in presets.
+4. To remove a repo, open the modal again and click the **x** next to the repo name. This removes all its textures from the grid.
+
+Added repos are session-only — they are not persisted and will be gone after a page reload.
+
+### Repository structure
+
+A texture repo must have a `textures/` folder at the root containing the image files:
+
+```
+my-textures/
+  textures/
+    pattern1.jpg
+    pattern2.png
+    ...
+```
+
+### Supported image formats
+
+jpg, jpeg, png, webp, bmp, gif, svg, tiff, avif, ico
+
+### Disclaimer
+
+Loading textures from third-party repositories is **at your own risk**. BumpMesh fetches images directly from GitHub — only add repos you trust. The authors of BumpMesh are not responsible for content provided by third-party repositories.
 
 ## Project Structure
 

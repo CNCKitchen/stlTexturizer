@@ -24,7 +24,16 @@ export const TRANSLATIONS = {
     // Displacement map section
     'sections.displacementMap': 'Displacement Map',
     'ui.uploadCustomMap': 'Upload custom map',
+    'ui.addTextureRepo': 'Add texture repo',
     'ui.noMapSelected': 'No map selected',
+    'repo.title': 'Add Texture Repository',
+    'repo.description': 'Enter a GitHub repository that contains a textures/ folder with displacement maps. Accepts owner/repo or a full GitHub URL.',
+    'repo.warning': 'Warning: Loading textures from third-party repos is at your own risk. Only add repos you trust.',
+    'repo.add': 'Add',
+    'repo.loading': 'Loading...',
+    'repo.invalidUrl': 'Invalid format. Use owner/repo or a GitHub URL.',
+    'repo.alreadyAdded': 'This repo has already been added.',
+    'repo.remove': 'Remove repo',
 
     // Projection section
     'sections.projection': 'Projection',
@@ -214,7 +223,16 @@ export const TRANSLATIONS = {
     // Displacement map section
     'sections.displacementMap': 'Textur',
     'ui.uploadCustomMap': 'Eigene Textur hochladen',
+    'ui.addTextureRepo': 'Textur-Repo hinzuf\u00fcgen',
     'ui.noMapSelected': 'Keine Textur ausgew\u00e4hlt',
+    'repo.title': 'Textur-Repository hinzuf\u00fcgen',
+    'repo.description': 'Gib ein GitHub-Repository an, das einen textures/-Ordner mit Displacement Maps enth\u00e4lt. Akzeptiert owner/repo oder eine vollst\u00e4ndige GitHub-URL.',
+    'repo.warning': 'Achtung: Das Laden von Texturen aus fremden Repos geschieht auf eigene Gefahr. F\u00fcge nur Repos hinzu, denen du vertraust.',
+    'repo.add': 'Hinzuf\u00fcgen',
+    'repo.loading': 'Wird geladen...',
+    'repo.invalidUrl': 'Ung\u00fcltiges Format. Verwende owner/repo oder eine GitHub-URL.',
+    'repo.alreadyAdded': 'Dieses Repo wurde bereits hinzugef\u00fcgt.',
+    'repo.remove': 'Repo entfernen',
 
     // Projection section
     'sections.projection': 'Projektion',
@@ -404,7 +422,16 @@ export const TRANSLATIONS = {
     // Displacement map section
     'sections.displacementMap': 'Mappa di Deformazione',
     'ui.uploadCustomMap': 'Carica mappa personalizzata',
+    'ui.addTextureRepo': 'Aggiungi repo texture',
     'ui.noMapSelected': 'Nessuna mappa selezionata',
+    'repo.title': 'Aggiungi repository texture',
+    'repo.description': 'Inserisci un repository GitHub che contiene una cartella textures/ con mappe di displacement. Accetta owner/repo o un URL GitHub completo.',
+    'repo.warning': 'Attenzione: Il caricamento di texture da repository di terze parti avviene a proprio rischio. Aggiungi solo repository di cui ti fidi.',
+    'repo.add': 'Aggiungi',
+    'repo.loading': 'Caricamento...',
+    'repo.invalidUrl': 'Formato non valido. Usa owner/repo o un URL GitHub.',
+    'repo.alreadyAdded': 'Questo repository \u00e8 gi\u00e0 stato aggiunto.',
+    'repo.remove': 'Rimuovi repository',
 
     // Projection section
     'sections.projection': 'Proiezione',

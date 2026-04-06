@@ -107,11 +107,17 @@
         </div>
 
         <!-- Custom upload -->
-        <label class="upload-btn" for="texture-file-input">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <span data-i18n="ui.uploadCustomMap">Upload custom map</span>
-        </label>
-        <input type="file" id="texture-file-input" accept="image/*" hidden />
+        <div class="texture-actions">
+          <label class="upload-btn" for="texture-file-input">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span data-i18n="ui.uploadCustomMap">Upload custom map</span>
+          </label>
+          <button class="upload-btn" id="add-repo-btn" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 5h2v4h4v2h-4v4h-2v-4H7v-2h4V7z" fill="currentColor"/></svg>
+            <span data-i18n="ui.addTextureRepo">Add texture repo</span>
+          </button>
+        </div>
+        <input type="file" id="texture-file-input" accept="image/*" multiple hidden />
         <div id="active-map-name" class="active-map-name" data-i18n="ui.noMapSelected">No map selected</div>
         <div class="form-row slider-row">
           <label for="texture-smoothing" data-i18n="labels.textureSmoothing" data-i18n-title="tooltips.textureSmoothing" title="Applies a Gaussian blur to the displacement map. Higher values produce softer, more gradual surface detail. 0 = off.">Texture Smoothing ⓘ</label>
@@ -420,6 +426,22 @@
         <span data-i18n="sponsor.dontShow">Don't show this again</span>
       </label>
       <button id="sponsor-close" class="sponsor-close-btn" data-i18n-html="sponsor.closeAndContinue">Close &amp; Continue</button>
+    </div>
+  </div>
+
+  <!-- Texture Repo Modal -->
+  <div id="repo-modal" class="modal-overlay">
+    <div class="modal-content">
+      <button id="repo-modal-close" class="modal-close" type="button">&times;</button>
+      <h3 data-i18n="repo.title">Add Texture Repository</h3>
+      <p class="modal-description" data-i18n="repo.description">Enter a GitHub repository that contains a <code>textures/</code> folder with displacement maps. Accepts <code>owner/repo</code> or a full GitHub URL.</p>
+      <p class="modal-warning" data-i18n="repo.warning">Warning: Loading textures from third-party repos is at your own risk. Only add repos you trust.</p>
+      <div id="repo-list" class="repo-list"></div>
+      <div class="repo-add-row">
+        <input type="text" id="repo-url-input" class="modal-input" placeholder="owner/repo" autocomplete="off" />
+        <button id="repo-modal-add-btn" class="repo-add-btn" type="button" data-i18n="repo.add">Add</button>
+      </div>
+      <div id="repo-modal-error" class="modal-error" style="display:none"></div>
     </div>
   </div>
 

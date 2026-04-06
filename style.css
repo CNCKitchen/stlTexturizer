@@ -397,6 +397,14 @@ main {
   grid-template-columns: repeat(6, 1fr);
   gap: 3px;
   margin-bottom: 10px;
+  margin-right: -10px;
+  padding-right: 7px;
+  /* Cap at 5 rows then scroll */
+  max-height: calc((var(--sidebar-w) - 2 * 16px - 5 * 3px) / 6 * 5 + 4 * 3px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 .preset-swatch {
@@ -405,11 +413,11 @@ main {
   overflow: hidden;
   cursor: pointer;
   border: 2px solid transparent;
-  transition: border-color 0.15s, transform 0.1s;
+  transition: border-color 0.15s;
   position: relative;
 }
 
-.preset-swatch:hover { border-color: var(--text-muted); transform: scale(1.04); }
+.preset-swatch:hover { border-color: var(--text-muted); }
 .preset-swatch.active { border-color: var(--accent); }
 
 .preset-swatch canvas {
@@ -434,6 +442,35 @@ main {
 }
 
 .preset-swatch:hover .preset-label { opacity: 1; }
+
+/* ── Custom swatch remove button ──────────────────────────────────────── */
+.custom-swatch-remove {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.65);
+  color: #fff;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.custom-swatch:hover .custom-swatch-remove { opacity: 1; }
+.custom-swatch-remove:hover { background: #e44; }
+
+/* ── Texture action buttons row ───────────────────────────────────────── */
+.texture-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 
 /* ── Custom upload button ─────────────────────────────────────────────── */
 .upload-btn {
@@ -1140,3 +1177,151 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   border-color: var(--accent);
   color: var(--text);
 }
+
+/* ── Repo modal overlay ─────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(3px);
+}
+.modal-overlay.visible { display: flex; }
+
+.modal-content {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 460px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+
+.modal-close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+}
+.modal-close:hover { color: var(--text); }
+
+.modal-content h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.modal-description {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.modal-description code {
+  background: var(--surface2);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.modal-warning {
+  font-size: 11px;
+  color: var(--danger);
+  margin: 0 0 14px;
+  line-height: 1.4;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+.modal-input:focus { border-color: var(--accent); }
+
+.modal-error {
+  color: var(--danger);
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+/* ── Repo list in modal ──────────────────────────────────────────────── */
+.repo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.repo-list:empty { margin-bottom: 0; }
+
+.repo-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.repo-list-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.repo-list-remove {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  margin-left: 8px;
+}
+.repo-list-remove:hover { color: var(--danger); }
+
+/* ── Repo add row ────────────────────────────────────────────────────── */
+.repo-add-row {
+  display: flex;
+  gap: 6px;
+}
+.repo-add-row .modal-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.repo-add-btn {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+.repo-add-btn:hover { opacity: 0.85; }
+.repo-add-btn:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -3,7 +3,7 @@ import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWirefram
          getControls, getCamera, getCurrentMesh,
          setExclusionOverlay, setHoverPreview, setViewerTheme } from './viewer.js';
 import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js';
-import { loadPresets, loadCustomTexture }  from './presetTextures.js';
+import { loadPresets, loadCustomTexture, loadTextureFromUrl }  from './presetTextures.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { applyDisplacement }  from './displacement.js';
@@ -19,6 +19,9 @@ let currentGeometry   = null;   // original loaded geometry
 let currentBounds     = null;   // bounds of the original geometry
 let currentStlName    = 'model'; // base filename of the loaded STL (no extension)
 let activeMapEntry    = null;   // { name, texture, imageData, width, height, isCustom? }
+let customMaps        = [];    // user-uploaded textures (session only)
+let repoMaps          = [];    // textures loaded from custom repos (session only)
+let addedRepos        = [];    // list of added repo identifiers (session only)
 let previewMaterial   = null;
 let isExporting       = false;
 let previewDebounce   = null;
@@ -364,6 +367,50 @@ function buildPresetGrid() {
   });
 }
 
+function addCustomSwatch(entry) {
+  const swatch = document.createElement('div');
+  swatch.className = 'preset-swatch custom-swatch';
+  swatch.title = entry.name;
+  if (entry.repoId) swatch.dataset.repo = entry.repoId;
+
+  swatch.appendChild(entry.thumbCanvas);
+
+  const label = document.createElement('span');
+  label.className = 'preset-label';
+  label.textContent = entry.name;
+  swatch.appendChild(label);
+
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'custom-swatch-remove';
+  removeBtn.textContent = '\u00d7';
+  removeBtn.title = 'Remove';
+  removeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    customMaps = customMaps.filter(m => m !== entry);
+    repoMaps = repoMaps.filter(m => m !== entry);
+    swatch.remove();
+    if (activeMapEntry === entry) {
+      activeMapEntry = null;
+      activeMapName.textContent = t('ui.noMapSelected');
+      updatePreview();
+    }
+  });
+  swatch.appendChild(removeBtn);
+
+  swatch.addEventListener('click', () => selectCustomMap(entry, swatch));
+  presetGrid.appendChild(swatch);
+  return swatch;
+}
+
+function selectCustomMap(entry, swatchEl) {
+  document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
+  swatchEl.classList.add('active');
+  activeMapEntry = entry;
+  activeMapName.textContent = entry.name;
+  resetTextureSmoothing();
+  updatePreview();
+}
+
 function resetTextureSmoothing() {
   settings.textureSmoothing = 0;
   textureSmoothingSlider.value = 0;
@@ -378,6 +425,131 @@ function selectPreset(idx, swatchEl) {
   resetTextureSmoothing();
   if (activeMapEntry.defaultScale != null) _applyScaleU(activeMapEntry.defaultScale);
   updatePreview();
+}
+
+// ── Texture repo loading ─────────────────────────────────────────────────────
+
+/**
+ * Parse a GitHub repo identifier from various input formats.
+ * Accepts: "owner/repo", "https://github.com/owner/repo", etc.
+ */
+function parseRepoId(input) {
+  const trimmed = input.trim().replace(/\/+$/, '');
+  const ghMatch = trimmed.match(/github\.com\/([^/]+\/[^/]+)/);
+  if (ghMatch) return ghMatch[1];
+  if (/^[^/]+\/[^/]+$/.test(trimmed)) return trimmed;
+  return null;
+}
+
+async function loadRepoTextures(repoId) {
+  const apiUrl = `https://api.github.com/repos/${repoId}/contents/textures`;
+  const resp = await fetch(apiUrl);
+  if (!resp.ok) throw new Error(`Could not fetch repo: ${resp.status}`);
+  const files = await resp.json();
+  const imageFiles = files.filter(f => f.type === 'file' && /\.(jpe?g|png|webp|bmp|gif|svg|tiff?|avif|ico)$/i.test(f.name));
+  if (imageFiles.length === 0) throw new Error('No image files found in textures/ folder');
+
+  const results = [];
+  for (const file of imageFiles) {
+    try {
+      const entry = await loadTextureFromUrl(file.download_url, `${repoId.split('/')[1]}/${file.name}`);
+      entry.repoId = repoId;
+      repoMaps.push(entry);
+      const swatch = addCustomSwatch(entry);
+      results.push({ entry, swatch });
+    } catch (err) {
+      console.warn(`Failed to load ${file.name} from ${repoId}:`, err);
+    }
+  }
+  return results;
+}
+
+function renderRepoList() {
+  const list = document.getElementById('repo-list');
+  list.innerHTML = '';
+  if (addedRepos.length === 0) return;
+  addedRepos.forEach(repoId => {
+    const row = document.createElement('div');
+    row.className = 'repo-list-item';
+    const name = document.createElement('span');
+    name.className = 'repo-list-name';
+    name.textContent = repoId;
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'repo-list-remove';
+    removeBtn.textContent = '\u00d7';
+    removeBtn.title = t('repo.remove');
+    removeBtn.addEventListener('click', () => removeRepo(repoId));
+    row.appendChild(name);
+    row.appendChild(removeBtn);
+    list.appendChild(row);
+  });
+}
+
+function removeRepo(repoId) {
+  addedRepos = addedRepos.filter(r => r !== repoId);
+  // Remove swatches and entries for this repo
+  const toRemove = repoMaps.filter(m => m.repoId === repoId);
+  toRemove.forEach(entry => {
+    const swatch = presetGrid.querySelector(`.custom-swatch[data-repo="${repoId}"][title="${entry.name}"]`);
+    if (swatch) swatch.remove();
+    if (activeMapEntry === entry) {
+      activeMapEntry = null;
+      activeMapName.textContent = t('ui.noMapSelected');
+    }
+  });
+  repoMaps = repoMaps.filter(m => m.repoId !== repoId);
+  renderRepoList();
+  updatePreview();
+}
+
+function openRepoModal() {
+  const input = document.getElementById('repo-url-input');
+  const error = document.getElementById('repo-modal-error');
+  input.value = '';
+  error.textContent = '';
+  error.style.display = 'none';
+  renderRepoList();
+  document.getElementById('repo-modal').classList.add('visible');
+  input.focus();
+}
+
+function closeRepoModal() {
+  document.getElementById('repo-modal').classList.remove('visible');
+}
+
+async function submitRepo() {
+  const input = document.getElementById('repo-url-input');
+  const error = document.getElementById('repo-modal-error');
+  const addBtn = document.getElementById('repo-modal-add-btn');
+  const repoId = parseRepoId(input.value);
+  if (!repoId) {
+    error.textContent = t('repo.invalidUrl');
+    error.style.display = 'block';
+    return;
+  }
+  if (addedRepos.includes(repoId)) {
+    error.textContent = t('repo.alreadyAdded');
+    error.style.display = 'block';
+    return;
+  }
+  error.style.display = 'none';
+  addBtn.disabled = true;
+  addBtn.textContent = t('repo.loading');
+  try {
+    const results = await loadRepoTextures(repoId);
+    if (results.length === 0) throw new Error('No textures loaded');
+    addedRepos.push(repoId);
+    input.value = '';
+    renderRepoList();
+    // Select the first loaded texture
+    selectCustomMap(results[0].entry, results[0].swatch);
+  } catch (err) {
+    error.textContent = err.message;
+    error.style.display = 'block';
+  } finally {
+    addBtn.disabled = false;
+    addBtn.textContent = t('repo.add');
+  }
 }
 
 // ── Event wiring ──────────────────────────────────────────────────────────────
@@ -408,18 +580,33 @@ function wireEvents() {
 
   // ── Custom texture upload ──
   textureInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = [...e.target.files];
+    if (!files.length) return;
     try {
-      activeMapEntry = await loadCustomTexture(file);
-      activeMapEntry.isCustom = true;
-      activeMapName.textContent = file.name;
-      document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
-      resetTextureSmoothing();
-      updatePreview();
+      let lastSwatch = null;
+      for (const file of files) {
+        if (customMaps.some(m => m.name === file.name && m.size === file.size)) continue;
+        const entry = await loadCustomTexture(file);
+        entry.size = file.size;
+        customMaps.push(entry);
+        lastSwatch = addCustomSwatch(entry);
+      }
+      if (lastSwatch) selectCustomMap(customMaps[customMaps.length - 1], lastSwatch);
     } catch (err) {
       console.error('Failed to load texture:', err);
     }
+    textureInput.value = '';
+  });
+
+  // ── Texture repo modal ──
+  document.getElementById('add-repo-btn').addEventListener('click', openRepoModal);
+  document.getElementById('repo-modal-close').addEventListener('click', closeRepoModal);
+  document.getElementById('repo-modal-add-btn').addEventListener('click', submitRepo);
+  document.getElementById('repo-url-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitRepo();
+  });
+  document.getElementById('repo-modal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeRepoModal();
   });
 
   // ── Settings ──
