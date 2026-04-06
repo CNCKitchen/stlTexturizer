@@ -112,6 +112,8 @@ export function computeUV(pos, normal, mode, settings, bounds) {
   const scaleV = (settings.scaleV) / aV;
   const { offsetU, offsetV } = settings;
   const rotRad = (settings.rotation ?? 0) * Math.PI / 180;
+  const cosR = Math.cos(rotRad);
+  const sinR = Math.sin(rotRad);
   const maxDim = Math.max(size.x, size.y, size.z);
   const md     = Math.max(maxDim, 1e-6);
 
@@ -161,14 +163,14 @@ export function computeUV(pos, normal, mode, settings, bounds) {
         const d = uRaw < 0.5 ? uRaw : uRaw - 1.0;
         const tRaw = (d + seamBand) / (2.0 * seamBand);
         const t = tRaw * tRaw * (3 - 2 * tRaw); // smoothstep
-        const tLeft  = applyTransform(1.0 + d, vSide, scaleU, scaleV, offsetU, offsetV, rotRad);
-        const tRight = applyTransform(d,       vSide, scaleU, scaleV, offsetU, offsetV, rotRad);
+        const tLeft  = applyTransform(1.0 + d, vSide, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+        const tRight = applyTransform(d,       vSide, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
         sideSamples = [
           { u: tRight.u, v: tRight.v, w: t },
           { u: tLeft.u,  v: tLeft.v,  w: 1 - t },
         ];
       } else {
-        const tSide = applyTransform(uRaw, vSide, scaleU, scaleV, offsetU, offsetV, rotRad);
+        const tSide = applyTransform(uRaw, vSide, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
         sideSamples = [{ u: tSide.u, v: tSide.v, w: 1 }];
       }
 
@@ -189,7 +191,7 @@ export function computeUV(pos, normal, mode, settings, bounds) {
 
       const uCap  = rx / C + 0.5;
       const vCap  = ry / C + 0.5;
-      const tCap = applyTransform(uCap, vCap, scaleU, scaleV, offsetU, offsetV, rotRad);
+      const tCap = applyTransform(uCap, vCap, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
 
       if (capW >= 1) {
         return tCap;
@@ -218,8 +220,8 @@ export function computeUV(pos, normal, mode, settings, bounds) {
         const d = uRaw < 0.5 ? uRaw : uRaw - 1.0;
         const tRaw = (d + seamBand) / (2.0 * seamBand);
         const t = tRaw * tRaw * (3 - 2 * tRaw); // smoothstep
-        const tLeft  = applyTransform(1.0 + d, vRaw, scaleU, scaleV, offsetU, offsetV, rotRad);
-        const tRight = applyTransform(d,       vRaw, scaleU, scaleV, offsetU, offsetV, rotRad);
+        const tLeft  = applyTransform(1.0 + d, vRaw, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+        const tRight = applyTransform(d,       vRaw, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
         return {
           triplanar: true,
           samples: [
@@ -244,9 +246,9 @@ export function computeUV(pos, normal, mode, settings, bounds) {
       if (normal.y > 0) xzU = -xzU;
       let xyU = (pos.x - min.x) / md;
       if (normal.z < 0) xyU = -xyU;
-      const tYZ = applyTransform(yzU, (pos.z - min.z) / md, scaleU, scaleV, offsetU, offsetV, rotRad);
-      const tXZ = applyTransform(xzU, (pos.z - min.z) / md, scaleU, scaleV, offsetU, offsetV, rotRad);
-      const tXY = applyTransform(xyU, (pos.y - min.y) / md, scaleU, scaleV, offsetU, offsetV, rotRad);
+      const tYZ = applyTransform(yzU, (pos.z - min.z) / md, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+      const tXZ = applyTransform(xzU, (pos.z - min.z) / md, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+      const tXY = applyTransform(xyU, (pos.y - min.y) / md, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
 
       if (weights.x > 0.999) return tYZ;
       if (weights.y > 0.999) return tXZ;
@@ -268,10 +270,10 @@ export function computeUV(pos, normal, mode, settings, bounds) {
       const ax = Math.abs(normal.x);
       const ay = Math.abs(normal.y);
       const az = Math.abs(normal.z);
-      const pw = 4.0;
-      const bx = Math.pow(ax, pw);
-      const by = Math.pow(ay, pw);
-      const bz = Math.pow(az, pw);
+      const ax2 = ax * ax, ay2 = ay * ay, az2 = az * az;
+      const bx = ax2 * ax2;
+      const by = ay2 * ay2;
+      const bz = az2 * az2;
       const sum = bx + by + bz + 1e-6;
       const wx = bx / sum;
       const wy = by / sum;
@@ -304,25 +306,24 @@ export function computeUV(pos, normal, mode, settings, bounds) {
       return {
         triplanar: true,
         samples: [
-          { ...applyTransform(uvXY.u, uvXY.v, scaleU, scaleV, offsetU, offsetV, rotRad), w: uvXY.w },
-          { ...applyTransform(uvXZ.u, uvXZ.v, scaleU, scaleV, offsetU, offsetV, rotRad), w: uvXZ.w },
-          { ...applyTransform(uvYZ.u, uvYZ.v, scaleU, scaleV, offsetU, offsetV, rotRad), w: uvYZ.w },
+          { ...applyTransform(uvXY.u, uvXY.v, scaleU, scaleV, offsetU, offsetV, cosR, sinR), w: uvXY.w },
+          { ...applyTransform(uvXZ.u, uvXZ.v, scaleU, scaleV, offsetU, offsetV, cosR, sinR), w: uvXZ.w },
+          { ...applyTransform(uvYZ.u, uvYZ.v, scaleU, scaleV, offsetU, offsetV, cosR, sinR), w: uvYZ.w },
         ],
       };
     }
   }
 
-  return applyTransform(u, v, scaleU, scaleV, offsetU, offsetV, rotRad);
+  return applyTransform(u, v, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
 }
 
-function applyTransform(u, v, scaleU, scaleV, offsetU, offsetV, rotRad) {
+function applyTransform(u, v, scaleU, scaleV, offsetU, offsetV, cosR, sinR) {
   let uu = u / scaleU + offsetU;
   let vv = v / scaleV + offsetV;
-  if (rotRad !== 0) {
-    const c = Math.cos(rotRad), s = Math.sin(rotRad);
+  if (cosR !== 1 || sinR !== 0) {
     uu -= 0.5; vv -= 0.5;
-    const ru = c * uu - s * vv;
-    const rv = s * uu + c * vv;
+    const ru = cosR * uu - sinR * vv;
+    const rv = sinR * uu + cosR * vv;
     uu = ru + 0.5; vv = rv + 0.5;
   }
   return { triplanar: false, u: fract(uu), v: fract(vv) };

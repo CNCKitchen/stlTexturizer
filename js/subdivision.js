@@ -119,13 +119,17 @@ export async function subdivide(geometry, maxEdgeLength, onProgress, faceWeights
 function subdividePass(positions, normals, weights, indices, maxEdgeLength, safetyCap, faceExcluded = null, canonIdx = null, posCanonMap = null, faceParentId = null) {
   const maxSq = maxEdgeLength * maxEdgeLength;
   const midCache = new Map();
+  midCache._maxV = positions.length / 3; // set before any getMidpoint calls
 
   // When canonIdx is available (accurate/export mode), use position-canonical
   // edge keys so split-vertex faces on both sides of a sharp edge see the same
   // split decision.  Otherwise (fast/preview mode) use simple index-based keys.
+  // NOTE: _maxV is computed once at pass start. During the pass, positions grows
+  // via getMidpoint, but splitEdges and midCache only use indices < _maxV.
+  const _maxV = positions.length / 3;
   const _edgeKey = canonIdx
-    ? (a, b) => { const ca = canonIdx[a], cb = canonIdx[b]; return ca < cb ? `${ca}:${cb}` : `${cb}:${ca}`; }
-    : (a, b) => a < b ? `${a}:${b}` : `${b}:${a}`;
+    ? (a, b) => { const ca = canonIdx[a], cb = canonIdx[b]; return ca < cb ? ca * _maxV + cb : cb * _maxV + ca; }
+    : (a, b) => a < b ? a * _maxV + b : b * _maxV + a;
 
   // ── Step 1: globally mark edges that need splitting ─────────────────────
   // Excluded triangles do NOT proactively mark their own edges – their
@@ -264,11 +268,6 @@ function subdividePass(positions, normals, weights, indices, maxEdgeLength, safe
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Canonical order key for an undirected edge – matches the getMidpoint cache key. */
-function edgeKey(a, b) {
-  return a < b ? `${a}:${b}` : `${b}:${a}`;
-}
-
 function edgeLenSq(pos, a, b) {
   const dx = pos[a*3]   - pos[b*3];
   const dy = pos[a*3+1] - pos[b*3+1];
@@ -277,7 +276,10 @@ function edgeLenSq(pos, a, b) {
 }
 
 function getMidpoint(positions, normals, weights, cache, a, b, canonIdx, posCanonMap) {
-  const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+  // Numeric edge key: uses _maxV set on the cache by subdividePass at pass start.
+  // All lookups use indices < _maxV, so this is safe even as positions grows.
+  const _mv = cache._maxV;
+  const key = a < b ? a * _mv + b : b * _mv + a;
   if (cache.has(key)) return cache.get(key);
 
   // Midpoint position

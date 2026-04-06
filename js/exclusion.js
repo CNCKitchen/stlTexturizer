@@ -23,7 +23,7 @@ const quantKey = (x, y, z) =>
  *
  * @param {THREE.BufferGeometry} geometry  – non-indexed
  * @returns {{
- *   adjacency: Map<number, Array<{neighbor:number, angle:number}>>,
+ *   adjacency: Array<Array<{neighbor:number, angle:number}>>,
  *   centroids: Float32Array   (triCount × 3, world-space centroid per triangle)
  * }}
  */
@@ -71,24 +71,27 @@ export function buildAdjacency(geometry) {
 
   // Build edge → triangle list (two triangles share an edge iff they share two
   // vertex positions after quantization-based deduplication).
+  // Vertex-dedup pass: assign a numeric ID to each unique quantised position.
+  const posToId = new Map();
+  let nextId = 0;
+  const vertId = new Uint32Array(triCount * 3);
+  for (let i = 0; i < triCount * 3; i++) {
+    const x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
+    const key = `${Math.round(x*QUANT)}_${Math.round(y*QUANT)}_${Math.round(z*QUANT)}`;
+    let id = posToId.get(key);
+    if (id === undefined) { id = nextId++; posToId.set(key, id); }
+    vertId[i] = id;
+  }
+  // nextId^2 < MAX_SAFE_INTEGER → safe up to ~94M unique vertices
+  const numEdgeKey = (a, b) => a < b ? a * nextId + b : b * nextId + a;
+
   const edgeMap = new Map();
-  const makeEdgeKey = (ax, ay, az, bx, by, bz) => {
-    const ka = quantKey(ax, ay, az);
-    const kb = quantKey(bx, by, bz);
-    return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
-  };
+  const edgePairs = [0, 1, 0, 2, 1, 2]; // vertex-index pairs within triangle
 
   for (let t = 0; t < triCount; t++) {
-    const i = t * 3;
-    vA.fromBufferAttribute(posAttr, i);
-    vB.fromBufferAttribute(posAttr, i + 1);
-    vC.fromBufferAttribute(posAttr, i + 2);
-
-    const ekAB = makeEdgeKey(vA.x, vA.y, vA.z, vB.x, vB.y, vB.z);
-    const ekBC = makeEdgeKey(vB.x, vB.y, vB.z, vC.x, vC.y, vC.z);
-    const ekCA = makeEdgeKey(vC.x, vC.y, vC.z, vA.x, vA.y, vA.z);
-
-    for (const ek of [ekAB, ekBC, ekCA]) {
+    const base = t * 3;
+    for (let e = 0; e < 6; e += 2) {
+      const ek = numEdgeKey(vertId[base + edgePairs[e]], vertId[base + edgePairs[e + 1]]);
       const entry = edgeMap.get(ek);
       if (entry) entry.push(t);
       else edgeMap.set(ek, [t]);
@@ -96,8 +99,9 @@ export function buildAdjacency(geometry) {
   }
 
   // Convert edge map to adjacency list with per-edge dihedral angle
-  const adjacency = new Map();
-  for (let t = 0; t < triCount; t++) adjacency.set(t, []);
+  // Array from buildAdjacency
+  const adjacency = new Array(triCount);
+  for (let t = 0; t < triCount; t++) adjacency[t] = [];
 
   for (const [, tris] of edgeMap) {
     if (tris.length !== 2) continue;
@@ -106,8 +110,8 @@ export function buildAdjacency(geometry) {
     const nBx = faceNormals[b * 3], nBy = faceNormals[b * 3 + 1], nBz = faceNormals[b * 3 + 2];
     const dot      = Math.max(-1, Math.min(1, nAx * nBx + nAy * nBy + nAz * nBz));
     const angleDeg = Math.acos(dot) * (180 / Math.PI);
-    adjacency.get(a).push({ neighbor: b, angle: angleDeg });
-    adjacency.get(b).push({ neighbor: a, angle: angleDeg });
+    adjacency[a].push({ neighbor: b, angle: angleDeg });
+    adjacency[b].push({ neighbor: a, angle: angleDeg });
   }
 
   return { adjacency, centroids, boundRadii };
@@ -120,16 +124,17 @@ export function buildAdjacency(geometry) {
  * Spreads across edges whose dihedral angle ≤ thresholdDeg.
  *
  * @param {number} seedTriIdx
- * @param {Map<number, Array<{neighbor:number, angle:number}>>} adjacency
+ * @param {Array<Array<{neighbor:number, angle:number}>>} adjacency
  * @param {number} thresholdDeg
  * @returns {Set<number>}  set of triangle indices in the filled region
  */
 export function bucketFill(seedTriIdx, adjacency, thresholdDeg) {
   const visited = new Set([seedTriIdx]);
   const queue   = [seedTriIdx];
-  while (queue.length > 0) {
-    const cur       = queue.shift();
-    const neighbors = adjacency.get(cur);
+  let head = 0;
+  while (head < queue.length) {
+    const cur       = queue[head++];
+    const neighbors = adjacency[cur];
     if (!neighbors) continue;
     for (const { neighbor, angle } of neighbors) {
       if (!visited.has(neighbor) && angle <= thresholdDeg) {
@@ -163,15 +168,15 @@ export function buildExclusionOverlayGeo(geometry, faceSet, invert = false) {
     for (let t = 0; t < total; t++) {
       if (faceSet.has(t)) continue;
       const src = t * 9;
-      for (let i = 0; i < 9; i++) outPos[dst + i] = srcPos[src + i];
-      if (outNrm) for (let i = 0; i < 9; i++) outNrm[dst + i] = srcNrm[src + i];
+      outPos.set(srcPos.subarray(src, src + 9), dst);
+      if (outNrm) outNrm.set(srcNrm.subarray(src, src + 9), dst);
       dst += 9;
     }
   } else {
     for (const t of faceSet) {
       const src = t * 9;
-      for (let i = 0; i < 9; i++) outPos[dst + i] = srcPos[src + i];
-      if (outNrm) for (let i = 0; i < 9; i++) outNrm[dst + i] = srcNrm[src + i];
+      outPos.set(srcPos.subarray(src, src + 9), dst);
+      if (outNrm) outNrm.set(srcNrm.subarray(src, src + 9), dst);
       dst += 9;
     }
   }
