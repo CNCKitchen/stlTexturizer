@@ -109,7 +109,7 @@ export const TRANSLATIONS = {
 
     // Boundary falloff
     'labels.boundaryFalloff':          'Boundary Falloff \u24d8',
-    'tooltips.boundaryFalloff':        'Gradually reduces displacement to zero near masked boundaries, preventing triangle overlap where textured and non-textured regions meet.'
+    'tooltips.boundaryFalloff':        'Gradually reduces displacement to zero near masked boundaries, preventing triangle overlap where textured and non-textured regions meet.',
 
     // Symmetric displacement
     'labels.symmetricDisplacement': 'Symmetric displacement \u24d8',
@@ -299,7 +299,7 @@ export const TRANSLATIONS = {
 
     // Boundary falloff
     'labels.boundaryFalloff':          'Rand\u00fcbergang \u24d8',
-    'tooltips.boundaryFalloff':        'Reduziert die Verschiebung schrittweise auf Null nahe maskierter Grenzen, um Dreiecks\u00fcberschneidungen an \u00dcberg\u00e4ngen zu vermeiden.'
+    'tooltips.boundaryFalloff':        'Reduziert die Verschiebung schrittweise auf Null nahe maskierter Grenzen, um Dreiecks\u00fcberschneidungen an \u00dcberg\u00e4ngen zu vermeiden.',
 
     // Symmetric displacement
     'labels.symmetricDisplacement': 'Symmetrische Verschiebung \u24d8',
