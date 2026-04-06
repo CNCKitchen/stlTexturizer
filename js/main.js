@@ -19,6 +19,7 @@ let currentGeometry   = null;   // original loaded geometry
 let currentBounds     = null;   // bounds of the original geometry
 let currentStlName    = 'model'; // base filename of the loaded STL (no extension)
 let activeMapEntry    = null;   // { name, texture, imageData, width, height, isCustom? }
+let customMaps        = [];    // user-uploaded textures (session only)
 let previewMaterial   = null;
 let isExporting       = false;
 let previewDebounce   = null;
@@ -355,6 +356,49 @@ function buildPresetGrid() {
   });
 }
 
+function addCustomSwatch(entry) {
+  const swatch = document.createElement('div');
+  swatch.className = 'preset-swatch custom-swatch';
+  swatch.title = entry.name;
+
+  swatch.appendChild(entry.thumbCanvas);
+
+  const label = document.createElement('span');
+  label.className = 'preset-label';
+  label.textContent = entry.name;
+  swatch.appendChild(label);
+
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'custom-swatch-remove';
+  removeBtn.textContent = '\u00d7';
+  removeBtn.title = 'Remove';
+  removeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const idx = customMaps.indexOf(entry);
+    if (idx !== -1) customMaps.splice(idx, 1);
+    swatch.remove();
+    if (activeMapEntry === entry) {
+      activeMapEntry = null;
+      activeMapName.textContent = t('ui.noMapSelected');
+      updatePreview();
+    }
+  });
+  swatch.appendChild(removeBtn);
+
+  swatch.addEventListener('click', () => selectCustomMap(entry, swatch));
+  presetGrid.appendChild(swatch);
+  return swatch;
+}
+
+function selectCustomMap(entry, swatchEl) {
+  document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
+  swatchEl.classList.add('active');
+  activeMapEntry = entry;
+  activeMapName.textContent = entry.name;
+  resetTextureSmoothing();
+  updatePreview();
+}
+
 function resetTextureSmoothing() {
   settings.textureSmoothing = 0;
   textureSmoothingSlider.value = 0;
@@ -399,18 +443,22 @@ function wireEvents() {
 
   // ── Custom texture upload ──
   textureInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = [...e.target.files];
+    if (!files.length) return;
     try {
-      activeMapEntry = await loadCustomTexture(file);
-      activeMapEntry.isCustom = true;
-      activeMapName.textContent = file.name;
-      document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
-      resetTextureSmoothing();
-      updatePreview();
+      let lastSwatch = null;
+      for (const file of files) {
+        if (customMaps.some(m => m.name === file.name && m.size === file.size)) continue;
+        const entry = await loadCustomTexture(file);
+        entry.size = file.size;
+        customMaps.push(entry);
+        lastSwatch = addCustomSwatch(entry);
+      }
+      if (lastSwatch) selectCustomMap(customMaps[customMaps.length - 1], lastSwatch);
     } catch (err) {
       console.error('Failed to load texture:', err);
     }
+    textureInput.value = '';
   });
 
   // ── Settings ──
