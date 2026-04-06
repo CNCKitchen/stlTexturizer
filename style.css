@@ -1149,3 +1149,69 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   border-color: var(--accent);
   color: var(--text);
 }
+
+/* ── Preset I/O (export/import settings) ──────────────────────────────── */
+.preset-io {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.icon-btn:hover { background: rgba(255,255,255,0.1); }
+[data-theme="light"] .icon-btn:hover { background: rgba(0,0,0,0.08); }
+
+.export-dialog {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: var(--bg-sidebar, #1e1e2e);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+  z-index: 100;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+.export-dialog.hidden { display: none; }
+[data-theme="light"] .export-dialog {
+  background: #fff;
+  border-color: rgba(0,0,0,0.12);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+.export-dialog label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.export-go-btn {
+  margin-top: 4px;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 5px;
+  background: var(--accent, #6c8cff);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.85em;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+.export-go-btn:hover { filter: brightness(1.15); }

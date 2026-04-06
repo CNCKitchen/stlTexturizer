@@ -141,5 +141,14 @@ export default {
   "cta.storeDismiss": "Ausblenden",
   "alerts.loadFailed": "Modell konnte nicht geladen werden: {msg}",
   "alerts.exportFailed": "Export fehlgeschlagen: {msg}",
-  "alerts.fileTooLarge": "Datei zu gross ({size} MB). Maximum: {max} MB."
+  "alerts.fileTooLarge": "Datei zu gross ({size} MB). Maximum: {max} MB.",
+  "header.exportSettings": "Einstellungen exportieren",
+  "header.importSettings": "Einstellungen importieren",
+  "header.exportSettingsLabel": "Einstellungen",
+  "header.exportModelLabel": "Modell (STL)",
+  "header.exportTextureLabel": "Eigene Textur",
+  "header.exportGo": "Exportieren",
+  "alerts.importSuccess": "Einstellungen erfolgreich importiert",
+  "alerts.importFailed": "Import fehlgeschlagen: {msg}",
+  "alerts.importNoFile": "Keine .bumpmesh-Datei ausgewaehlt"
 };

@@ -34,6 +34,21 @@
       <span>BumpMesh <small style="opacity:.6;font-weight:400">by <a href="https://www.youtube.com/@CNCKitchen" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">CNC Kitchen</a></small></span>
     </div>
     <div class="header-actions">
+      <div class="preset-io">
+        <button id="export-settings-btn" class="icon-btn" data-i18n-title="header.exportSettings" title="Export settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <input type="file" id="import-settings-input" accept=".bumpmesh,.json" hidden />
+        <label for="import-settings-input" class="icon-btn" data-i18n-title="header.importSettings" title="Import settings" role="button" tabindex="0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </label>
+        <div id="export-dialog" class="export-dialog hidden">
+          <label><input type="checkbox" id="export-settings-chk" checked disabled /> <span data-i18n="header.exportSettingsLabel">Settings</span></label>
+          <label><input type="checkbox" id="export-model-chk" /> <span data-i18n="header.exportModelLabel">Model (STL)</span></label>
+          <label id="export-texture-row" class="hidden"><input type="checkbox" id="export-texture-chk" /> <span data-i18n="header.exportTextureLabel">Custom Texture</span></label>
+          <button id="export-go-btn" class="export-go-btn" data-i18n="header.exportGo">Export</button>
+        </div>
+      </div>
       <div class="lang-seg">
       </div>
       <button id="theme-toggle" class="theme-toggle"

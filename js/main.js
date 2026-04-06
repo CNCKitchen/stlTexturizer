@@ -13,6 +13,7 @@ import { exportSTL }          from './exporter.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
+import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -442,6 +443,8 @@ function wireEvents() {
   dropZone.addEventListener('drop', (e) => {
     e.preventDefault();
     dropZone.classList.remove('drag-over');
+    const bmFile = [...e.dataTransfer.files].find(f => /\.bumpmesh$/i.test(f.name));
+    if (bmFile) { importBumpmesh(bmFile); return; }
     const file = [...e.dataTransfer.files].find(f => /\.(stl|obj|3mf)$/i.test(f.name));
     if (file) handleModelFile(file);
   });
@@ -2285,6 +2288,8 @@ function updatePreview() {
 
   syncBoundaryEdgeUniforms();
   exportBtn.disabled = false;
+
+  _saveToLocalStorage();
 }
 
 // ── Displacement preview ──────────────────────────────────────────────────────
@@ -2893,3 +2898,237 @@ function runAsync(fn) {
 function yieldFrame() {
   return new Promise(r => requestAnimationFrame(r));
 }
+
+// ── Export/Import Settings (.bumpmesh) ───────────────────────────────────────
+
+const exportSettingsBtn = document.getElementById('export-settings-btn');
+const exportDialog      = document.getElementById('export-dialog');
+const exportGoBtn       = document.getElementById('export-go-btn');
+const exportModelChk    = document.getElementById('export-model-chk');
+const exportTextureChk  = document.getElementById('export-texture-chk');
+const exportTextureRow  = document.getElementById('export-texture-row');
+const importInput       = document.getElementById('import-settings-input');
+
+// Export dialog toggle
+exportSettingsBtn.addEventListener('click', () => {
+  exportDialog.classList.toggle('hidden');
+  // Show texture checkbox only if custom texture is loaded
+  exportTextureRow.classList.toggle('hidden', !activeMapEntry || !activeMapEntry.isCustom);
+  // Enable model checkbox only if a model is loaded
+  exportModelChk.disabled = !currentGeometry;
+});
+
+// Close dialog when clicking outside
+document.addEventListener('click', (e) => {
+  if (!exportDialog.contains(e.target) && e.target !== exportSettingsBtn && !exportSettingsBtn.contains(e.target)) {
+    exportDialog.classList.add('hidden');
+  }
+});
+
+// Export: build .bumpmesh ZIP and download
+exportGoBtn.addEventListener('click', async () => {
+  exportDialog.classList.add('hidden');
+
+  const includeModel = exportModelChk.checked && currentGeometry;
+  const includeTexture = exportTextureChk.checked && activeMapEntry && activeMapEntry.isCustom;
+
+  const data = {
+    version: 1,
+    texture: activeMapEntry ? activeMapEntry.name : null,
+    settings: { ...settings },
+  };
+
+  const zipFiles = {};
+
+  // Settings JSON (always included)
+  zipFiles['settings.json'] = strToU8(JSON.stringify(data, null, 2));
+
+  // Model as binary STL
+  if (includeModel) {
+    const posArr = currentGeometry.attributes.position.array;
+    const norArr = currentGeometry.attributes.normal ? currentGeometry.attributes.normal.array : null;
+    const triCount = (posArr.length / 9) | 0;
+    const buf = new ArrayBuffer(84 + 50 * triCount);
+    const bytes = new Uint8Array(buf);
+    const view = new DataView(buf);
+    view.setUint32(80, triCount, true);
+    if (norArr) {
+      const posSrc = new Uint8Array(posArr.buffer, posArr.byteOffset, posArr.byteLength);
+      const norSrc = new Uint8Array(norArr.buffer, norArr.byteOffset, norArr.byteLength);
+      for (let i = 0; i < triCount; i++) {
+        const dst = 84 + i * 50, srcOff = i * 36;
+        bytes.set(norSrc.subarray(srcOff, srcOff + 12), dst);
+        bytes.set(posSrc.subarray(srcOff, srcOff + 36), dst + 12);
+      }
+    }
+    zipFiles['model.stl'] = new Uint8Array(buf);
+  }
+
+  // Custom texture as PNG
+  if (includeTexture && activeMapEntry.fullCanvas) {
+    const blob = await new Promise(r => activeMapEntry.fullCanvas.toBlob(r, 'image/png'));
+    const arrBuf = await blob.arrayBuffer();
+    zipFiles['texture.png'] = new Uint8Array(arrBuf);
+  }
+
+  // Create ZIP and download
+  const zipped = zipSync(zipFiles);
+  const blob = new Blob([zipped], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (currentStlName || 'bumpmesh') + '.bumpmesh';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+});
+
+// Import: file input handler
+importInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  importInput.value = ''; // reset for re-import
+  try {
+    await importBumpmesh(file);
+  } catch (err) {
+    alert(t('alerts.importFailed', { msg: err.message }));
+  }
+});
+
+async function importBumpmesh(file) {
+  const buf = await file.arrayBuffer();
+  const unzipped = unzipSync(new Uint8Array(buf));
+
+  // 1. Settings
+  if (unzipped['settings.json']) {
+    const json = JSON.parse(strFromU8(unzipped['settings.json']));
+    if (json.settings) {
+      // Apply settings to sliders/controls
+      for (const [key, value] of Object.entries(json.settings)) {
+        if (key in settings) settings[key] = value;
+      }
+      // Update all UI elements to reflect new settings
+      _syncUIFromSettings();
+    }
+    // Select texture preset if it matches
+    if (json.texture && !unzipped['texture.png']) {
+      _selectPresetByName(json.texture);
+    }
+  }
+
+  // 2. Model
+  if (unzipped['model.stl']) {
+    const stlBlob = new Blob([unzipped['model.stl']], { type: 'application/octet-stream' });
+    const stlFile = new File([stlBlob], 'model.stl');
+    await handleModelFile(stlFile);
+  }
+
+  // 3. Custom texture
+  if (unzipped['texture.png']) {
+    const texBlob = new Blob([unzipped['texture.png']], { type: 'image/png' });
+    const texFile = new File([texBlob], 'custom-texture.png');
+    activeMapEntry = await loadCustomTexture(texFile);
+    activeMapEntry.isCustom = true;
+    // Update preview
+    updatePreview();
+  }
+}
+
+// ── Helper: Sync UI from Settings ────────────────────────────────────────────
+
+function _syncUIFromSettings() {
+  // Mapping mode
+  if (mappingSelect) mappingSelect.value = settings.mappingMode;
+  capAngleRow.style.display = settings.mappingMode === 3 ? '' : 'none';
+
+  // Scale sliders (logarithmic — convert value to slider position)
+  scaleUSlider.value = scaleToPos(settings.scaleU);
+  scaleUVal.value = settings.scaleU;
+  scaleVSlider.value = scaleToPos(settings.scaleV);
+  scaleVVal.value = settings.scaleV;
+
+  // Linear sliders + their value displays
+  const sliderMap = {
+    'amplitude': 'amplitude',
+    'offset-u': 'offsetU',
+    'offset-v': 'offsetV',
+    'rotation': 'rotation',
+    'refine-length': 'refineLength',
+    'bottom-angle-limit': 'bottomAngleLimit',
+    'top-angle-limit': 'topAngleLimit',
+    'seam-blend': 'mappingBlend',
+    'seam-band-width': 'seamBandWidth',
+    'texture-smoothing': 'textureSmoothing',
+    'cap-angle': 'capAngle',
+  };
+  for (const [sliderId, settingKey] of Object.entries(sliderMap)) {
+    const slider = document.getElementById(sliderId);
+    if (slider) {
+      slider.value = settings[settingKey];
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }
+
+  // Checkboxes
+  if (symmetricDispToggle) symmetricDispToggle.checked = settings.symmetricDisplacement;
+
+  // Lock scale button
+  if (lockScaleBtn) {
+    lockScaleBtn.classList.toggle('active', settings.lockScale);
+    lockScaleBtn.setAttribute('aria-pressed', String(settings.lockScale));
+  }
+
+  // Max triangles slider
+  if (maxTriSlider) {
+    maxTriSlider.value = settings.maxTriangles;
+    maxTriSlider.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+
+// ── Helper: Select Preset by Name ────────────────────────────────────────────
+
+function _selectPresetByName(name) {
+  const swatches = document.querySelectorAll('.preset-swatch');
+  for (const swatch of swatches) {
+    if (swatch.title === name || swatch.querySelector('.preset-label')?.textContent === name) {
+      swatch.click();
+      return;
+    }
+  }
+}
+
+// ── Auto-Save (localStorage) ─────────────────────────────────────────────────
+
+const STORAGE_KEY = 'bumpmesh-settings';
+
+function _saveToLocalStorage() {
+  const data = {
+    version: 1,
+    texture: activeMapEntry ? activeMapEntry.name : null,
+    settings: { ...settings },
+  };
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { /* quota exceeded, ignore */ }
+}
+
+function _loadFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.settings) {
+      for (const [key, value] of Object.entries(data.settings)) {
+        if (key in settings) settings[key] = value;
+      }
+      // Defer UI sync until DOM is ready
+      requestAnimationFrame(() => {
+        _syncUIFromSettings();
+        if (data.texture) _selectPresetByName(data.texture);
+      });
+    }
+  } catch (e) { /* corrupted data, ignore */ }
+}
+
+// Restore settings from localStorage on startup
+_loadFromLocalStorage();
