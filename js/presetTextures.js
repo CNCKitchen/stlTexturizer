@@ -107,3 +107,33 @@ export function loadCustomTexture(file) {
     img.src = url;
   });
 }
+
+/**
+ * Restore a displacement map from a PNG data URL (e.g. from an exported profile).
+ */
+export function loadTextureFromDataUrl(dataUrl, name = 'custom.png') {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const { w, h } = fitDimensions(img.width, img.height);
+      const canvas = makeCanvas(w, h);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.name = name;
+      resolve({
+        name,
+        fullCanvas: canvas,
+        texture,
+        imageData,
+        width: w,
+        height: h,
+        isCustom: true,
+      });
+    };
+    img.onerror = () => reject(new Error('Failed to decode profile image'));
+    img.src = dataUrl;
+  });
+}

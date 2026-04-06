@@ -97,6 +97,26 @@
         </div>
       </section>
 
+      <!-- Profile (texture + all settings below load model) -->
+      <section class="panel-section profile-section">
+        <div class="profile-toolbar">
+          <label class="profile-select-wrap">
+            <span class="profile-toolbar-label" data-i18n="profile.label">Profile</span>
+            <select id="profile-select" class="profile-select" data-i18n-title="profile.selectTitle" title="Saved profiles and import/export">
+              <option value="" data-i18n="profile.optionNone">—</option>
+            </select>
+          </label>
+          <button type="button" id="profile-save-btn" class="profile-save-btn hidden" data-i18n="profile.save" data-i18n-title="profile.saveTitle" title="Save the current settings to this profile">Save</button>
+        </div>
+        <div class="profile-io">
+          <button type="button" id="profile-export-btn" class="profile-io-btn" data-i18n="profile.exportFile" data-i18n-title="profile.exportFileTitle" title="Download profile as a JSON file (includes custom textures)">Export…</button>
+          <label class="profile-io-btn profile-io-label" data-i18n-title="profile.importFileTitle" title="Load profile from a JSON file">
+            <span data-i18n="profile.importFile">Import…</span>
+            <input type="file" id="profile-import-input" accept=".json,application/json" hidden />
+          </label>
+        </div>
+      </section>
+
       <!-- Displacement Map -->
       <section class="panel-section">
         <h2 data-i18n="sections.displacementMap">Displacement Map</h2>
@@ -395,6 +415,23 @@
         <li data-i18n-html="imprint.privacyExternal">This site contains links to external websites (e.g., CNCKitchen.STORE, PayPal). These sites have their own privacy policies, over which we have no control.</li>
         <li data-i18n-html="imprint.privacyRights">Under the GDPR you have the right to <strong>access, rectification, erasure, restriction of processing, data portability</strong>, and the right to <strong>lodge a complaint</strong> with a supervisory authority.</li>
       </ul>
+    </div>
+  </div>
+
+  <!-- Save profile popup -->
+  <div id="profile-save-overlay" class="license-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="profile-save-title">
+    <div class="license-modal profile-save-modal">
+      <button id="profile-save-close" class="license-close-btn" aria-label="Close">&#215;</button>
+      <h2 id="profile-save-title" data-i18n="profile.saveModalTitle">Save profile</h2>
+      <p class="profile-save-hint" data-i18n="profile.saveModalHint">Enter a name. Saving overwrites an existing profile with the same name.</p>
+      <div class="profile-save-field">
+        <label for="profile-save-name" data-i18n="profile.nameLabel">Name</label>
+        <input type="text" id="profile-save-name" class="profile-save-name-input" maxlength="120" autocomplete="off" />
+      </div>
+      <div class="profile-save-actions">
+        <button type="button" id="profile-save-cancel" class="profile-save-cancel-btn" data-i18n="profile.cancel">Cancel</button>
+        <button type="button" id="profile-save-confirm" class="profile-save-confirm-btn" data-i18n="profile.saveConfirm">Save</button>
+      </div>
     </div>
   </div>
 

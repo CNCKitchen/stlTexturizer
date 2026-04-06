@@ -3,7 +3,14 @@ import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWirefram
          getControls, getCamera, getCurrentMesh,
          setExclusionOverlay, setHoverPreview, setViewerTheme } from './viewer.js';
 import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js';
-import { loadPresets, loadCustomTexture }  from './presetTextures.js';
+import { loadPresets, loadCustomTexture, loadTextureFromDataUrl }  from './presetTextures.js';
+import {
+  buildProfilePayload,
+  validateProfile,
+  loadProfilesMap,
+  saveNamedProfile,
+  listProfileNames,
+} from './profiles.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { applyDisplacement }  from './displacement.js';
@@ -239,6 +246,16 @@ const imprintLink    = document.getElementById('imprint-link');
 const imprintOverlay = document.getElementById('imprint-overlay');
 const imprintClose   = document.getElementById('imprint-close');
 
+const profileSelect     = document.getElementById('profile-select');
+const profileSaveBtn    = document.getElementById('profile-save-btn');
+const profileExportBtn  = document.getElementById('profile-export-btn');
+const profileImportInput = document.getElementById('profile-import-input');
+const profileSaveOverlay = document.getElementById('profile-save-overlay');
+const profileSaveName    = document.getElementById('profile-save-name');
+const profileSaveConfirm = document.getElementById('profile-save-confirm');
+const profileSaveCancel  = document.getElementById('profile-save-cancel');
+const profileSaveClose   = document.getElementById('profile-save-close');
+
 // ── Language selector DOM refs ────────────────────────────────────────────────────
 const languageSelector = document.querySelector('.lang-seg');
 
@@ -262,6 +279,13 @@ function _applyScaleU(v) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 let PRESETS = [];
+
+// ── Profile (import/export + local named profiles) ───────────────────────────
+let profileBaselineJson = '';
+let stickyProfileJson = null;
+let activeProfileStorageName = null;
+let suppressProfileDirty = false;
+let profileDirtyTimer = null;
 
 initViewer(canvas);
 
@@ -290,6 +314,7 @@ function populateLanguageSelector() {
     document.querySelectorAll('select[id="mapping-mode"] option[data-i18n-opt]').forEach(opt => {
       opt.textContent = t(opt.dataset.i18nOpt);
     });
+    refreshProfileDropdown();
     // Refresh dynamic count text to current language
     if (currentGeometry) refreshExclusionOverlay();
   });
@@ -326,12 +351,14 @@ scaleVVal.value = posToScale(parseFloat(scaleVSlider.value));
 loadPresets().then(presets => {
   PRESETS = presets;
   buildPresetGrid();
+  initProfiles();
   loadDefaultCube();
   // Select Crystal as the default preset
   const noiseIdx = PRESETS.findIndex(p => p.name === 'Crystal');
   const defaultIdx = noiseIdx !== -1 ? noiseIdx : 0;
   const swatches = presetGrid.querySelectorAll('.preset-swatch');
   if (swatches[defaultIdx]) selectPreset(defaultIdx, swatches[defaultIdx]);
+  setProfileBaselineFromCurrent();
 }).catch(err => console.error('Failed to load preset textures:', err));
 
 // ── Preset grid ───────────────────────────────────────────────────────────────
@@ -548,6 +575,7 @@ function wireEvents() {
     if (precisionMaskingEnabled) deactivatePrecisionMasking();
     canvas.style.cursor = exclusionTool ? 'crosshair' : '';
     brushCursorEl.style.display = 'none';
+    scheduleProfileDirtyCheck();
   });
 
   exclBrushRadiusBtn.addEventListener('click', () => {
@@ -557,18 +585,21 @@ function wireEvents() {
     if (exclusionTool === 'brush') exclRadiusRow.classList.remove('hidden');
     if (exclusionTool === 'brush') precisionMaskingRow.classList.remove('hidden');
     if (exclusionTool === 'brush') canvas.style.cursor = 'none';
+    scheduleProfileDirtyCheck();
   });
 
   exclBrushRadiusSlider.addEventListener('input', () => {
     brushRadius = parseFloat(exclBrushRadiusSlider.value) / 2;
     exclBrushRadiusVal.value = parseFloat(exclBrushRadiusSlider.value);
     checkPrecisionOutdated();
+    scheduleProfileDirtyCheck();
   });
   exclBrushRadiusSlider.addEventListener('dblclick', () => {
     exclBrushRadiusSlider.value = exclBrushRadiusSlider.defaultValue;
     brushRadius = parseFloat(exclBrushRadiusSlider.value) / 2;
     exclBrushRadiusVal.value = parseFloat(exclBrushRadiusSlider.value);
     checkPrecisionOutdated();
+    scheduleProfileDirtyCheck();
   });
   exclBrushRadiusVal.addEventListener('change', () => {
     let diam = Math.max(0.2, Math.min(100, parseFloat(exclBrushRadiusVal.value) || 10));
@@ -576,24 +607,28 @@ function wireEvents() {
     exclBrushRadiusSlider.value = diam;
     exclBrushRadiusVal.value = diam;
     checkPrecisionOutdated();
+    scheduleProfileDirtyCheck();
   });
 
   exclThresholdSlider.addEventListener('input', () => {
     bucketThreshold = parseFloat(exclThresholdSlider.value);
     exclThresholdVal.value = bucketThreshold;
     _lastHoverTriIdx = -1; // invalidate hover so next mousemove re-computes
+    scheduleProfileDirtyCheck();
   });
   exclThresholdSlider.addEventListener('dblclick', () => {
     exclThresholdSlider.value = exclThresholdSlider.defaultValue;
     bucketThreshold = parseFloat(exclThresholdSlider.value);
     exclThresholdVal.value = bucketThreshold;
     _lastHoverTriIdx = -1;
+    scheduleProfileDirtyCheck();
   });
   exclThresholdVal.addEventListener('change', () => {
     bucketThreshold = Math.max(0, Math.min(180, parseFloat(exclThresholdVal.value) || 20));
     exclThresholdSlider.value = bucketThreshold;
     exclThresholdVal.value = bucketThreshold;
     _lastHoverTriIdx = -1;
+    scheduleProfileDirtyCheck();
   });
 
   exclClearBtn.addEventListener('click', () => {
@@ -704,6 +739,7 @@ function wireEvents() {
       if (exclusionTool) setExclusionTool(null);
       licenseOverlay.classList.add('hidden');
       imprintOverlay.classList.add('hidden');
+      if (profileSaveOverlay) profileSaveOverlay.classList.add('hidden');
     }
   });
 }
@@ -726,6 +762,7 @@ function setSelectionMode(include) {
   excludedFaces = new Set();
   precisionExcludedFaces = new Set();
   refreshExclusionOverlay();
+  scheduleProfileDirtyCheck();
 }
 
 function setExclusionTool(tool) {
@@ -1261,6 +1298,332 @@ function formatM(n) {
        : String(n);
 }
 
+// ── Profiles ─────────────────────────────────────────────────────────────────
+
+function collectExclusionUi() {
+  return {
+    selectionMode,
+    brushIsRadius,
+    brushDiameter: parseFloat(exclBrushRadiusSlider.value),
+    bucketThreshold: parseFloat(exclThresholdSlider.value),
+  };
+}
+
+function serializeProfileJsonString() {
+  return JSON.stringify(buildProfilePayload(settings, activeMapEntry, collectExclusionUi()));
+}
+
+function scheduleProfileDirtyCheck() {
+  if (suppressProfileDirty) return;
+  clearTimeout(profileDirtyTimer);
+  profileDirtyTimer = setTimeout(updateProfileDirtyUI, 120);
+}
+
+function updateProfileDirtyUI() {
+  if (!profileSaveBtn) return;
+  const dirty = serializeProfileJsonString() !== profileBaselineJson;
+  profileSaveBtn.classList.toggle('hidden', !dirty);
+}
+
+function setProfileBaselineFromCurrent() {
+  profileBaselineJson = serializeProfileJsonString();
+  updateProfileDirtyUI();
+}
+
+function discardPrecisionWithoutBake() {
+  if (precisionGeometry) {
+    precisionGeometry.dispose();
+    precisionGeometry = null;
+  }
+  precisionParentMap = null;
+  precisionEdgeLength = null;
+  precisionCentroids = null;
+  precisionBoundRadii = null;
+  precisionAdjacency = null;
+  precisionMaskingEnabled = false;
+  precisionMaskingToggle.checked = false;
+  precisionExcludedFaces = new Set();
+  precisionStatus.textContent = '';
+  precisionOutdated.classList.add('hidden');
+  precisionRefreshBtn.classList.add('hidden');
+  precisionWarning.classList.add('hidden');
+  precisionMaskingRow.classList.add('hidden');
+  if (currentGeometry) {
+    setMeshGeometry(currentGeometry);
+  }
+}
+
+function syncSettingsToDom() {
+  mappingSelect.value = String(settings.mappingMode);
+  capAngleRow.style.display = settings.mappingMode === 3 ? '' : 'none';
+
+  scaleUSlider.value = scaleToPos(settings.scaleU);
+  scaleUVal.value = settings.scaleU;
+  scaleVSlider.value = scaleToPos(settings.scaleV);
+  scaleVVal.value = settings.scaleV;
+
+  lockScaleBtn.classList.toggle('active', settings.lockScale);
+  lockScaleBtn.setAttribute('aria-pressed', String(settings.lockScale));
+
+  offsetUSlider.value = settings.offsetU;
+  offsetUVal.value = settings.offsetU.toFixed(2);
+  offsetVSlider.value = settings.offsetV;
+  offsetVVal.value = settings.offsetV.toFixed(2);
+
+  rotationSlider.value = settings.rotation;
+  rotationVal.value = Math.round(settings.rotation);
+
+  amplitudeSlider.value = settings.amplitude;
+  amplitudeVal.value = settings.amplitude.toFixed(2);
+
+  refineLenSlider.value = settings.refineLength;
+  refineLenVal.value = settings.refineLength.toFixed(2);
+
+  maxTriSlider.value = settings.maxTriangles;
+  maxTriVal.textContent = formatM(settings.maxTriangles);
+
+  seamBlendSlider.value = settings.mappingBlend;
+  seamBlendVal.value = settings.mappingBlend.toFixed(2);
+
+  seamBandWidthSlider.value = settings.seamBandWidth;
+  seamBandWidthVal.value = settings.seamBandWidth.toFixed(2);
+
+  textureSmoothingSlider.value = settings.textureSmoothing;
+  textureSmoothingVal.value = settings.textureSmoothing.toFixed(1);
+
+  capAngleSlider.value = settings.capAngle;
+  capAngleVal.value = Math.round(settings.capAngle);
+
+  bottomAngleLimitSlider.value = settings.bottomAngleLimit;
+  bottomAngleLimitVal.value = settings.bottomAngleLimit;
+  topAngleLimitSlider.value = settings.topAngleLimit;
+  topAngleLimitVal.value = settings.topAngleLimit;
+
+  symmetricDispToggle.checked = settings.symmetricDisplacement;
+  dispPreviewToggle.checked = settings.useDisplacement;
+}
+
+function applyExclusionUiPayload(ui) {
+  if (typeof ui.selectionMode === 'boolean' && ui.selectionMode !== selectionMode) {
+    setSelectionMode(ui.selectionMode);
+  }
+  brushIsRadius = ui.brushIsRadius ?? false;
+  exclBrushSingleBtn.classList.toggle('active', !brushIsRadius);
+  exclBrushRadiusBtn.classList.toggle('active', brushIsRadius);
+  const diameter = ui.brushDiameter ?? 10;
+  exclBrushRadiusSlider.value = diameter;
+  exclBrushRadiusVal.value = diameter;
+  brushRadius = diameter / 2;
+  const th = ui.bucketThreshold ?? 20;
+  exclThresholdSlider.value = th;
+  exclThresholdVal.value = th;
+  bucketThreshold = th;
+  exclBrushTypeRow.classList.toggle('hidden', exclusionTool !== 'brush');
+  exclRadiusRow.classList.toggle('hidden', !(exclusionTool === 'brush' && brushIsRadius));
+  precisionMaskingRow.classList.toggle('hidden', !(exclusionTool === 'brush' && brushIsRadius));
+  exclThresholdRow.classList.toggle('hidden', exclusionTool !== 'bucket');
+}
+
+async function applyProfilePayload(payload) {
+  if (!validateProfile(payload)) {
+    throw new Error('Invalid profile');
+  }
+
+  suppressProfileDirty = true;
+  try {
+    discardPrecisionWithoutBake();
+    await toggleDisplacementPreview(false);
+
+    for (const k of Object.keys(settings)) {
+      if (k in payload.settings) settings[k] = payload.settings[k];
+    }
+
+    syncSettingsToDom();
+
+    const tex = payload.texture;
+    if (tex.kind === 'preset') {
+      const idx = PRESETS.findIndex(p => p.name === tex.name);
+      if (idx >= 0) {
+        document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
+        const swatches = presetGrid.querySelectorAll('.preset-swatch');
+        if (swatches[idx]) swatches[idx].classList.add('active');
+        activeMapEntry = PRESETS[idx];
+        activeMapName.textContent = PRESETS[idx].name;
+      } else {
+        alert(t('profile.presetNotFound', { name: tex.name }));
+      }
+    } else if (tex.kind === 'custom') {
+      document.querySelectorAll('.preset-swatch').forEach(s => s.classList.remove('active'));
+      activeMapEntry = await loadTextureFromDataUrl(tex.dataUrl, tex.fileName || 'custom.png');
+      activeMapEntry.isCustom = true;
+      activeMapName.textContent = activeMapEntry.name;
+    } else {
+      activeMapEntry = null;
+      activeMapName.textContent = t('ui.noMapSelected');
+    }
+
+    applyExclusionUiPayload(payload.exclusionUi);
+
+    excludedFaces = new Set();
+    precisionExcludedFaces = new Set();
+    setExclusionTool(null);
+
+    if (!currentGeometry && settings.useDisplacement) {
+      settings.useDisplacement = false;
+      dispPreviewToggle.checked = false;
+    } else if (settings.useDisplacement && currentGeometry) {
+      await toggleDisplacementPreview(true);
+    } else {
+      settings.useDisplacement = false;
+      dispPreviewToggle.checked = false;
+    }
+
+    checkAmplitudeWarning();
+    exportBtn.disabled = (activeMapEntry === null);
+    updatePreview();
+    refreshExclusionOverlay();
+  } finally {
+    suppressProfileDirty = false;
+  }
+
+  profileBaselineJson = serializeProfileJsonString();
+  updateProfileDirtyUI();
+}
+
+async function maybeApplyStickyProfile() {
+  if (!stickyProfileJson) return;
+  try {
+    await applyProfilePayload(JSON.parse(stickyProfileJson));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function refreshProfileDropdown() {
+  if (!profileSelect) return;
+  const names = listProfileNames();
+  const prev = profileSelect.value;
+  profileSelect.innerHTML = '';
+  const opt0 = document.createElement('option');
+  opt0.value = '';
+  opt0.textContent = t('profile.optionNone');
+  profileSelect.appendChild(opt0);
+  for (const name of names) {
+    const o = document.createElement('option');
+    o.value = name;
+    o.textContent = name;
+    profileSelect.appendChild(o);
+  }
+  if (names.includes(prev)) profileSelect.value = prev;
+  else if (activeProfileStorageName && names.includes(activeProfileStorageName)) {
+    profileSelect.value = activeProfileStorageName;
+  }
+}
+
+function openProfileSaveModal() {
+  if (!profileSaveOverlay) return;
+  profileSaveName.value = activeProfileStorageName || '';
+  profileSaveOverlay.classList.remove('hidden');
+  profileSaveName.focus();
+  profileSaveName.select();
+}
+
+function closeProfileSaveModal() {
+  if (profileSaveOverlay) profileSaveOverlay.classList.add('hidden');
+}
+
+function initProfiles() {
+  if (!profileSelect) return;
+
+  refreshProfileDropdown();
+
+  profileSelect.addEventListener('change', async () => {
+    const name = profileSelect.value;
+    if (!name) {
+      stickyProfileJson = null;
+      activeProfileStorageName = null;
+      setProfileBaselineFromCurrent();
+      return;
+    }
+    const map = loadProfilesMap();
+    const payload = map[name];
+    if (!payload) return;
+    try {
+      await applyProfilePayload(payload);
+      activeProfileStorageName = name;
+      stickyProfileJson = JSON.stringify(payload);
+    } catch (e) {
+      console.error(e);
+      alert(t('profile.applyFailed', { msg: e.message }));
+    }
+  });
+
+  profileSaveBtn.addEventListener('click', () => openProfileSaveModal());
+
+  profileSaveConfirm.addEventListener('click', () => {
+    const name = profileSaveName.value.trim();
+    if (!name) {
+      alert(t('profile.nameRequired'));
+      return;
+    }
+    const payload = buildProfilePayload(settings, activeMapEntry, collectExclusionUi());
+    if (payload.texture.kind === 'none') {
+      alert(t('profile.exportNeedsMap'));
+      return;
+    }
+    saveNamedProfile(name, payload);
+    refreshProfileDropdown();
+    profileSelect.value = name;
+    activeProfileStorageName = name;
+    stickyProfileJson = JSON.stringify(payload);
+    setProfileBaselineFromCurrent();
+    closeProfileSaveModal();
+  });
+
+  profileSaveCancel.addEventListener('click', closeProfileSaveModal);
+  profileSaveClose.addEventListener('click', closeProfileSaveModal);
+  profileSaveOverlay.addEventListener('click', (e) => {
+    if (e.target === profileSaveOverlay) closeProfileSaveModal();
+  });
+
+  profileSaveName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') profileSaveConfirm.click();
+  });
+
+  profileExportBtn.addEventListener('click', () => {
+    const payload = buildProfilePayload(settings, activeMapEntry, collectExclusionUi());
+    if (payload.texture.kind === 'none') {
+      alert(t('profile.exportNeedsMap'));
+      return;
+    }
+    const safeName = (activeProfileStorageName || 'bumpmesh-profile').replace(/[^\w\-]+/g, '_');
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${safeName}.bumpmesh.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  profileImportInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const obj = JSON.parse(text);
+      if (!validateProfile(obj)) throw new Error('invalid');
+      await applyProfilePayload(obj);
+      activeProfileStorageName = null;
+      profileSelect.value = '';
+      stickyProfileJson = JSON.stringify(obj);
+    } catch (err) {
+      console.error(err);
+      alert(t('profile.invalidFile'));
+    }
+  });
+}
+
 // ── STL loading ───────────────────────────────────────────────────────────────
 
 function loadDefaultCube() {
@@ -1425,6 +1788,8 @@ async function handleModelFile(file) {
 
     exportBtn.disabled = (activeMapEntry === null);
     updatePreview();
+
+    await maybeApplyStickyProfile();
   } catch (err) {
     console.error('Failed to load model:', err);
     alert(t('alerts.loadFailed', { msg: err.message }));
@@ -1650,50 +2015,54 @@ function getEffectiveMapEntry() {
 }
 
 function updatePreview() {
-  if (!currentGeometry || !currentBounds) return;
+  try {
+    if (!currentGeometry || !currentBounds) return;
 
-  // Texture aspect correction so non-square textures keep their proportions.
-  // A 512×279 texture needs aspectV = 512/279 ≈ 1.84 so V tiles faster (more
-  // repetitions), making each tile shorter in world-space to match the texture's
-  // wider-than-tall content.  The wider axis gets aspect = 1 (unchanged).
-  const tw = activeMapEntry?.width ?? 1, th = activeMapEntry?.height ?? 1;
-  const tmax = Math.max(tw, th, 1);
-  const fullSettings = {
-    ...settings,
-    bounds: currentBounds,
-    textureAspectU: tmax / Math.max(tw, 1),
-    textureAspectV: tmax / Math.max(th, 1),
-  };
+    // Texture aspect correction so non-square textures keep their proportions.
+    // A 512×279 texture needs aspectV = 512/279 ≈ 1.84 so V tiles faster (more
+    // repetitions), making each tile shorter in world-space to match the texture's
+    // wider-than-tall content.  The wider axis gets aspect = 1 (unchanged).
+    const tw = activeMapEntry?.width ?? 1, th = activeMapEntry?.height ?? 1;
+    const tmax = Math.max(tw, th, 1);
+    const fullSettings = {
+      ...settings,
+      bounds: currentBounds,
+      textureAspectU: tmax / Math.max(tw, 1),
+      textureAspectV: tmax / Math.max(th, 1),
+    };
 
-  if (!activeMapEntry) {
-    // No map yet — plain material
-    if (previewMaterial) {
-      setMeshMaterial(null);
-      previewMaterial.dispose();
-      previewMaterial = null;
+    if (!activeMapEntry) {
+      // No map yet — plain material
+      if (previewMaterial) {
+        setMeshMaterial(null);
+        previewMaterial.dispose();
+        previewMaterial = null;
+      }
+      exportBtn.disabled = true;
+      return;
     }
-    exportBtn.disabled = true;
-    return;
+
+    // Choose geometry: subdivided preview (with smoothNormal attribute) or original
+    const activeGeo = (settings.useDisplacement && dispPreviewGeometry)
+      ? dispPreviewGeometry
+      : currentGeometry;
+
+    // Ensure faceMask attribute is current before rendering
+    updateFaceMask(activeGeo);
+
+    const effectiveEntry = getEffectiveMapEntry();
+
+    if (!previewMaterial) {
+      previewMaterial = createPreviewMaterial(effectiveEntry.texture, fullSettings);
+      loadGeometry(activeGeo, previewMaterial);
+    } else {
+      updateMaterial(previewMaterial, effectiveEntry.texture, fullSettings);
+    }
+
+    exportBtn.disabled = false;
+  } finally {
+    scheduleProfileDirtyCheck();
   }
-
-  // Choose geometry: subdivided preview (with smoothNormal attribute) or original
-  const activeGeo = (settings.useDisplacement && dispPreviewGeometry)
-    ? dispPreviewGeometry
-    : currentGeometry;
-
-  // Ensure faceMask attribute is current before rendering
-  updateFaceMask(activeGeo);
-
-  const effectiveEntry = getEffectiveMapEntry();
-
-  if (!previewMaterial) {
-    previewMaterial = createPreviewMaterial(effectiveEntry.texture, fullSettings);
-    loadGeometry(activeGeo, previewMaterial);
-  } else {
-    updateMaterial(previewMaterial, effectiveEntry.texture, fullSettings);
-  }
-
-  exportBtn.disabled = false;
 }
 
 // ── Displacement preview ──────────────────────────────────────────────────────

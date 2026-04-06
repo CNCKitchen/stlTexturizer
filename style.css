@@ -362,6 +362,187 @@ main {
   align-items: stretch;
 }
 
+/* ── Profile toolbar (Orca-style row) ───────────────────────────────── */
+.profile-section {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.profile-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.profile-select-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.profile-toolbar-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.profile-select {
+  width: 100%;
+  height: 32px;
+  padding: 0 28px 0 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%2366667a' d='M0 0l4 4 4-4H0z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.profile-select:hover,
+.profile-select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.profile-save-btn {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 14px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.profile-save-btn:hover {
+  background: var(--accent-hover);
+}
+
+.profile-save-btn.hidden {
+  display: none;
+}
+
+.profile-io {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.profile-io-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.profile-io-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.profile-io-label {
+  margin: 0;
+}
+
+.profile-save-modal .profile-save-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 8px 0 14px;
+  line-height: 1.45;
+}
+
+.profile-save-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.profile-save-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.profile-save-name-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.profile-save-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.profile-save-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.profile-save-cancel-btn {
+  height: 34px;
+  padding: 0 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.profile-save-confirm-btn {
+  height: 34px;
+  padding: 0 16px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.profile-save-confirm-btn:hover {
+  background: var(--accent-hover);
+}
+
 /* ── Settings panel ──────────────────────────────────────────────────── */
 #settings-panel {
   width: var(--sidebar-w);

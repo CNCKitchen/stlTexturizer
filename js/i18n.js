@@ -21,6 +21,27 @@ export const TRANSLATIONS = {
     // Load model button
     'ui.loadStl': 'Load Model\u2026',
 
+    // Profiles (texture + settings; saved in browser or as JSON file)
+    'profile.label': 'Profile',
+    'profile.selectTitle': 'Saved profiles and file import/export',
+    'profile.optionNone': '\u2014',
+    'profile.save': 'Save',
+    'profile.saveTitle': 'Save current settings as a profile',
+    'profile.exportFile': 'Export\u2026',
+    'profile.exportFileTitle': 'Download profile as JSON (includes custom textures)',
+    'profile.importFile': 'Import\u2026',
+    'profile.importFileTitle': 'Load profile from JSON file',
+    'profile.saveModalTitle': 'Save profile',
+    'profile.saveModalHint': 'Enter a name. Saving overwrites an existing profile with the same name in this browser.',
+    'profile.nameLabel': 'Name',
+    'profile.cancel': 'Cancel',
+    'profile.saveConfirm': 'Save',
+    'profile.nameRequired': 'Please enter a profile name.',
+    'profile.exportNeedsMap': 'Select or upload a displacement map before exporting a profile.',
+    'profile.invalidFile': 'This file is not a valid BumpMesh profile.',
+    'profile.presetNotFound': 'Preset texture \u201c{name}\u201d was not found. It may have been renamed in a newer version.',
+    'profile.applyFailed': 'Could not apply profile: {msg}',
+
     // Displacement map section
     'sections.displacementMap': 'Displacement Map',
     'ui.uploadCustomMap': 'Upload custom map',
@@ -166,7 +187,7 @@ export const TRANSLATIONS = {
     'imprint.sectionPrivacy': 'Privacy Policy (Datenschutzerkl\u00e4rung)',
     'imprint.privacyIntro': '<strong>Responsible party</strong> (Verantwortlicher gem. Art. 4 Abs. 7 DSGVO): Stefan Hermann, Bahnhofstr. 2, 88145 Hergatz, Germany.',
     'imprint.privacyHosting': 'This website is hosted on <strong>GitHub Pages</strong> (GitHub Inc. / Microsoft Corp., 88 Colin P Kelly Jr St, San Francisco, CA 94107, USA). When you visit this site, GitHub may process your IP address in server logs. Legal basis: Art. 6(1)(f) DSGVO (legitimate interest in providing the website). See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">GitHub\u2019s Privacy Statement</a>.',
-    'imprint.privacyLocal': 'This tool stores user preferences (language, theme) in your browser\u2019s <strong>localStorage</strong>. This data never leaves your device and is not transmitted to any server.',
+    'imprint.privacyLocal': 'This tool stores user preferences (language, theme, and saved profiles) in your browser\u2019s <strong>localStorage</strong>. This data never leaves your device and is not transmitted to any server.',
     'imprint.privacyNoCookies': 'This website does <strong>not</strong> use cookies, analytics, or any tracking technologies.',
     'imprint.privacyExternal': 'This site contains links to external websites (e.g., CNCKitchen.STORE, PayPal). These sites have their own privacy policies, over which we have no control.',
     'imprint.privacyRights': 'Under the GDPR you have the right to <strong>access, rectification, erasure, restriction of processing, data portability</strong>, and the right to <strong>lodge a complaint</strong> with a supervisory authority.',
@@ -206,6 +227,27 @@ export const TRANSLATIONS = {
 
     // Load model button
     'ui.loadStl': 'Modell laden\u2026',
+
+    // Profiles
+    'profile.label': 'Profil',
+    'profile.selectTitle': 'Gespeicherte Profile und Datei Import/Export',
+    'profile.optionNone': '\u2014',
+    'profile.save': 'Speichern',
+    'profile.saveTitle': 'Aktuelle Einstellungen als Profil speichern',
+    'profile.exportFile': 'Exportieren\u2026',
+    'profile.exportFileTitle': 'Profil als JSON herunterladen (inkl. eigener Texturen)',
+    'profile.importFile': 'Importieren\u2026',
+    'profile.importFileTitle': 'Profil aus JSON-Datei laden',
+    'profile.saveModalTitle': 'Profil speichern',
+    'profile.saveModalHint': 'Namen eingeben. Speichern \u00fcberschreibt ein vorhandenes Profil gleichen Namens in diesem Browser.',
+    'profile.nameLabel': 'Name',
+    'profile.cancel': 'Abbrechen',
+    'profile.saveConfirm': 'Speichern',
+    'profile.nameRequired': 'Bitte einen Profilnamen eingeben.',
+    'profile.exportNeedsMap': 'Bitte zuerst eine Textur ausw\u00e4hlen oder hochladen, bevor Sie ein Profil exportieren.',
+    'profile.invalidFile': 'Diese Datei ist kein g\u00fcltiges BumpMesh-Profil.',
+    'profile.presetNotFound': 'Voreingestellte Textur \u201e{name}\u201c wurde nicht gefunden (evtl. umbenannt).',
+    'profile.applyFailed': 'Profil konnte nicht angewendet werden: {msg}',
 
     // Displacement map section
     'sections.displacementMap': 'Textur',
@@ -352,7 +394,7 @@ export const TRANSLATIONS = {
     'imprint.sectionPrivacy': 'Datenschutzerkl\u00e4rung',
     'imprint.privacyIntro': '<strong>Verantwortlicher</strong> gem. Art. 4 Abs. 7 DSGVO: Stefan Hermann, Bahnhofstr. 2, 88145 Hergatz, Deutschland.',
     'imprint.privacyHosting': 'Diese Website wird auf <strong>GitHub Pages</strong> (GitHub Inc. / Microsoft Corp., 88 Colin P Kelly Jr St, San Francisco, CA 94107, USA) gehostet. Beim Besuch dieser Seite kann GitHub Ihre IP-Adresse in Server-Logs verarbeiten. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Bereitstellung der Website). Siehe <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">Datenschutzerkl\u00e4rung von GitHub</a>.',
-    'imprint.privacyLocal': 'Dieses Tool speichert Nutzereinstellungen (Sprache, Theme) im <strong>localStorage</strong> Ihres Browsers. Diese Daten verlassen Ihr Ger\u00e4t nicht und werden nicht an einen Server \u00fcbertragen.',
+    'imprint.privacyLocal': 'Dieses Tool speichert Nutzereinstellungen (Sprache, Theme und gespeicherte Profile) im <strong>localStorage</strong> Ihres Browsers. Diese Daten verlassen Ihr Ger\u00e4t nicht und werden nicht an einen Server \u00fcbertragen.',
     'imprint.privacyNoCookies': 'Diese Website verwendet <strong>keine</strong> Cookies, Analyse-Tools oder sonstige Tracking-Technologien.',
     'imprint.privacyExternal': 'Diese Seite enth\u00e4lt Links zu externen Websites (z.B. CNCKitchen.STORE, PayPal). F\u00fcr deren Datenschutzrichtlinien \u00fcbernehmen wir keine Verantwortung.',
     'imprint.privacyRights': 'Nach der DSGVO haben Sie das Recht auf <strong>Auskunft, Berichtigung, L\u00f6schung, Einschr\u00e4nkung der Verarbeitung, Daten\u00fcbertragbarkeit</strong> sowie das Recht auf <strong>Beschwerde bei einer Aufsichtsbeh\u00f6rde</strong>.',
@@ -392,6 +434,27 @@ export const TRANSLATIONS = {
 
     // Load model button
     'ui.loadStl': 'Carica Modello\u2026',
+
+    // Profiles
+    'profile.label': 'Profilo',
+    'profile.selectTitle': 'Profili salvati e import/export file',
+    'profile.optionNone': '\u2014',
+    'profile.save': 'Salva',
+    'profile.saveTitle': 'Salva le impostazioni correnti come profilo',
+    'profile.exportFile': 'Esporta\u2026',
+    'profile.exportFileTitle': 'Scarica profilo come JSON (include texture personalizzate)',
+    'profile.importFile': 'Importa\u2026',
+    'profile.importFileTitle': 'Carica profilo da file JSON',
+    'profile.saveModalTitle': 'Salva profilo',
+    'profile.saveModalHint': 'Inserisci un nome. Salvare sovrascrive un profilo esistente con lo stesso nome in questo browser.',
+    'profile.nameLabel': 'Nome',
+    'profile.cancel': 'Annulla',
+    'profile.saveConfirm': 'Salva',
+    'profile.nameRequired': 'Inserisci un nome per il profilo.',
+    'profile.exportNeedsMap': 'Seleziona o carica una mappa di spostamento prima di esportare un profilo.',
+    'profile.invalidFile': 'Questo file non \u00e8 un profilo BumpMesh valido.',
+    'profile.presetNotFound': 'Texture predefinita \u201c{name}\u201d non trovata.',
+    'profile.applyFailed': 'Impossibile applicare il profilo: {msg}',
 
     // Displacement map section
     'sections.displacementMap': 'Mappa di Deformazione',
@@ -539,7 +602,7 @@ export const TRANSLATIONS = {
     'imprint.sectionPrivacy': 'Informativa sulla privacy (Datenschutzerklärung)',
     'imprint.privacyIntro': '<strong>Titolare del trattamento</strong> (Verantwortlicher gem. Art. 4 Abs. 7 DSGVO): Stefan Hermann, Bahnhofstr. 2, 88145 Hergatz, Germania.',
     'imprint.privacyHosting': 'Questo sito web è ospitato su <strong>GitHub Pages</strong> (GitHub Inc. / Microsoft Corp., 88 Colin P Kelly Jr St, San Francisco, CA 94107, USA). Quando visiti questo sito, GitHub potrebbe elaborare il tuo indirizzo IP nei log del server. Base giuridica: Art. 6(1)(f) GDPR (interesse legittimo alla fornitura del sito web). Vedi <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">Informativa sulla privacy di GitHub</a>.',
-    'imprint.privacyLocal': 'Questo strumento memorizza le preferenze dell\'utente (lingua, tema) nel <strong>localStorage</strong> del tuo browser. Questi dati non lasciano mai il tuo dispositivo e non vengono trasmessi a nessun server.',
+    'imprint.privacyLocal': 'Questo strumento memorizza le preferenze dell\'utente (lingua, tema e profili salvati) nel <strong>localStorage</strong> del tuo browser. Questi dati non lasciano mai il tuo dispositivo e non vengono trasmessi a nessun server.',
     'imprint.privacyNoCookies': 'Questo sito web <strong>non</strong> utilizza cookie, strumenti di analisi o tecnologie di tracciamento.',
     'imprint.privacyExternal': 'Questo sito contiene link a siti web esterni (ad es. CNCKitchen.STORE, PayPal). Questi siti hanno le proprie politiche sulla privacy, sulle quali non abbiamo alcun controllo.',
     'imprint.privacyRights': 'Ai sensi del GDPR hai il diritto di <strong>accesso, rettifica, cancellazione, limitazione del trattamento, portabilità dei dati</strong> e il diritto di <strong>presentare un reclamo</strong> presso un\'autorità di controllo.',
