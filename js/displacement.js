@@ -66,11 +66,20 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   const _dedupMap = new Map();
   let _nextId = 0;
   const vertexId = new Uint32Array(count);
+  const _idPosX = [];
+  const _idPosY = [];
+  const _idPosZ = [];
   for (let i = 0; i < count; i++) {
     const x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
     const key = `${Math.round(x * QUANT)}_${Math.round(y * QUANT)}_${Math.round(z * QUANT)}`;
     let id = _dedupMap.get(key);
-    if (id === undefined) { id = _nextId++; _dedupMap.set(key, id); }
+    if (id === undefined) {
+      id = _nextId++;
+      _dedupMap.set(key, id);
+      _idPosX.push(x);
+      _idPosY.push(y);
+      _idPosZ.push(z);
+    }
     vertexId[i] = id;
   }
   const uniqueCount = _nextId;
@@ -191,21 +200,6 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   let falloffArr = null;
 
   if (boundaryFalloff > 0) {
-    // Build position lookup per unique vertex ID (first occurrence)
-    const idPosX = new Float64Array(uniqueCount);
-    const idPosY = new Float64Array(uniqueCount);
-    const idPosZ = new Float64Array(uniqueCount);
-    const idPosSeen = new Uint8Array(uniqueCount);
-    for (let i = 0; i < count; i++) {
-      const vid = vertexId[i];
-      if (!idPosSeen[vid]) {
-        idPosSeen[vid] = 1;
-        idPosX[vid] = posAttr.getX(i);
-        idPosY[vid] = posAttr.getY(i);
-        idPosZ[vid] = posAttr.getZ(i);
-      }
-    }
-
     const boundaryPositions = []; // [[x, y, z], ...]
 
     // Collect boundary positions: vertices where maskedFrac is between 0 and 1,
@@ -215,7 +209,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
       const maskedFrac = mfTotal > 0 ? maskedFracMasked[id] / mfTotal : 0;
       const isOnExclBoundary = excludedPos && excludedPos[id] === 1;
       if (isOnExclBoundary || (maskedFrac > 0 && maskedFrac < 1)) {
-        boundaryPositions.push([idPosX[id], idPosY[id], idPosZ[id]]);
+        boundaryPositions.push([_idPosX[id], _idPosY[id], _idPosZ[id]]);
       }
     }
 
@@ -262,7 +256,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
         // Only compute falloff for fully-textured, non-boundary positions
         if (maskedFrac > 0 || isOnExclBoundary) continue;
 
-        const px = idPosX[id], py = idPosY[id], pz = idPosZ[id];
+        const px = _idPosX[id], py = _idPosY[id], pz = _idPosZ[id];
         const cix = Math.max(0, Math.min(gRes - 1, Math.floor((px - gMinX) / gDx)));
         const ciy = Math.max(0, Math.min(gRes - 1, Math.floor((py - gMinY) / gDy)));
         const ciz = Math.max(0, Math.min(gRes - 1, Math.floor((pz - gMinZ) / gDz)));
