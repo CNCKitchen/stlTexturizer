@@ -1747,6 +1747,199 @@ export const TRANSLATIONS = {
     'alerts.exportFailed': 'Falha na exportação: {msg}',
   },
 
+  fr: {
+    'lang.name': 'Français',
+    // Theme toggle
+    'theme.dark': 'Thème sombre',
+    'theme.light': 'Thème clair',
+    'theme.toggleTitle': 'Basculer mode clair / sombre',
+    'theme.toggleAriaLabel': 'Basculer mode clair/sombre',
+
+    // Drop zone
+    'dropHint.text': 'Déposez un fichier <strong>.stl</strong>, <strong>.obj</strong> ou <strong>.3mf</strong> ici<br/>ou <label for="stl-file-input" class="link-label">cliquez pour parcourir</label>',
+
+    // Viewport footer
+    'ui.wireframe': 'Fil de fer',
+    'ui.controlsHint': 'Bouton gauche\u00a0: orbiter \u00a0·\u00a0 Bouton droit\u00a0: panoramique \u00a0·\u00a0 Molette\u00a0: zoom',
+    'ui.meshInfo': '{n} triangles · {mb} Mo · {sx} × {sy} × {sz} mm',
+
+    // Load model button
+    'ui.loadStl': 'Charger un modèle\u2026',
+
+    // Displacement map section
+    'sections.displacementMap': 'Carte de déplacement',
+    'ui.uploadCustomMap': 'Charger une carte personnalisée',
+    'ui.noMapSelected': 'Aucune carte sélectionnée',
+
+    // Projection section
+    'sections.projection': 'Projection',
+    'labels.mode': 'Mode',
+    'projection.triplanar': 'Triplanaire',
+    'projection.cubic': 'Cubique (boîte)',
+    'projection.cylindrical': 'Cylindrique',
+    'projection.spherical': 'Sphérique',
+    'projection.planarXY': 'Planaire XY',
+    'projection.planarXZ': 'Planaire XZ',
+    'projection.planarYZ': 'Planaire YZ',
+
+    // Transform section
+    'sections.transform': 'Transformation',
+    'labels.scaleU': 'Échelle U',
+    'labels.scaleV': 'Échelle V',
+    'labels.offsetU': 'Décalage U',
+    'labels.offsetV': 'Décalage V',
+    'labels.rotation': 'Rotation',
+    'tooltips.proportionalScaling': 'Mise à l\'échelle proportionnelle (U = V)',
+    'tooltips.proportionalScalingAria': 'Mise à l\'échelle proportionnelle (U = V)',
+
+    // Displacement section
+    'sections.displacement': 'Profondeur de texture',
+    'labels.amplitude': 'Amplitude',
+
+    // Seam blend
+    'labels.seamBlend': 'Fusion des coutures \u24d8',
+    'tooltips.seamBlend': 'Adoucit la couture nette là où les faces de projection se rejoignent. Efficace pour les modes Cubique et Cylindrique.',
+    'labels.transitionSmoothing': 'Lissage de transition \u24d8',
+    'tooltips.transitionSmoothing': 'Largeur de la zone de fusion près des bords de couture. Les valeurs faibles maintiennent les transitions près de la couture\u00a0; les valeurs élevées lissent une bande plus large.',
+    'labels.textureSmoothing': 'Lissage de texture \u24d8',
+    'tooltips.textureSmoothing': 'Applique un flou gaussien à la carte de déplacement. Les valeurs élevées produisent des détails de surface plus doux et progressifs. 0 = désactivé.',
+    'labels.capAngle': 'Angle de calotte \u24d8',
+    'tooltips.capAngle': 'Angle (en degrés) depuis la verticale auquel la projection de calotte supérieure/inférieure s\'active. Les valeurs plus petites limitent la projection aux faces presque plates.',
+
+    // Masking parent section
+    'sections.masking': 'Masquage',
+
+    // Mask angles section
+    'sections.maskAngles': 'Par angle \u24d8',
+    'tooltips.maskAngles': '0° = pas de masquage. Les surfaces à l\'intérieur de cet angle par rapport à l\'horizontale ne seront pas texturées.',
+    'labels.bottomFaces': 'Faces inférieures',
+    'tooltips.bottomFaces': 'Supprimer la texture sur les surfaces orientées vers le bas à l\'intérieur de cet angle par rapport à l\'horizontale',
+    'labels.topFaces': 'Faces supérieures',
+    'tooltips.topFaces': 'Supprimer la texture sur les surfaces orientées vers le haut à l\'intérieur de cet angle par rapport à l\'horizontale',
+
+    // Surface masking section
+    'sections.surfaceMasking': 'Par surface \u24d8',
+    'sections.surfaceSelection': 'Sélection de surfaces',
+    'tooltips.surfaceMasking': 'Masquer des surfaces pour contrôler quelles zones reçoivent le déplacement.',
+    'tooltips.surfaceSelection': 'Les surfaces sélectionnées apparaissent en vert et seront les seules à recevoir le déplacement lors de l\'exportation.',
+    'excl.modeExclude': 'Exclure',
+    'excl.modeExcludeTitle': 'Mode Exclure\u00a0: les surfaces peintes ne recevront pas de déplacement de texture',
+    'excl.modeIncludeOnly': 'Inclure uniquement',
+    'excl.modeIncludeOnlyTitle': 'Mode Inclure uniquement\u00a0: seules les surfaces peintes recevront le déplacement de texture',
+    'excl.toolBrush': 'Pinceau',
+    'excl.toolBrushTitle': 'Pinceau\u00a0: peindre des triangles à exclure',
+    'excl.toolFill': 'Remplissage',
+    'excl.toolFillTitle': 'Remplissage\u00a0: remplir la surface jusqu\'à un angle seuil',
+    'excl.shiftHint': 'Maintenir Maj pour effacer',
+    'labels.type': 'Type',
+    'brushType.single': 'Simple',
+    'brushType.circle': 'Cercle',
+    'labels.size': 'Taille',
+    'labels.maxAngle': 'Angle max.',
+    'tooltips.maxAngle': 'Angle dièdre maximal entre triangles adjacents que le remplissage peut traverser',
+    'ui.clearAll': 'Tout effacer',
+    'excl.initExcluded': '0 faces masquées',
+    'excl.faceExcluded': '{n} face masquée',
+    'excl.facesExcluded': '{n} faces masquées',
+    'excl.faceSelected': '{n} face sélectionnée',
+    'excl.facesSelected': '{n} faces sélectionnées',
+    'excl.hintExclude': 'Les surfaces masquées apparaissent en orange et ne recevront pas de déplacement lors de l\'exportation.',
+    'excl.hintInclude': 'Les surfaces sélectionnées apparaissent en vert et seront les seules à recevoir le déplacement lors de l\'exportation.',
+
+    // Precision masking
+    'precision.label': 'Précision (Bêta) \u24d8',
+    'precision.labelTitle': 'Subdivise le maillage en arrière-plan pour que le pinceau sélectionne avec une granularité plus fine',
+    'precision.outdated': '\u26a0 Obsolète',
+    'precision.refreshTitle': 'Resubdiviser le maillage pour correspondre à la taille actuelle du pinceau',
+    'precision.triCount': '{n} \u25b3',
+    'precision.refining': 'Affinage\u2026',
+    'precision.warningBody': 'Estimation ~{n} triangles. Cela peut ralentir votre navigateur. Continuer\u00a0?',
+
+    // Boundary falloff
+    'labels.boundaryFalloff': 'Lissage du masque \u24d8',
+    'tooltips.boundaryFalloff': 'Réduit progressivement le déplacement à zéro près des bords masqués, évitant les chevauchements de triangles entre les zones texturées et non texturées.',
+
+    // Symmetric displacement
+    'labels.symmetricDisplacement': 'Déplacement symétrique \u24d8',
+    'tooltips.symmetricDisplacement': 'Lorsque cette option est activée\u00a0: gris 50\u00a0% = pas de déplacement\u00a0; le blanc pousse vers l\'extérieur, le noir pousse vers l\'intérieur. Maintient le volume de la pièce approximativement constant.',
+
+    // Displacement preview
+    'labels.displacementPreview': 'Aperçu 3D \u24d8',
+    'tooltips.displacementPreview': 'Subdivise le maillage et déplace les sommets en temps réel pour évaluer la profondeur réelle. Gourmand en ressources GPU sur des modèles complexes.',
+
+    // Place on face
+    'ui.placeOnFace': 'Placer sur une face',
+    'ui.placeOnFaceTitle': 'Cliquer sur une face pour l\'orienter vers le bas sur le plateau d\'impression',
+    'progress.subdividingPreview': 'Préparation de l\'aperçu\u2026',
+
+    // Amplitude overlap warning
+    'warnings.amplitudeOverlap': '\u26a0 L\'amplitude dépasse 10\u00a0% de la plus petite dimension du modèle — des chevauchements géométriques peuvent survenir dans le STL exporté.',
+
+    // Export section
+    'sections.export': 'Exportation \u24d8',
+    'tooltips.export': 'Longueur d\'arête plus petite = détails de déplacement plus fins. La sortie est ensuite réduite à la limite de triangles.',
+    'labels.resolution': 'Résolution',
+    'tooltips.resolution': 'Les arêtes plus longues que cette valeur seront divisées lors de l\'exportation',
+    'labels.outputTriangles': 'Triangles de sortie',
+    'tooltips.outputTriangles': 'Le maillage est d\'abord entièrement subdivisé, puis réduit à ce nombre',
+    'warnings.safetyCapHit': '\u26a0 Limite de sécurité de 20\u00a0M de triangles atteinte lors de la subdivision — le résultat peut être plus grossier que la longueur d\'arête demandée.',
+    'ui.exportStl': 'Exporter STL',
+
+    // Export progress stages
+    'progress.subdividing': 'Subdivision du maillage\u2026',
+    'progress.refining': 'Affinage\u00a0: {cur} triangles, arête la plus longue {edge}',
+    'progress.applyingDisplacement': 'Application du déplacement à {n} triangles\u2026',
+    'progress.displacingVertices': 'Déplacement des sommets\u2026',
+    'progress.decimatingTo': 'Simplification de {from} \u2192 {to} triangles\u2026',
+    'progress.decimating': 'Simplification\u00a0: {cur} \u2192 {to} triangles',
+    'progress.writingStl': 'Écriture du STL\u2026',
+    'progress.done': 'Terminé\u00a0!',
+    'progress.processing': 'Traitement\u2026',
+
+    // License popup
+    'license.btn': 'Licence et conditions',
+    'license.title': 'Licence et conditions d\'utilisation',
+    'license.item1': 'Utilisation gratuite pour tout usage, y compris le <strong>travail commercial</strong> (ex.\u00a0: texturisation de STL pour des clients ou des produits).',
+    'license.item2': 'L\'attribution est <strong>appréciée</strong> mais <strong>non obligatoire</strong> lors de l\'utilisation de cet outil tel quel.',
+    'license.item3': 'Soutenir cet outil\u00a0? Achetez sur <a href="https://geni.us/CNCStoreTexture" target="_blank" rel="noopener">CNCKitchen.STORE</a> ou faites un don sur <a href="https://www.paypal.me/CNCKitchen" target="_blank" rel="noopener">PayPal</a>.',
+    'license.item4': 'Cet outil est fourni <strong>tel quel</strong> sans <strong>aucune garantie</strong> d\'aucune sorte. Utilisation à vos risques et périls.',
+    'license.item5': '<strong>Aucun support</strong> n\'est fourni. L\'auteur n\'a aucune obligation de corriger des bogues, de répondre à des questions ou de mettre à jour cet outil. Cela dit, les rapports de bogues et les demandes de fonctionnalités sont toujours les bienvenus à <a href="mailto:texturizer@cnckitchen.com">texturizer@cnckitchen.com</a>.',
+    'license.item6': 'L\'auteur ne saurait être tenu <strong>responsable</strong> d\'aucun dommage, perte de données ou problème découlant de l\'utilisation de cet outil.',
+    'license.item7': 'Vous souhaitez licencier ou intégrer cet outil pour votre entreprise ou site web\u00a0? Contactez-nous à <a href="mailto:contact@cnckitchen.com">contact@cnckitchen.com</a>.',
+    'license.item8': 'Code source disponible sur <a href="https://github.com/CNCKitchen/stlTexturizer" target="_blank" rel="noopener">GitHub</a>.',
+
+    // Imprint & Privacy
+    'imprint.btn': 'Mentions légales et confidentialité',
+    'imprint.title': 'Mentions légales et politique de confidentialité',
+    'imprint.sectionImprint': 'Mentions légales (Impressum)',
+    'imprint.info': 'CNC Kitchen<br>Stefan Hermann<br>Bahnhofstr. 2<br>88145 Hergatz<br>Allemagne',
+    'imprint.contact': 'E-mail\u00a0: <a href="mailto:contact@cnckitchen.com">contact@cnckitchen.com</a><br>Téléphone\u00a0: +49 175 2011824<br><em>Le numéro de téléphone est réservé aux demandes légales/commerciales — pas pour le support.</em>',
+    'imprint.odr': 'Plateforme de règlement des litiges en ligne de l\'UE\u00a0: <a href="https://ec.europa.eu/consumers/odr" target="_blank" rel="noopener">https://ec.europa.eu/consumers/odr</a>',
+    'imprint.sectionPrivacy': 'Politique de confidentialité (Datenschutzerklärung)',
+    'imprint.privacyIntro': '<strong>Responsable du traitement</strong> (Verantwortlicher gem. Art. 4 Abs. 7 DSGVO)\u00a0: Stefan Hermann, Bahnhofstr. 2, 88145 Hergatz, Allemagne.',
+    'imprint.privacyHosting': 'Ce site web est hébergé sur <strong>GitHub Pages</strong> (GitHub Inc. / Microsoft Corp., 88 Colin P Kelly Jr St, San Francisco, CA 94107, États-Unis). Lors de votre visite, GitHub peut traiter votre adresse IP dans les journaux du serveur. Base légale\u00a0: Art. 6(1)(f) RGPD (intérêt légitime à fournir le site web). Voir la <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">Déclaration de confidentialité de GitHub</a>.',
+    'imprint.privacyLocal': 'Cet outil stocke les préférences utilisateur (langue, thème) dans le <strong>localStorage</strong> de votre navigateur. Ces données ne quittent jamais votre appareil et ne sont pas transmises à un serveur.',
+    'imprint.privacyNoCookies': 'Ce site web n\'utilise <strong>pas</strong> de cookies, d\'outils d\'analyse ou de technologies de suivi.',
+    'imprint.privacyExternal': 'Ce site contient des liens vers des sites web externes (ex.\u00a0: CNCKitchen.STORE, PayPal). Ces sites ont leurs propres politiques de confidentialité, sur lesquelles nous n\'avons aucun contrôle.',
+    'imprint.privacyRights': 'En vertu du RGPD, vous avez le droit d\'<strong>accès, de rectification, d\'effacement, de limitation du traitement, de portabilité des données</strong> et le droit de <strong>déposer une plainte</strong> auprès d\'une autorité de contrôle.',
+
+    // Sponsor modal
+    'sponsor.title': 'Merci d\'utiliser BumpMesh de CNC Kitchen\u00a0!',
+    'sponsor.body': 'Cet outil est fourni <strong>entièrement gratuitement</strong> par CNC Kitchen.<br>Pendant que votre STL est en cours de traitement, pourquoi ne pas jeter un coup d\'œil à la boutique qui nous aide à continuer à créer des choses sympas pour vous\u00a0?',
+    'sponsor.visitStore': '\uD83D\uDED2 Visiter CNCKitchen.STORE',
+    'sponsor.donate': '\uD83D\uDC99 Faire un don sur PayPal',
+    'sponsor.dontShow': 'Ne plus afficher',
+    'sponsor.closeAndContinue': 'Fermer &amp; Continuer',
+
+    // Store CTA
+    'cta.store': 'Soutenir cet outil\u00a0? Visitez <a href="https://geni.us/CNCStoreTexture" target="_blank" rel="noopener">CNCKitchen.STORE</a> ou faites un don sur <a href="https://www.paypal.me/CNCKitchen" target="_blank" rel="noopener">PayPal</a>.',
+    'cta.storeDismiss': 'Fermer',
+
+    // Alerts
+    'alerts.loadFailed': 'Impossible de charger le modèle\u00a0: {msg}',
+    'alerts.exportFailed': 'Échec de l\'exportation\u00a0: {msg}',
+  },
+
   ja: {
     'lang.name': '日本語 (beta)',
     // Theme toggle
