@@ -200,46 +200,55 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   let falloffArr = null;
 
   if (boundaryFalloff > 0) {
-    const boundaryPositions = []; // [[x, y, z], ...]
-
-    // Collect boundary positions: vertices where maskedFrac is between 0 and 1,
-    // or that sit on the user-exclusion seam.
+    // Count boundary positions first, then allocate flat SoA arrays
+    let bpCount = 0;
+    for (let id = 0; id < uniqueCount; id++) {
+      const mfTotal = maskedFracTotal[id];
+      const maskedFrac = mfTotal > 0 ? maskedFracMasked[id] / mfTotal : 0;
+      const isOnExclBoundary = excludedPos && excludedPos[id] === 1;
+      if (isOnExclBoundary || (maskedFrac > 0 && maskedFrac < 1)) bpCount++;
+    }
+    const bpX = new Float64Array(bpCount);
+    const bpY = new Float64Array(bpCount);
+    const bpZ = new Float64Array(bpCount);
+    let bpIdx = 0;
     for (let id = 0; id < uniqueCount; id++) {
       const mfTotal = maskedFracTotal[id];
       const maskedFrac = mfTotal > 0 ? maskedFracMasked[id] / mfTotal : 0;
       const isOnExclBoundary = excludedPos && excludedPos[id] === 1;
       if (isOnExclBoundary || (maskedFrac > 0 && maskedFrac < 1)) {
-        boundaryPositions.push([_idPosX[id], _idPosY[id], _idPosZ[id]]);
+        bpX[bpIdx] = _idPosX[id]; bpY[bpIdx] = _idPosY[id]; bpZ[bpIdx] = _idPosZ[id];
+        bpIdx++;
       }
     }
 
-    if (boundaryPositions.length > 0) {
+    if (bpCount > 0) {
       // Build a spatial grid of boundary positions for fast nearest-neighbor lookup
       let gMinX = Infinity, gMinY = Infinity, gMinZ = Infinity;
       let gMaxX = -Infinity, gMaxY = -Infinity, gMaxZ = -Infinity;
-      for (const bp of boundaryPositions) {
-        if (bp[0] < gMinX) gMinX = bp[0]; if (bp[0] > gMaxX) gMaxX = bp[0];
-        if (bp[1] < gMinY) gMinY = bp[1]; if (bp[1] > gMaxY) gMaxY = bp[1];
-        if (bp[2] < gMinZ) gMinZ = bp[2]; if (bp[2] > gMaxZ) gMaxZ = bp[2];
+      for (let i = 0; i < bpCount; i++) {
+        if (bpX[i] < gMinX) gMinX = bpX[i]; if (bpX[i] > gMaxX) gMaxX = bpX[i];
+        if (bpY[i] < gMinY) gMinY = bpY[i]; if (bpY[i] > gMaxY) gMaxY = bpY[i];
+        if (bpZ[i] < gMinZ) gMinZ = bpZ[i]; if (bpZ[i] > gMaxZ) gMaxZ = bpZ[i];
       }
       const gPad = boundaryFalloff + 1e-3;
       gMinX -= gPad; gMinY -= gPad; gMinZ -= gPad;
       gMaxX += gPad; gMaxY += gPad; gMaxZ += gPad;
 
-      const gRes = Math.max(4, Math.min(128, Math.ceil(Math.cbrt(boundaryPositions.length) * 2)));
+      const gRes = Math.max(4, Math.min(128, Math.ceil(Math.cbrt(bpCount) * 2)));
       const gDx = (gMaxX - gMinX) / gRes || 1;
       const gDy = (gMaxY - gMinY) / gRes || 1;
       const gDz = (gMaxZ - gMinZ) / gRes || 1;
       const bGrid = new Map();
       const bCellKey = (ix, iy, iz) => (ix * gRes + iy) * gRes + iz;
 
-      for (const bp of boundaryPositions) {
-        const ix = Math.max(0, Math.min(gRes - 1, Math.floor((bp[0] - gMinX) / gDx)));
-        const iy = Math.max(0, Math.min(gRes - 1, Math.floor((bp[1] - gMinY) / gDy)));
-        const iz = Math.max(0, Math.min(gRes - 1, Math.floor((bp[2] - gMinZ) / gDz)));
+      for (let i = 0; i < bpCount; i++) {
+        const ix = Math.max(0, Math.min(gRes - 1, Math.floor((bpX[i] - gMinX) / gDx)));
+        const iy = Math.max(0, Math.min(gRes - 1, Math.floor((bpY[i] - gMinY) / gDy)));
+        const iz = Math.max(0, Math.min(gRes - 1, Math.floor((bpZ[i] - gMinZ) / gDz)));
         const ck = bCellKey(ix, iy, iz);
         const cell = bGrid.get(ck);
-        if (cell) cell.push(bp); else bGrid.set(ck, [bp]);
+        if (cell) cell.push(i); else bGrid.set(ck, [i]);
       }
 
       // How many grid cells to search in each direction to cover boundaryFalloff distance
@@ -273,8 +282,8 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
               if (niz < 0 || niz >= gRes) continue;
               const cell = bGrid.get(bCellKey(nix, niy, niz));
               if (!cell) continue;
-              for (const bp of cell) {
-                const dx = px - bp[0], dy = py - bp[1], dz = pz - bp[2];
+              for (const idx of cell) {
+                const dx = px - bpX[idx], dy = py - bpY[idx], dz = pz - bpZ[idx];
                 const d2 = dx * dx + dy * dy + dz * dz;
                 if (d2 < minDist2) minDist2 = d2;
               }
