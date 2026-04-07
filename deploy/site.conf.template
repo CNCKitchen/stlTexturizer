@@ -1,0 +1,34 @@
+server_tokens off;
+
+server {
+    listen 3000 default_server;
+    absolute_redirect off;
+    server_name _;
+    index index.html;
+    root ${SITE_ROOT};
+
+    gzip on;
+    gzip_static on;
+    gzip_disable msie6;
+    gzip_types text/plain text/css application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript application/javascript;
+
+    location /health {
+        return 200;
+        access_log off;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|webm|webp|svg|ico|woff|woff2|ttf)$ {
+        expires 30d;
+        log_not_found off;
+    }
+
+    location / {
+        try_files $uri $uri.html $uri/ =404;
+    }
+
+    error_page 404 /404.html;
+
+    location = /404.html {
+        internal;
+    }
+}
