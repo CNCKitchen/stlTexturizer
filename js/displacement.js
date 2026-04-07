@@ -239,7 +239,8 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
       const gDx = (gMaxX - gMinX) / gRes || 1;
       const gDy = (gMaxY - gMinY) / gRes || 1;
       const gDz = (gMaxZ - gMinZ) / gRes || 1;
-      const bGrid = new Map();
+      const gridSize = gRes * gRes * gRes;
+      const bGrid = new Array(gridSize);
       const bCellKey = (ix, iy, iz) => (ix * gRes + iy) * gRes + iz;
 
       for (let i = 0; i < bpCount; i++) {
@@ -247,8 +248,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
         const iy = Math.max(0, Math.min(gRes - 1, Math.floor((bpY[i] - gMinY) / gDy)));
         const iz = Math.max(0, Math.min(gRes - 1, Math.floor((bpZ[i] - gMinZ) / gDz)));
         const ck = bCellKey(ix, iy, iz);
-        const cell = bGrid.get(ck);
-        if (cell) cell.push(i); else bGrid.set(ck, [i]);
+        if (bGrid[ck]) bGrid[ck].push(i); else bGrid[ck] = [i];
       }
 
       // How many grid cells to search in each direction to cover boundaryFalloff distance
@@ -280,7 +280,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
             for (let diz = -searchZ; diz <= searchZ; diz++) {
               const niz = ciz + diz;
               if (niz < 0 || niz >= gRes) continue;
-              const cell = bGrid.get(bCellKey(nix, niy, niz));
+              const cell = bGrid[bCellKey(nix, niy, niz)];
               if (!cell) continue;
               for (const idx of cell) {
                 const dx = px - bpX[idx], dy = py - bpY[idx], dz = pz - bpZ[idx];
