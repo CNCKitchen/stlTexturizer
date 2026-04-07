@@ -2010,9 +2010,11 @@ function computeBoundaryEdges(geometry, userMaskArr, precomputedMask) {
   const triCount = posCount / 3;
   const falloff = settings.boundaryFalloff ?? 0;
 
-  if (_boundaryEdgeTex) { _boundaryEdgeTex.dispose(); _boundaryEdgeTex = null; }
   _boundaryEdgeCount = 0;
-  if (falloff <= 0) return;
+  if (falloff <= 0) {
+    if (_boundaryEdgeTex) { _boundaryEdgeTex.dispose(); _boundaryEdgeTex = null; }
+    return;
+  }
 
   // Use precomputed or compute per-face mask
   const { faceMask } = precomputedMask || _computeFaceMask(geometry, userMaskArr);
@@ -2071,10 +2073,16 @@ function computeBoundaryEdges(geometry, userMaskArr, precomputedMask) {
     data[off + 4] = idPosX[bId]; data[off + 5] = idPosY[bId]; data[off + 6] = idPosZ[bId]; data[off + 7] = 0;
   }
 
-  _boundaryEdgeTex = new THREE.DataTexture(data, texWidth, 1, THREE.RGBAFormat, THREE.FloatType);
-  _boundaryEdgeTex.minFilter = THREE.NearestFilter;
-  _boundaryEdgeTex.magFilter = THREE.NearestFilter;
-  _boundaryEdgeTex.needsUpdate = true;
+  if (_boundaryEdgeTex && _boundaryEdgeTex.image.width >= texWidth) {
+    _boundaryEdgeTex.image.data.set(data);
+    _boundaryEdgeTex.needsUpdate = true;
+  } else {
+    if (_boundaryEdgeTex) _boundaryEdgeTex.dispose();
+    _boundaryEdgeTex = new THREE.DataTexture(data, texWidth, 1, THREE.RGBAFormat, THREE.FloatType);
+    _boundaryEdgeTex.minFilter = THREE.NearestFilter;
+    _boundaryEdgeTex.magFilter = THREE.NearestFilter;
+    _boundaryEdgeTex.needsUpdate = true;
+  }
   _boundaryEdgeCount = edges.length;
 }
 
