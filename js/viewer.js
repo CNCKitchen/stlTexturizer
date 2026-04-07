@@ -11,6 +11,13 @@ const _tmpV1 = new THREE.Vector3();
 const _tmpV2 = new THREE.Vector3();
 const _tmpV3 = new THREE.Vector3();
 const _tmpV4 = new THREE.Vector3();
+const _tmpV5 = new THREE.Vector3();
+const _tmpV6 = new THREE.Vector3();
+const _tmpPlane = new THREE.Plane();
+const _tmpRay1 = new THREE.Ray();
+const _tmpRay2 = new THREE.Ray();
+const _tmpNdc = new THREE.Vector2();
+const _tmpSize = new THREE.Vector2();
 
 let renderer, orthoCamera, perspCamera, camera, scene, controls, meshGroup, ambientLight, dirLight1, dirLight2, grid;
 let _isPerspective = false;
@@ -225,10 +232,11 @@ export function initViewer(canvas) {
     if (e.button !== 0 || !controls.enabled) return;
     if (!currentMesh) return;
     const rect = renderer.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
+    _tmpNdc.set(
       ((e.clientX - rect.left) / rect.width)  *  2 - 1,
       ((e.clientY - rect.top)  / rect.height) * -2 + 1,
     );
+    const ndc = _tmpNdc;
     _orbitRaycaster.setFromCamera(ndc, camera);
     const hits = _orbitRaycaster.intersectObject(currentMesh);
     if (hits.length) {
@@ -334,16 +342,13 @@ export function initViewer(canvas) {
     if (_isPerspective) {
       // Pan on the plane through controls.target perpendicular to the view direction
       const camDir = _tmpV1.copy(controls.target).sub(camera.position).normalize();
-      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camDir, controls.target);
-      const ray1 = new THREE.Ray();
-      const ray2 = new THREE.Ray();
+      _tmpPlane.setFromNormalAndCoplanarPoint(camDir, controls.target);
       _tmpV2.set(prevNdcX, prevNdcY, 0.5).unproject(camera);
-      ray1.set(camera.position, _tmpV2.sub(camera.position).normalize());
+      _tmpRay1.set(camera.position, _tmpV2.sub(camera.position).normalize());
       _tmpV3.set(curNdcX, curNdcY, 0.5).unproject(camera);
-      ray2.set(camera.position, _tmpV3.sub(camera.position).normalize());
-      const p1 = new THREE.Vector3(), p2 = new THREE.Vector3();
-      if (ray1.intersectPlane(plane, p1) && ray2.intersectPlane(plane, p2)) {
-        _tmpV4.subVectors(p1, p2);
+      _tmpRay2.set(camera.position, _tmpV3.sub(camera.position).normalize());
+      if (_tmpRay1.intersectPlane(_tmpPlane, _tmpV5) && _tmpRay2.intersectPlane(_tmpPlane, _tmpV6)) {
+        _tmpV4.subVectors(_tmpV5, _tmpV6);
         camera.position.add(_tmpV4);
         controls.target.add(_tmpV4);
       }
