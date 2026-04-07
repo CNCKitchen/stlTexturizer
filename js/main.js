@@ -506,6 +506,8 @@ function wireEvents() {
       scaleVSlider.value = scaleToPos(settings.scaleU);
       scaleVVal.value = settings.scaleU;
       updatePreview();
+    } else {
+      _saveToLocalStorage();
     }
   });
 
@@ -1438,6 +1440,8 @@ function linkSlider(slider, valInput, onChangeFn, livePreview = true) {
     if (livePreview) {
       clearTimeout(previewDebounce);
       previewDebounce = setTimeout(updatePreview, 80);
+    } else {
+      _saveToLocalStorage();
     }
   });
   // Double-click resets to default value
@@ -1449,6 +1453,8 @@ function linkSlider(slider, valInput, onChangeFn, livePreview = true) {
     if (livePreview) {
       clearTimeout(previewDebounce);
       previewDebounce = setTimeout(updatePreview, 80);
+    } else {
+      _saveToLocalStorage();
     }
   });
   if (!isSpan) {
@@ -2932,10 +2938,11 @@ exportGoBtn.addEventListener('click', async () => {
   const includeModel = exportModelChk.checked && currentGeometry;
   const includeTexture = exportTextureChk.checked && activeMapEntry && activeMapEntry.isCustom;
 
+  const { useDisplacement: _, ...persistSettings } = settings;
   const data = {
     version: 1,
     texture: activeMapEntry ? activeMapEntry.name : null,
-    settings: { ...settings },
+    settings: persistSettings,
   };
 
   const zipFiles = {};
@@ -2998,41 +3005,44 @@ importInput.addEventListener('change', async (e) => {
 });
 
 async function importBumpmesh(file) {
+  const MAX_IMPORT_SIZE = 500 * 1024 * 1024; // 500 MB
+  if (file.size > MAX_IMPORT_SIZE) {
+    alert(t('alerts.importFailed', { msg: `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB)` }));
+    return;
+  }
+
   const buf = await file.arrayBuffer();
   const unzipped = unzipSync(new Uint8Array(buf));
 
-  // 1. Settings
-  if (unzipped['settings.json']) {
-    const json = JSON.parse(strFromU8(unzipped['settings.json']));
-    if (json.settings) {
-      // Apply settings to sliders/controls
-      for (const [key, value] of Object.entries(json.settings)) {
-        if (key in settings) settings[key] = value;
-      }
-      // Update all UI elements to reflect new settings
-      _syncUIFromSettings();
-    }
-    // Select texture preset if it matches
-    if (json.texture && !unzipped['texture.png']) {
-      _selectPresetByName(json.texture);
-    }
-  }
+  const json = unzipped['settings.json']
+    ? JSON.parse(strFromU8(unzipped['settings.json']))
+    : null;
 
-  // 2. Model
+  // 1. Model first (handleModelFile resets some settings)
   if (unzipped['model.stl']) {
     const stlBlob = new Blob([unzipped['model.stl']], { type: 'application/octet-stream' });
     const stlFile = new File([stlBlob], 'model.stl');
     await handleModelFile(stlFile);
   }
 
-  // 3. Custom texture
+  // 2. Settings after model load (overrides any resets from handleModelFile)
+  if (json && json.settings) {
+    for (const [key, value] of Object.entries(json.settings)) {
+      if (key === 'useDisplacement') continue;
+      if (key in settings) settings[key] = value;
+    }
+    _syncUIFromSettings();
+  }
+
+  // 3. Texture preset or custom texture
   if (unzipped['texture.png']) {
     const texBlob = new Blob([unzipped['texture.png']], { type: 'image/png' });
     const texFile = new File([texBlob], 'custom-texture.png');
     activeMapEntry = await loadCustomTexture(texFile);
     activeMapEntry.isCustom = true;
-    // Update preview
     updatePreview();
+  } else if (json && json.texture) {
+    _selectPresetByName(json.texture);
   }
 }
 
@@ -3062,6 +3072,7 @@ function _syncUIFromSettings() {
     'seam-band-width': 'seamBandWidth',
     'texture-smoothing': 'textureSmoothing',
     'cap-angle': 'capAngle',
+    'boundary-falloff': 'boundaryFalloff',
   };
   for (const [sliderId, settingKey] of Object.entries(sliderMap)) {
     const slider = document.getElementById(sliderId);
@@ -3104,10 +3115,11 @@ function _selectPresetByName(name) {
 const STORAGE_KEY = 'bumpmesh-settings';
 
 function _saveToLocalStorage() {
+  const { useDisplacement: _, ...persistSettings } = settings;
   const data = {
     version: 1,
     texture: activeMapEntry ? activeMapEntry.name : null,
-    settings: { ...settings },
+    settings: persistSettings,
   };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) { /* quota exceeded, ignore */ }
 }
