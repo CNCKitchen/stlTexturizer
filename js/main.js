@@ -287,10 +287,10 @@ setViewerTheme(document.documentElement.getAttribute('data-theme') === 'light');
 function populateLanguageSelector() {
   if (!languageSelector) return;
   languageSelector.innerHTML = '';
-  
+
   const select = document.createElement('select');
   select.className = 'lang-dropdown';
-  
+
   for (const langKey in TRANSLATIONS) {
     const opt = document.createElement('option');
     opt.value = langKey;
@@ -298,17 +298,21 @@ function populateLanguageSelector() {
     opt.textContent = TRANSLATIONS[langKey]['lang.name'] || langKey.toUpperCase();
     select.appendChild(opt);
   }
-  
-  select.addEventListener('change', (e) => {
-    setLang(e.target.value);
+
+  select.addEventListener('change', async (e) => {
+    await setLang(e.target.value);
+
     // Re-translate <option> elements (innerHTML won't reach these)
-    document.querySelectorAll('select[id="mapping-mode"] option[data-i18n-opt]').forEach(opt => {
+    document.querySelectorAll('#mapping-mode option[data-i18n-opt]').forEach(opt => {
       opt.textContent = t(opt.dataset.i18nOpt);
     });
+
     // Refresh dynamic count text to current language
-    if (currentGeometry) refreshExclusionOverlay();
+    if (currentGeometry) {
+      refreshExclusionOverlay();
+    }
   });
-  
+
   languageSelector.appendChild(select);
 }
 populateLanguageSelector();
