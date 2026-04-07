@@ -101,7 +101,11 @@ export function loadCustomTexture(file) {
       const texture   = new THREE.CanvasTexture(canvas);
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.name = file.name;
-      resolve({ name: file.name, fullCanvas: canvas, texture, imageData, width: w, height: h });
+
+      const thumb = makeCanvas(THUMB);
+      drawCover(thumb.getContext('2d'), img, THUMB);
+
+      resolve({ name: file.name, thumbCanvas: thumb, fullCanvas: canvas, texture, imageData, width: w, height: h, isCustom: true });
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Failed to load image')); };
     img.src = url;
