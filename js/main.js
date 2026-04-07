@@ -29,6 +29,11 @@ let _boundaryEdgeTex   = null;
 let _boundaryEdgeCount = 0;
 let _falloffDirty      = true;   // recompute falloff on next updateFaceMask
 let _falloffGeometry   = null;   // geometry the falloff was last computed for
+let _falloffVtxId      = null;   // Uint32Array: per-vertex unique ID from dedup
+let _falloffIdPosX     = null;   // Float64Array: X position per unique ID
+let _falloffIdPosY     = null;   // Float64Array: Y position per unique ID
+let _falloffIdPosZ     = null;   // Float64Array: Z position per unique ID
+let _falloffUniqueCount = 0;     // number of unique vertex positions
 
 // ── Exclusion state ───────────────────────────────────────────────────────────
 let excludedFaces      = new Set();   // triangle indices in currentGeometry
@@ -1733,13 +1738,50 @@ function updateFaceMask(geometry) {
   // actively masking; both will be recalculated when the masking tool is
   // deactivated (in setExclusionTool → updateFaceMask with exclusionTool=null).
   if (!exclusionTool && (_falloffDirty || geometry !== _falloffGeometry)) {
-    computeBoundaryFalloffAttr(geometry, maskArr);
-    computeBoundaryEdges(geometry, maskArr);
+    const mask = _computeFaceMask(geometry, maskArr);
+    computeBoundaryFalloffAttr(geometry, maskArr, mask);
+    computeBoundaryEdges(geometry, maskArr, mask);
     _falloffDirty = false;
     _falloffGeometry = geometry;
   }
   syncBoundaryEdgeUniforms();
   requestRender();
+}
+
+/**
+ * Compute per-face combined mask (angle masking + user exclusion).
+ * Mirrors the vertex shader logic so the preview boundary matches export.
+ *
+ * @param {THREE.BufferGeometry} geometry
+ * @param {Float32Array}         userMaskArr – per-vertex user-exclusion mask
+ * @returns {{ faceMask: Float32Array, isUserMasked: Uint8Array }}
+ */
+function _computeFaceMask(geometry, userMaskArr) {
+  const posAttr = geometry.attributes.position;
+  const triCount = posAttr.count / 3;
+  const faceNrmAttr = geometry.attributes.faceNormal;
+  const faceMask = new Float32Array(triCount); // 0 = masked, 1 = textured
+  const isUserMasked = new Uint8Array(triCount); // 1 if user-excluded
+  for (let t = 0; t < triCount; t++) {
+    const userVal = userMaskArr[t * 3]; // same for all 3 verts of this face
+    if (userVal < 0.5) { faceMask[t] = 0; isUserMasked[t] = 1; continue; }
+
+    let angleMask = 1.0;
+    if (faceNrmAttr) {
+      const fnx = faceNrmAttr.getX(t * 3);
+      const fny = faceNrmAttr.getY(t * 3);
+      const fnz = faceNrmAttr.getZ(t * 3);
+      const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz);
+      const nz = len > 1e-6 ? fnz / len : 0;
+      const surfaceAngle = Math.acos(Math.min(1, Math.abs(nz))) * (180 / Math.PI);
+      if (nz < 0 && settings.bottomAngleLimit >= 1)
+        angleMask = surfaceAngle > settings.bottomAngleLimit ? 1.0 : 0.0;
+      if (nz >= 0 && settings.topAngleLimit >= 1)
+        angleMask = Math.min(angleMask, surfaceAngle > settings.topAngleLimit ? 1.0 : 0.0);
+    }
+    faceMask[t] = angleMask;
+  }
+  return { faceMask, isUserMasked };
 }
 
 /**
@@ -1750,8 +1792,9 @@ function updateFaceMask(geometry) {
  *
  * @param {THREE.BufferGeometry} geometry
  * @param {Float32Array}         userMaskArr – per-vertex user-exclusion mask from updateFaceMask
+ * @param {{ faceMask: Float32Array, isUserMasked: Uint8Array }} [precomputedMask] – optional precomputed mask
  */
-function computeBoundaryFalloffAttr(geometry, userMaskArr) {
+function computeBoundaryFalloffAttr(geometry, userMaskArr, precomputedMask) {
   const posAttr = geometry.attributes.position;
   const posCount = posAttr.count;
   const triCount = posCount / 3;
@@ -1778,30 +1821,8 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
     return;
   }
 
-  // Compute per-face combined mask (angle masking + user exclusion).
-  // Mirrors the vertex shader logic so the preview boundary matches export.
-  const faceNrmAttr = geometry.attributes.faceNormal;
-  const faceMask = new Float32Array(triCount); // 0 = masked, 1 = textured
-  const isUserMasked = new Uint8Array(triCount); // 1 if user-excluded
-  for (let t = 0; t < triCount; t++) {
-    const userVal = userMaskArr[t * 3]; // same for all 3 verts of this face
-    if (userVal < 0.5) { faceMask[t] = 0; isUserMasked[t] = 1; continue; }
-
-    let angleMask = 1.0;
-    if (faceNrmAttr) {
-      const fnz = faceNrmAttr.getZ(t * 3);
-      const fnx = faceNrmAttr.getX(t * 3);
-      const fny = faceNrmAttr.getY(t * 3);
-      const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz);
-      const nz = len > 1e-6 ? fnz / len : 0;
-      const surfaceAngle = Math.acos(Math.min(1, Math.abs(nz))) * (180 / Math.PI);
-      if (nz < 0 && settings.bottomAngleLimit >= 1)
-        angleMask = surfaceAngle > settings.bottomAngleLimit ? 1.0 : 0.0;
-      if (nz >= 0 && settings.topAngleLimit >= 1)
-        angleMask = Math.min(angleMask, surfaceAngle > settings.topAngleLimit ? 1.0 : 0.0);
-    }
-    faceMask[t] = angleMask;
-  }
+  // Use precomputed or compute per-face combined mask (angle masking + user exclusion).
+  const { faceMask, isUserMasked } = precomputedMask || _computeFaceMask(geometry, userMaskArr);
 
   // Build per-unique-position map and identify boundary positions.
   const QUANT = 1e4;
@@ -1967,7 +1988,7 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
  * bump-only preview shader.  Each edge is stored as two RGBA texels
  * (endpoint A xyz, endpoint B xyz).
  */
-function computeBoundaryEdges(geometry, userMaskArr) {
+function computeBoundaryEdges(geometry, userMaskArr, precomputedMask) {
   const posAttr = geometry.attributes.position;
   const posCount = posAttr.count;
   const triCount = posCount / 3;
@@ -1977,24 +1998,11 @@ function computeBoundaryEdges(geometry, userMaskArr) {
   _boundaryEdgeCount = 0;
   if (falloff <= 0) return;
 
-  const faceNrmAttr = geometry.attributes.faceNormal;
+  // Use precomputed or compute per-face mask
+  const { faceMask } = precomputedMask || _computeFaceMask(geometry, userMaskArr);
   const faceMaskBool = new Uint8Array(triCount);
   for (let t = 0; t < triCount; t++) {
-    if (userMaskArr[t * 3] < 0.5) { faceMaskBool[t] = 0; continue; }
-    let angleMask = 1.0;
-    if (faceNrmAttr) {
-      const fnx = faceNrmAttr.getX(t * 3);
-      const fny = faceNrmAttr.getY(t * 3);
-      const fnz = faceNrmAttr.getZ(t * 3);
-      const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz);
-      const nz = len > 1e-6 ? fnz / len : 0;
-      const surfAngle = Math.acos(Math.min(1, Math.abs(nz))) * (180 / Math.PI);
-      if (nz < 0 && settings.bottomAngleLimit >= 1)
-        angleMask = surfAngle > settings.bottomAngleLimit ? 1.0 : 0.0;
-      if (nz >= 0 && settings.topAngleLimit >= 1)
-        angleMask = Math.min(angleMask, surfAngle > settings.topAngleLimit ? 1.0 : 0.0);
-    }
-    faceMaskBool[t] = angleMask > 0.5 ? 1 : 0;
+    faceMaskBool[t] = faceMask[t] > 0.5 ? 1 : 0;
   }
 
   const QUANT = 1e4;
