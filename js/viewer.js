@@ -217,7 +217,8 @@ export function initViewer(canvas) {
   const _orbitRaycaster = new THREE.Raycaster();
   let _customPivot     = null;   // active pivot for the current drag
   let _lastKnownPivot  = null;   // persists between drags as fallback
-  let _lastPointer     = null;
+  const _lastPointer   = { x: 0, y: 0 };
+  let _pointerActive   = false;
 
   // Small red sphere shown at the orbit centre during a drag
   const _pivotMarker = new THREE.Mesh(
@@ -247,7 +248,9 @@ export function initViewer(canvas) {
     } else {
       return; // no pivot available yet, fall back to OrbitControls default
     }
-    _lastPointer = { x: e.clientX, y: e.clientY };
+    _lastPointer.x = e.clientX;
+    _lastPointer.y = e.clientY;
+    _pointerActive = true;
     controls.enableRotate = false;   // we'll rotate manually
 
     // Show marker, sized as ~1.5 % of the visible frustum height
@@ -261,10 +264,11 @@ export function initViewer(canvas) {
   });
 
   document.addEventListener('pointermove', (e) => {
-    if (!_customPivot || !_lastPointer || !controls.enabled) return;
+    if (!_customPivot || !_pointerActive || !controls.enabled) return;
     const dx = e.clientX - _lastPointer.x;
     const dy = e.clientY - _lastPointer.y;
-    _lastPointer = { x: e.clientX, y: e.clientY };
+    _lastPointer.x = e.clientX;
+    _lastPointer.y = e.clientY;
     if (dx === 0 && dy === 0) return;
 
     const rotSpeed = 0.005;
@@ -298,7 +302,7 @@ export function initViewer(canvas) {
   document.addEventListener('pointerup', () => {
     if (_customPivot) {
       _customPivot  = null;
-      _lastPointer  = null;
+      _pointerActive = false;
       controls.enableRotate = true;
       // Re-sync up vector for OrbitControls
       camera.up.set(0, 0, 1);
@@ -310,20 +314,23 @@ export function initViewer(canvas) {
 
   // Pinch-to-zoom + two-finger pan for touch devices
   let _pinchDist = null;
-  let _pinchMid  = null;  // { x, y } client coords of two-finger midpoint
+  const _pinchMid = { x: 0, y: 0 };  // client coords of two-finger midpoint
+  let _pinchActive = false;
 
   renderer.domElement.addEventListener('touchstart', (e) => {
     if (e.touches.length === 2) {
       const t0 = e.touches[0], t1 = e.touches[1];
       _pinchDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-      _pinchMid  = { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
+      _pinchMid.x = (t0.clientX + t1.clientX) / 2;
+      _pinchMid.y = (t0.clientY + t1.clientY) / 2;
+      _pinchActive = true;
       controls.enabled = false;  // suppress OrbitControls during two-finger gesture
       e.preventDefault();
     }
   }, { passive: false });
 
   renderer.domElement.addEventListener('touchmove', (e) => {
-    if (e.touches.length !== 2 || _pinchDist === null) return;
+    if (e.touches.length !== 2 || !_pinchActive) return;
     e.preventDefault();
     const t0 = e.touches[0], t1 = e.touches[1];
     const rect = renderer.domElement.getBoundingClientRect();
@@ -380,7 +387,8 @@ export function initViewer(canvas) {
     }
 
     _pinchDist = newDist;
-    _pinchMid  = { x: midX, y: midY };
+    _pinchMid.x = midX;
+    _pinchMid.y = midY;
     controls.update();
     _needsRender = true;
   }, { passive: false });
@@ -388,7 +396,7 @@ export function initViewer(canvas) {
   renderer.domElement.addEventListener('touchend', (e) => {
     if (e.touches.length < 2) {
       _pinchDist = null;
-      _pinchMid  = null;
+      _pinchActive = false;
       controls.enabled = true;
     }
   });
@@ -586,7 +594,7 @@ export function setMeshGeometry(geometry) {
 export function getGrid() { return grid; }
 
 function fitCamera(sphere) {
-  const sz = renderer.getSize(new THREE.Vector2());
+  const sz = renderer.getSize(_tmpSize);
   const aspect = sz.x / sz.y;
   const halfH = sphere.radius * 1.4;
 
@@ -607,7 +615,7 @@ function fitCamera(sphere) {
   perspCamera.updateProjectionMatrix();
 
   // Isometric-ish view from front-right-above in Z-up space
-  const dir = new THREE.Vector3(0.6, -1.2, 0.8).normalize();
+  const dir = _tmpV5.set(0.6, -1.2, 0.8).normalize();
   controls.target.copy(sphere.center);
 
   // Ortho: position doesn't affect rendered size, just direction
@@ -655,13 +663,13 @@ export function setProjection(perspective) {
     const halfH = orthoCamera.top / orthoCamera.zoom;
     const fovRad = THREE.MathUtils.degToRad(perspCamera.fov / 2);
     const dist = halfH / Math.tan(fovRad);
-    const dir = new THREE.Vector3().subVectors(oldCam.position, controls.target).normalize();
+    const dir = _tmpV5.subVectors(oldCam.position, controls.target).normalize();
     newCam.position.copy(controls.target).addScaledVector(dir, dist);
   }
 
   camera = newCam;
   controls.object = camera;
-  const sz = renderer.getSize(new THREE.Vector2());
+  const sz = renderer.getSize(_tmpSize);
   const aspect = sz.x / sz.y;
   if (perspective) {
     perspCamera.aspect = aspect;
@@ -677,13 +685,13 @@ export function setProjection(perspective) {
 }
 
 export function setSceneBackground(hexColor) {
-  if (scene) scene.background = new THREE.Color(hexColor);
+  if (scene) scene.background.set(hexColor);
   requestRender();
 }
 
 export function setViewerTheme(isLight) {
   if (!scene) return;
-  scene.background = new THREE.Color(isLight ? 0xf0f0f5 : 0x111114);
+  scene.background.set(isLight ? 0xf0f0f5 : 0x111114);
   const savedZ = grid ? grid.position.z : 0;
   if (grid) {
     scene.remove(grid);
