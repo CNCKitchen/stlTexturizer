@@ -8,6 +8,15 @@ A browser-based tool for applying surface displacement textures to 3D meshes —
 
 Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a new displaced STL ready for slicing.
 
+## Recent Updates
+
+- Smooth masking borders
+- New languages: Italian, Spanish, Portuguese, Japanese, French
+- 2–3× speed improvement
+- 3MF export
+- Mouse-wheel fine tuning of values
+- Quality of life improvements
+
 ## Features
 
 ### Textures
