@@ -29,6 +29,11 @@ let _boundaryEdgeTex   = null;
 let _boundaryEdgeCount = 0;
 let _falloffDirty      = true;   // recompute falloff on next updateFaceMask
 let _falloffGeometry   = null;   // geometry the falloff was last computed for
+let _falloffVtxId      = null;   // Uint32Array: per-vertex unique ID from dedup
+let _falloffIdPosX     = null;   // Float64Array: X position per unique ID
+let _falloffIdPosY     = null;   // Float64Array: Y position per unique ID
+let _falloffIdPosZ     = null;   // Float64Array: Z position per unique ID
+let _falloffUniqueCount = 0;     // number of unique vertex positions
 
 // ── Exclusion state ───────────────────────────────────────────────────────────
 let excludedFaces      = new Set();   // triangle indices in currentGeometry
@@ -1925,13 +1930,50 @@ function updateFaceMask(geometry) {
   // actively masking; both will be recalculated when the masking tool is
   // deactivated (in setExclusionTool → updateFaceMask with exclusionTool=null).
   if (!exclusionTool && (_falloffDirty || geometry !== _falloffGeometry)) {
-    computeBoundaryFalloffAttr(geometry, maskArr);
-    computeBoundaryEdges(geometry, maskArr);
+    const mask = _computeFaceMask(geometry, maskArr);
+    computeBoundaryFalloffAttr(geometry, maskArr, mask);
+    computeBoundaryEdges(geometry, maskArr, mask);
     _falloffDirty = false;
     _falloffGeometry = geometry;
   }
   syncBoundaryEdgeUniforms();
   requestRender();
+}
+
+/**
+ * Compute per-face combined mask (angle masking + user exclusion).
+ * Mirrors the vertex shader logic so the preview boundary matches export.
+ *
+ * @param {THREE.BufferGeometry} geometry
+ * @param {Float32Array}         userMaskArr – per-vertex user-exclusion mask
+ * @returns {{ faceMask: Float32Array, isUserMasked: Uint8Array }}
+ */
+function _computeFaceMask(geometry, userMaskArr) {
+  const posAttr = geometry.attributes.position;
+  const triCount = posAttr.count / 3;
+  const faceNrmAttr = geometry.attributes.faceNormal;
+  const faceMask = new Float32Array(triCount); // 0 = masked, 1 = textured
+  const isUserMasked = new Uint8Array(triCount); // 1 if user-excluded
+  for (let t = 0; t < triCount; t++) {
+    const userVal = userMaskArr[t * 3]; // same for all 3 verts of this face
+    if (userVal < 0.5) { faceMask[t] = 0; isUserMasked[t] = 1; continue; }
+
+    let angleMask = 1.0;
+    if (faceNrmAttr) {
+      const fnx = faceNrmAttr.getX(t * 3);
+      const fny = faceNrmAttr.getY(t * 3);
+      const fnz = faceNrmAttr.getZ(t * 3);
+      const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz);
+      const nz = len > 1e-6 ? fnz / len : 0;
+      const surfaceAngle = Math.acos(Math.min(1, Math.abs(nz))) * (180 / Math.PI);
+      if (nz < 0 && settings.bottomAngleLimit >= 1)
+        angleMask = surfaceAngle > settings.bottomAngleLimit ? 1.0 : 0.0;
+      if (nz >= 0 && settings.topAngleLimit >= 1)
+        angleMask = Math.min(angleMask, surfaceAngle > settings.topAngleLimit ? 1.0 : 0.0);
+    }
+    faceMask[t] = angleMask;
+  }
+  return { faceMask, isUserMasked };
 }
 
 /**
@@ -1942,8 +1984,9 @@ function updateFaceMask(geometry) {
  *
  * @param {THREE.BufferGeometry} geometry
  * @param {Float32Array}         userMaskArr – per-vertex user-exclusion mask from updateFaceMask
+ * @param {{ faceMask: Float32Array, isUserMasked: Uint8Array }} [precomputedMask] – optional precomputed mask
  */
-function computeBoundaryFalloffAttr(geometry, userMaskArr) {
+function computeBoundaryFalloffAttr(geometry, userMaskArr, precomputedMask) {
   const posAttr = geometry.attributes.position;
   const posCount = posAttr.count;
   const triCount = posCount / 3;
@@ -1970,41 +2013,40 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
     return;
   }
 
-  // Compute per-face combined mask (angle masking + user exclusion).
-  // Mirrors the vertex shader logic so the preview boundary matches export.
-  const faceNrmAttr = geometry.attributes.faceNormal;
-  const faceMask = new Float32Array(triCount); // 0 = masked, 1 = textured
-  const isUserMasked = new Uint8Array(triCount); // 1 if user-excluded
-  for (let t = 0; t < triCount; t++) {
-    const userVal = userMaskArr[t * 3]; // same for all 3 verts of this face
-    if (userVal < 0.5) { faceMask[t] = 0; isUserMasked[t] = 1; continue; }
+  // Use precomputed or compute per-face combined mask (angle masking + user exclusion).
+  const { faceMask, isUserMasked } = precomputedMask || _computeFaceMask(geometry, userMaskArr);
 
-    let angleMask = 1.0;
-    if (faceNrmAttr) {
-      const fnz = faceNrmAttr.getZ(t * 3);
-      const fnx = faceNrmAttr.getX(t * 3);
-      const fny = faceNrmAttr.getY(t * 3);
-      const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz);
-      const nz = len > 1e-6 ? fnz / len : 0;
-      const surfaceAngle = Math.acos(Math.min(1, Math.abs(nz))) * (180 / Math.PI);
-      if (nz < 0 && settings.bottomAngleLimit >= 1)
-        angleMask = surfaceAngle > settings.bottomAngleLimit ? 1.0 : 0.0;
-      if (nz >= 0 && settings.topAngleLimit >= 1)
-        angleMask = Math.min(angleMask, surfaceAngle > settings.topAngleLimit ? 1.0 : 0.0);
-    }
-    faceMask[t] = angleMask;
-  }
-
-  // Build per-unique-position map and identify boundary positions.
+  // Dedup pass: quantised string key only for dedup, then numeric ID for everything.
   const QUANT = 1e4;
-  const posKey = (x, y, z) =>
-    `${Math.round(x * QUANT)}_${Math.round(y * QUANT)}_${Math.round(z * QUANT)}`;
-
-  const posFromKey = new Map();  // posKey → [x, y, z]
-  // Per-position: [maskedArea, totalArea] to find boundary vertices
-  const maskFracMap = new Map();
-  const userMaskAreaMap = new Map(); // posKey → area of user-masked faces
+  const dedupMap = new Map();
+  let nextId = 0;
+  const vtxId = new Uint32Array(triCount * 3);
+  const idPosX = [], idPosY = [], idPosZ = [];
   const tmpV = new THREE.Vector3();
+  for (let t = 0; t < triCount; t++) {
+    for (let v = 0; v < 3; v++) {
+      const vi = t * 3 + v;
+      tmpV.fromBufferAttribute(posAttr, vi);
+      const key = `${Math.round(tmpV.x * QUANT)}_${Math.round(tmpV.y * QUANT)}_${Math.round(tmpV.z * QUANT)}`;
+      let id = dedupMap.get(key);
+      if (id === undefined) { id = nextId++; dedupMap.set(key, id); idPosX.push(tmpV.x); idPosY.push(tmpV.y); idPosZ.push(tmpV.z); }
+      vtxId[vi] = id;
+    }
+  }
+  const uniqueCount = nextId;
+  dedupMap.clear(); // free string keys early
+
+  // Store dedup results for computeBoundaryEdges reuse
+  _falloffVtxId = vtxId;
+  _falloffIdPosX = idPosX;
+  _falloffIdPosY = idPosY;
+  _falloffIdPosZ = idPosZ;
+  _falloffUniqueCount = uniqueCount;
+
+  // Per-unique-ID accumulators (flat TypedArrays instead of Maps)
+  const maskFracMasked = new Float64Array(uniqueCount); // masked area
+  const maskFracTotal  = new Float64Array(uniqueCount); // total area
+  const isUserMaskedId = new Uint8Array(uniqueCount);   // has user-masked faces
   const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
   const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), fn = new THREE.Vector3();
 
@@ -2019,37 +2061,26 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
     const masked = faceMask[t] < 0.5;
 
     for (let v = 0; v < 3; v++) {
-      tmpV.fromBufferAttribute(posAttr, t * 3 + v);
-      const k = posKey(tmpV.x, tmpV.y, tmpV.z);
-      if (!posFromKey.has(k)) posFromKey.set(k, [tmpV.x, tmpV.y, tmpV.z]);
-      const mf = maskFracMap.get(k);
-      if (mf) {
-        if (masked) mf[0] += area;
-        mf[1] += area;
-      } else {
-        maskFracMap.set(k, [masked ? area : 0, area]);
-      }
-      // Track user-mask area per position to classify boundary type
-      if (isUserMasked[t]) {
-        const prev = userMaskAreaMap.get(k) || 0;
-        userMaskAreaMap.set(k, prev + area);
-      }
+      const id = vtxId[t * 3 + v];
+      if (masked) maskFracMasked[id] += area;
+      maskFracTotal[id] += area;
+      if (isUserMasked[t]) isUserMaskedId[id] = 1;
     }
   }
 
   // Boundary positions: shared between masked and non-masked faces.
-  // Each entry: [x, y, z, maskType] where maskType 0 = user, 1 = angle.
-  const boundaryPositions = [];
-  for (const [k, pos] of posFromKey) {
-    const mf = maskFracMap.get(k);
-    const frac = mf[1] > 0 ? mf[0] / mf[1] : 0;
+  // boundaryIds stores [id, maskType] pairs for spatial grid lookup.
+  const boundaryIds = [];
+  for (let id = 0; id < uniqueCount; id++) {
+    const total = maskFracTotal[id];
+    if (total <= 0) continue;
+    const frac = maskFracMasked[id] / total;
     if (frac > 0 && frac < 1) {
-      const userArea = userMaskAreaMap.get(k) || 0;
-      boundaryPositions.push([pos[0], pos[1], pos[2], userArea > 0 ? 0 : 1]);
+      boundaryIds.push(id);
     }
   }
 
-  if (boundaryPositions.length === 0) {
+  if (boundaryIds.length === 0) {
     if (reuseFalloff) existingFalloff.needsUpdate = true;
     else geometry.setAttribute('boundaryFalloffAttr', new THREE.Float32BufferAttribute(falloffArr, 1));
     if (reuseType) existingType.needsUpdate = true;
@@ -2057,55 +2088,62 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
     return;
   }
 
+  // Precompute boundary mask types (0 = user, 1 = angle) for boundary IDs
+  const boundaryType = new Uint8Array(uniqueCount); // default 0
+  for (const id of boundaryIds) {
+    boundaryType[id] = isUserMaskedId[id] ? 0 : 1;
+  }
+
   // Spatial grid of boundary positions for fast nearest-neighbor search
   let gMinX = Infinity, gMinY = Infinity, gMinZ = Infinity;
   let gMaxX = -Infinity, gMaxY = -Infinity, gMaxZ = -Infinity;
-  for (const bp of boundaryPositions) {
-    if (bp[0] < gMinX) gMinX = bp[0]; if (bp[0] > gMaxX) gMaxX = bp[0];
-    if (bp[1] < gMinY) gMinY = bp[1]; if (bp[1] > gMaxY) gMaxY = bp[1];
-    if (bp[2] < gMinZ) gMinZ = bp[2]; if (bp[2] > gMaxZ) gMaxZ = bp[2];
+  for (const id of boundaryIds) {
+    const bx = idPosX[id], by = idPosY[id], bz = idPosZ[id];
+    if (bx < gMinX) gMinX = bx; if (bx > gMaxX) gMaxX = bx;
+    if (by < gMinY) gMinY = by; if (by > gMaxY) gMaxY = by;
+    if (bz < gMinZ) gMinZ = bz; if (bz > gMaxZ) gMaxZ = bz;
   }
   const gPad = falloff + 1e-3;
   gMinX -= gPad; gMinY -= gPad; gMinZ -= gPad;
   gMaxX += gPad; gMaxY += gPad; gMaxZ += gPad;
 
-  const gRes = Math.max(4, Math.min(128, Math.ceil(Math.cbrt(boundaryPositions.length) * 2)));
+  const gRes = Math.max(4, Math.min(128, Math.ceil(Math.cbrt(boundaryIds.length) * 2)));
   const gDx = (gMaxX - gMinX) / gRes || 1;
   const gDy = (gMaxY - gMinY) / gRes || 1;
   const gDz = (gMaxZ - gMinZ) / gRes || 1;
   const bGrid = new Map();
   const bCellKey = (ix, iy, iz) => (ix * gRes + iy) * gRes + iz;
 
-  for (const bp of boundaryPositions) {
-    const ix = Math.max(0, Math.min(gRes - 1, Math.floor((bp[0] - gMinX) / gDx)));
-    const iy = Math.max(0, Math.min(gRes - 1, Math.floor((bp[1] - gMinY) / gDy)));
-    const iz = Math.max(0, Math.min(gRes - 1, Math.floor((bp[2] - gMinZ) / gDz)));
+  for (const id of boundaryIds) {
+    const ix = Math.max(0, Math.min(gRes - 1, Math.floor((idPosX[id] - gMinX) / gDx)));
+    const iy = Math.max(0, Math.min(gRes - 1, Math.floor((idPosY[id] - gMinY) / gDy)));
+    const iz = Math.max(0, Math.min(gRes - 1, Math.floor((idPosZ[id] - gMinZ) / gDz)));
     const ck = bCellKey(ix, iy, iz);
     const cell = bGrid.get(ck);
-    if (cell) cell.push(bp); else bGrid.set(ck, [bp]);
+    if (cell) cell.push(id); else bGrid.set(ck, [id]);
   }
 
   const searchX = Math.ceil(falloff / gDx);
   const searchY = Math.ceil(falloff / gDy);
   const searchZ = Math.ceil(falloff / gDz);
 
-  // Compute per-unique-position falloff factor and mask type
-  const falloffCache = new Map(); // posKey → factor [0,1]
-  const maskTypeCache = new Map(); // posKey → 0 (user mask) or 1 (angle mask)
-  for (const [k, pos] of posFromKey) {
-    const mf = maskFracMap.get(k);
-    const frac = mf[1] > 0 ? mf[0] / mf[1] : 0;
+  // Compute per-unique-position falloff factor and mask type (flat TypedArrays)
+  const falloffCache = new Float64Array(uniqueCount).fill(1);
+  const maskTypeCache = new Uint8Array(uniqueCount);
+  for (let id = 0; id < uniqueCount; id++) {
+    const total = maskFracTotal[id];
+    if (total <= 0) continue;
+    const frac = maskFracMasked[id] / total;
     if (frac >= 1) continue; // fully masked vertex — keep 1.0 (mask zeroes it anyway)
     // Boundary vertices (shared between masked and unmasked faces) are AT
-    // the boundary → distance 0 → falloff factor 0.
+    // the boundary -> distance 0 -> falloff factor 0.
     if (frac > 0) {
-      falloffCache.set(k, 0);
-      const userArea = userMaskAreaMap.get(k) || 0;
-      maskTypeCache.set(k, userArea > 0 ? 0 : 1);
+      falloffCache[id] = 0;
+      maskTypeCache[id] = boundaryType[id];
       continue;
     }
 
-    const px = pos[0], py = pos[1], pz = pos[2];
+    const px = idPosX[id], py = idPosY[id], pz = idPosZ[id];
     const cix = Math.max(0, Math.min(gRes - 1, Math.floor((px - gMinX) / gDx)));
     const ciy = Math.max(0, Math.min(gRes - 1, Math.floor((py - gMinY) / gDy)));
     const ciz = Math.max(0, Math.min(gRes - 1, Math.floor((pz - gMinZ) / gDz)));
@@ -2123,10 +2161,10 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
           if (niz < 0 || niz >= gRes) continue;
           const cell = bGrid.get(bCellKey(nix, niy, niz));
           if (!cell) continue;
-          for (const bp of cell) {
-            const dx = px - bp[0], dy = py - bp[1], dz = pz - bp[2];
+          for (const bid of cell) {
+            const dx = px - idPosX[bid], dy = py - idPosY[bid], dz = pz - idPosZ[bid];
             const d2 = dx * dx + dy * dy + dz * dz;
-            if (d2 < minDist2) { minDist2 = d2; nearestType = bp[3]; }
+            if (d2 < minDist2) { minDist2 = d2; nearestType = boundaryType[bid]; }
           }
         }
       }
@@ -2134,17 +2172,16 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
     const dist = Math.sqrt(minDist2);
     const factor = Math.min(1, dist / falloff);
     if (factor < 1) {
-      falloffCache.set(k, factor);
-      maskTypeCache.set(k, nearestType);
+      falloffCache[id] = factor;
+      maskTypeCache[id] = nearestType;
     }
   }
 
-  // Write per-vertex attributes
+  // Write per-vertex attributes using vtxId for direct array lookup
   for (let i = 0; i < posCount; i++) {
-    tmpV.fromBufferAttribute(posAttr, i);
-    const k = posKey(tmpV.x, tmpV.y, tmpV.z);
-    if (falloffCache.has(k)) falloffArr[i] = falloffCache.get(k);
-    if (maskTypeCache.has(k)) maskTypeArr[i] = maskTypeCache.get(k);
+    const id = vtxId[i];
+    falloffArr[i] = falloffCache[id];
+    maskTypeArr[i] = maskTypeCache[id];
   }
 
   if (reuseFalloff) existingFalloff.needsUpdate = true;
@@ -2159,66 +2196,54 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
  * bump-only preview shader.  Each edge is stored as two RGBA texels
  * (endpoint A xyz, endpoint B xyz).
  */
-function computeBoundaryEdges(geometry, userMaskArr) {
+function computeBoundaryEdges(geometry, userMaskArr, precomputedMask) {
   const posAttr = geometry.attributes.position;
   const posCount = posAttr.count;
   const triCount = posCount / 3;
   const falloff = settings.boundaryFalloff ?? 0;
 
-  if (_boundaryEdgeTex) { _boundaryEdgeTex.dispose(); _boundaryEdgeTex = null; }
   _boundaryEdgeCount = 0;
-  if (falloff <= 0) return;
-
-  const faceNrmAttr = geometry.attributes.faceNormal;
-  const faceMaskBool = new Uint8Array(triCount);
-  for (let t = 0; t < triCount; t++) {
-    if (userMaskArr[t * 3] < 0.5) { faceMaskBool[t] = 0; continue; }
-    let angleMask = 1.0;
-    if (faceNrmAttr) {
-      const fnx = faceNrmAttr.getX(t * 3);
-      const fny = faceNrmAttr.getY(t * 3);
-      const fnz = faceNrmAttr.getZ(t * 3);
-      const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz);
-      const nz = len > 1e-6 ? fnz / len : 0;
-      const surfAngle = Math.acos(Math.min(1, Math.abs(nz))) * (180 / Math.PI);
-      if (nz < 0 && settings.bottomAngleLimit >= 1)
-        angleMask = surfAngle > settings.bottomAngleLimit ? 1.0 : 0.0;
-      if (nz >= 0 && settings.topAngleLimit >= 1)
-        angleMask = Math.min(angleMask, surfAngle > settings.topAngleLimit ? 1.0 : 0.0);
-    }
-    faceMaskBool[t] = angleMask > 0.5 ? 1 : 0;
+  if (falloff <= 0) {
+    if (_boundaryEdgeTex) { _boundaryEdgeTex.dispose(); _boundaryEdgeTex = null; }
+    return;
   }
 
-  const QUANT = 1e4;
-  const pk = (x, y, z) =>
-    `${Math.round(x * QUANT)}_${Math.round(y * QUANT)}_${Math.round(z * QUANT)}`;
-  const ek = (k1, k2) => k1 < k2 ? k1 + '|' + k2 : k2 + '|' + k1;
-  const tmpV = new THREE.Vector3();
+  // Use precomputed or compute per-face mask
+  const { faceMask } = precomputedMask || _computeFaceMask(geometry, userMaskArr);
+  const faceMaskBool = new Uint8Array(triCount);
+  for (let t = 0; t < triCount; t++) {
+    faceMaskBool[t] = faceMask[t] > 0.5 ? 1 : 0;
+  }
+
+  // Reuse dedup data from computeBoundaryFalloffAttr if available
+  const vtxId = _falloffVtxId;
+  const idPosX = _falloffIdPosX;
+  const idPosY = _falloffIdPosY;
+  const idPosZ = _falloffIdPosZ;
+  const uniqueCount = _falloffUniqueCount;
+  const edgeKey = (id1, id2) => id1 < id2 ? id1 * uniqueCount + id2 : id2 * uniqueCount + id1;
 
   const edgeFaces = new Map();
-  const edgePos   = new Map();
+  const edgeEndpoints = new Map(); // edgeKey -> [id1, id2]
 
   for (let t = 0; t < triCount; t++) {
-    const keys = [], pts = [];
-    for (let v = 0; v < 3; v++) {
-      tmpV.fromBufferAttribute(posAttr, t * 3 + v);
-      keys.push(pk(tmpV.x, tmpV.y, tmpV.z));
-      pts.push([tmpV.x, tmpV.y, tmpV.z]);
-    }
+    const id0 = vtxId[t * 3], id1 = vtxId[t * 3 + 1], id2 = vtxId[t * 3 + 2];
+    const ids = [id0, id1, id2];
     for (let e = 0; e < 3; e++) {
-      const edgeKey = ek(keys[e], keys[(e + 1) % 3]);
-      const list = edgeFaces.get(edgeKey);
+      const eid1 = ids[e], eid2 = ids[(e + 1) % 3];
+      const ek = edgeKey(eid1, eid2);
+      const list = edgeFaces.get(ek);
       if (list) list.push(t);
       else {
-        edgeFaces.set(edgeKey, [t]);
-        edgePos.set(edgeKey, [pts[e], pts[(e + 1) % 3]]);
+        edgeFaces.set(ek, [t]);
+        edgeEndpoints.set(ek, [eid1, eid2]);
       }
     }
   }
 
   const MAX_EDGES = 64;
   const edges = [];
-  for (const [key, faces] of edgeFaces) {
+  for (const [ek, faces] of edgeFaces) {
     if (edges.length >= MAX_EDGES) break;
     let hasMasked = false, hasTextured = false;
     for (const f of faces) {
@@ -2226,7 +2251,7 @@ function computeBoundaryEdges(geometry, userMaskArr) {
       else hasTextured = true;
       if (hasMasked && hasTextured) break;
     }
-    if (hasMasked && hasTextured) edges.push(edgePos.get(key));
+    if (hasMasked && hasTextured) edges.push(edgeEndpoints.get(ek));
   }
 
   if (edges.length === 0) return;
@@ -2234,16 +2259,22 @@ function computeBoundaryEdges(geometry, userMaskArr) {
   const texWidth = edges.length * 2;
   const data = new Float32Array(texWidth * 4);
   for (let i = 0; i < edges.length; i++) {
-    const [a, b] = edges[i];
+    const [aId, bId] = edges[i];
     const off = i * 8;
-    data[off] = a[0]; data[off + 1] = a[1]; data[off + 2] = a[2]; data[off + 3] = 0;
-    data[off + 4] = b[0]; data[off + 5] = b[1]; data[off + 6] = b[2]; data[off + 7] = 0;
+    data[off] = idPosX[aId]; data[off + 1] = idPosY[aId]; data[off + 2] = idPosZ[aId]; data[off + 3] = 0;
+    data[off + 4] = idPosX[bId]; data[off + 5] = idPosY[bId]; data[off + 6] = idPosZ[bId]; data[off + 7] = 0;
   }
 
-  _boundaryEdgeTex = new THREE.DataTexture(data, texWidth, 1, THREE.RGBAFormat, THREE.FloatType);
-  _boundaryEdgeTex.minFilter = THREE.NearestFilter;
-  _boundaryEdgeTex.magFilter = THREE.NearestFilter;
-  _boundaryEdgeTex.needsUpdate = true;
+  if (_boundaryEdgeTex && _boundaryEdgeTex.image.width >= texWidth) {
+    _boundaryEdgeTex.image.data.set(data);
+    _boundaryEdgeTex.needsUpdate = true;
+  } else {
+    if (_boundaryEdgeTex) _boundaryEdgeTex.dispose();
+    _boundaryEdgeTex = new THREE.DataTexture(data, texWidth, 1, THREE.RGBAFormat, THREE.FloatType);
+    _boundaryEdgeTex.minFilter = THREE.NearestFilter;
+    _boundaryEdgeTex.magFilter = THREE.NearestFilter;
+    _boundaryEdgeTex.needsUpdate = true;
+  }
   _boundaryEdgeCount = edges.length;
 }
 
