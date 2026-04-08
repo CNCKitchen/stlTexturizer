@@ -147,5 +147,6 @@ export default {
   "cta.storeDismiss": "Cerrar",
   "alerts.loadFailed": "No se pudo cargar el modelo: {msg}",
   "alerts.exportFailed": "Error en la exportación: {msg}",
-  "alerts.fileTooLarge": "Archivo demasiado grande ({size} MB). Máximo: {max} MB."
+  "alerts.fileTooLarge": "Archivo demasiado grande ({size} MB). Máximo: {max} MB.",
+  "alerts.degenerateTrianglesRemoved": "Se eliminaron {n} triángulo(s) no válido(s) (coordenadas NaN o área cero) de la malla durante la carga. El modelo seguirá funcionando correctamente."
 };

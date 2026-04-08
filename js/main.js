@@ -306,6 +306,9 @@ function populateLanguageSelector() {
 
   const select = document.createElement('select');
   select.className = 'lang-dropdown';
+  select.id = 'lang-select';
+  select.name = 'lang-select';
+  select.setAttribute('aria-label', 'Select language');
 
   for (const langKey in TRANSLATIONS) {
     const opt = document.createElement('option');

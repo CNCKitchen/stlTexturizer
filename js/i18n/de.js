@@ -147,5 +147,6 @@ export default {
   "cta.storeDismiss": "Ausblenden",
   "alerts.loadFailed": "Modell konnte nicht geladen werden: {msg}",
   "alerts.exportFailed": "Export fehlgeschlagen: {msg}",
-  "alerts.fileTooLarge": "Datei zu gross ({size} MB). Maximum: {max} MB."
+  "alerts.fileTooLarge": "Datei zu gross ({size} MB). Maximum: {max} MB.",
+  "alerts.degenerateTrianglesRemoved": "{n} ungültige(s) Dreieck(e) (NaN-Koordinaten oder null Fläche) wurden beim Laden aus dem Mesh entfernt. Das Modell funktioniert weiterhin korrekt."
 };

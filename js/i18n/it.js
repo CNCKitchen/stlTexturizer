@@ -147,5 +147,6 @@ export default {
   "cta.storeDismiss": "Chiudi",
   "alerts.loadFailed": "Caricamento del modello fallito: {msg}",
   "alerts.exportFailed": "Esportazione fallita: {msg}",
-  "alerts.fileTooLarge": "File troppo grande ({size} MB). Massimo: {max} MB."
+  "alerts.fileTooLarge": "File troppo grande ({size} MB). Massimo: {max} MB.",
+  "alerts.degenerateTrianglesRemoved": "{n} triangolo/i non valido/i (coordinate NaN o area zero) sono stati rimossi dalla mesh durante il caricamento. Il modello continuerà a funzionare correttamente."
 };

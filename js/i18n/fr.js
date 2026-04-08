@@ -147,5 +147,6 @@ export default {
   "cta.storeDismiss": "Fermer",
   "alerts.loadFailed": "Impossible de charger le modèle : {msg}",
   "alerts.exportFailed": "Échec de l'exportation : {msg}",
-  "alerts.fileTooLarge": "Fichier trop volumineux ({size} Mo). Maximum : {max} Mo."
+  "alerts.fileTooLarge": "Fichier trop volumineux ({size} Mo). Maximum : {max} Mo.",
+  "alerts.degenerateTrianglesRemoved": "{n} triangle(s) invalide(s) (coordonnées NaN ou aire nulle) ont été supprimés du maillage lors du chargement. Le modèle fonctionnera correctement."
 };

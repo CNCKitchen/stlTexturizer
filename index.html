@@ -17,7 +17,6 @@
     })();
   </script>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js">
   <script type="importmap">
   {
     "imports": {
@@ -27,6 +26,7 @@
     }
   }
   </script>
+  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js">
 </head>
 <body>
   <header>
@@ -311,8 +311,8 @@
 
         <!-- Brush type switcher (shown only when Brush is active) -->
         <div id="excl-brush-type-row" class="form-row hidden">
-          <label data-i18n="labels.type">Type</label>
-          <div class="excl-seg">
+          <span id="excl-brush-type-label" class="form-row-label" data-i18n="labels.type">Type</span>
+          <div class="excl-seg" role="group" aria-labelledby="excl-brush-type-label">
             <button id="excl-brush-single" class="excl-seg-btn active" data-i18n="brushType.single">Single</button>
             <button id="excl-brush-radius-btn" class="excl-seg-btn" data-i18n="brushType.circle">Circle</button>
           </div>

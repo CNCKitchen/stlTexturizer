@@ -147,5 +147,6 @@ export default {
   "cta.storeDismiss": "閉じる",
   "alerts.loadFailed": "モデルを読み込めませんでした: {msg}",
   "alerts.exportFailed": "エクスポートに失敗しました: {msg}",
-  "alerts.fileTooLarge": "ファイルが大きすぎます ({size} MB)。最大: {max} MB。"
+  "alerts.fileTooLarge": "ファイルが大きすぎます ({size} MB)。最大: {max} MB。",
+  "alerts.degenerateTrianglesRemoved": "読み込み時に無効な三角形が {n} 個（NaN座標または面積ゼロ）メッシュから削除されました。モデルは正常に動作します。"
 };
