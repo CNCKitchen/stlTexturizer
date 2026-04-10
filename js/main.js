@@ -112,6 +112,10 @@ const settings = {
   regularizeNormalDeg:       15,
   regularizeAggressiveNormalDeg: 25,
   regularizeSecondPassMul:   1.1,
+  /** When true, UV normalization uses referenceExtentMm instead of each mesh's largest bbox edge. */
+  fixedWorldTextureScale: false,
+  /** Millimetres: one normalized UV span along an axis (before Scale U/V). */
+  referenceExtentMm: 200,
 };
 
 // ── Canvas filter support (Safari / iOS WebView don't support ctx.filter) ────
@@ -314,6 +318,15 @@ const regExtremeAspectEl     = document.getElementById('reg-extreme-aspect');
 const regNormalDegEl         = document.getElementById('reg-normal-deg');
 const regAggressiveNormalDegEl = document.getElementById('reg-aggressive-normal-deg');
 const regSecondPassMulEl     = document.getElementById('reg-second-pass-mul');
+const fixedWorldTextureToggle = document.getElementById('fixed-world-texture');
+const referenceExtentRow      = document.getElementById('reference-extent-row');
+const referenceExtentMmVal    = document.getElementById('reference-extent-mm');
+
+function refreshReferenceExtentUi() {
+  if (referenceExtentRow) {
+    referenceExtentRow.style.display = settings.fixedWorldTextureScale ? '' : 'none';
+  }
+}
 
 // ── Exclusion panel DOM refs ──────────────────────────────────────────────────
 const exclBrushBtn        = document.getElementById('excl-brush-btn');
@@ -966,6 +979,7 @@ document.getElementById('theme-toggle').addEventListener('click', () => {
 
 wireEvents();
 showWelcomeIfNeeded();
+refreshReferenceExtentUi();
 // Sync scale number inputs with the slider's initial position
 scaleUVal.value = posToScale(parseFloat(scaleUSlider.value));
 scaleVVal.value = posToScale(parseFloat(scaleVSlider.value));
@@ -1365,6 +1379,31 @@ function wireEvents() {
       updatePreview();
     }
   });
+
+  if (fixedWorldTextureToggle) {
+    fixedWorldTextureToggle.addEventListener('change', () => {
+      settings.fixedWorldTextureScale = fixedWorldTextureToggle.checked;
+      refreshReferenceExtentUi();
+      clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
+    });
+  }
+
+  function applyReferenceExtentFromInput() {
+    if (!referenceExtentMmVal) return;
+    let v = parseFloat(referenceExtentMmVal.value);
+    if (!Number.isFinite(v)) v = settings.referenceExtentMm;
+    v = Math.max(0.1, Math.min(10000, v));
+    settings.referenceExtentMm = v;
+    referenceExtentMmVal.value = v;
+    clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
+  }
+  if (referenceExtentMmVal) {
+    referenceExtentMmVal.addEventListener('change', applyReferenceExtentFromInput);
+    addFineWheelSupport(referenceExtentMmVal, (v) => {
+      referenceExtentMmVal.value = v;
+      applyReferenceExtentFromInput();
+    });
+  }
 
   linkSlider(offsetUSlider,   offsetUVal,   v => { settings.offsetU   = v; return v.toFixed(2); });
   linkSlider(offsetVSlider,   offsetVVal,   v => { settings.offsetV   = v; return v.toFixed(2); });
