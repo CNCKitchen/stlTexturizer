@@ -193,6 +193,19 @@
       <section class="panel-section">
         <h2 data-i18n="sections.transform">Transform</h2>
 
+        <div class="form-row">
+          <label class="checkbox-label" for="fixed-world-texture"
+            data-i18n-title="tooltips.fixedWorldTexture"
+            title="Normalize UVs with a fixed length in millimetres instead of the part’s largest size, so the same settings yield similar physical texture size on different meshes.">
+            <input type="checkbox" id="fixed-world-texture" />
+            <span data-i18n="labels.fixedWorldTexture">Fixed texture scale (world mm)</span>
+          </label>
+        </div>
+        <div class="form-row" id="reference-extent-row" style="display:none">
+          <label for="reference-extent-mm" data-i18n="labels.referenceExtentMm" data-i18n-title="tooltips.referenceExtentMm" title="Millimetres used to normalize UV coordinates (before Scale U/V). Same value across parts for consistent pattern size.">Reference extent (mm)</label>
+          <input type="number" class="val" id="reference-extent-mm" value="200" min="0.1" max="10000" step="0.1" data-wheel-decimals="1" />
+        </div>
+
         <div class="form-row slider-row">
           <label for="scale-u" data-i18n="labels.scaleU">Scale U</label>
           <input type="range" id="scale-u" min="0" max="1000" step="1" value="435" />

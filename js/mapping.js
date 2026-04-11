@@ -13,6 +13,21 @@ export const MODE_TRIPLANAR   = 5;
 export const MODE_CUBIC       = 6;
 
 const TWO_PI = Math.PI * 2;
+
+/**
+ * Millimetres used to normalize planar / triplanar / cubic UV coordinates.
+ * Default (fixed off): each mesh's largest bounding-box edge — pattern scales with part size.
+ * Fixed world scale: user `referenceExtentMm` — same profile yields similar physical pattern size on any mesh.
+ */
+export function getReferenceExtent(settings, bounds) {
+  const maxDim = Math.max(bounds.size.x, bounds.size.y, bounds.size.z);
+  const md = Math.max(maxDim, 1e-6);
+  if (settings.fixedWorldTextureScale) {
+    const ref = Number(settings.referenceExtentMm);
+    if (Number.isFinite(ref) && ref > 0) return ref;
+  }
+  return md;
+}
 const CUBIC_AXIS_EPSILON = 1e-4;
 
 export function getDominantCubicAxis(normal) {
@@ -114,8 +129,7 @@ export function computeUV(pos, normal, mode, settings, bounds) {
   const rotRad = (settings.rotation ?? 0) * Math.PI / 180;
   const cosR = Math.cos(rotRad);
   const sinR = Math.sin(rotRad);
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const md     = Math.max(maxDim, 1e-6);
+  const md = getReferenceExtent(settings, bounds);
 
   let u = 0, v = 0;
 
