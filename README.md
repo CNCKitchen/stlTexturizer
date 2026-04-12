@@ -16,6 +16,7 @@ Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a
 - 3MF export
 - Mouse-wheel fine tuning of values
 - Quality of life improvements
+- 3DConnexion SpaceMouse support
 
 ## Features
 
