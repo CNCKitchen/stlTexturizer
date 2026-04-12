@@ -148,6 +148,20 @@ export default {
   "cta.storeDismiss": "閉じる",
   "alerts.loadFailed": "モデルを読み込めませんでした: {msg}",
   "alerts.exportFailed": "エクスポートに失敗しました: {msg}",
+  "alerts.exportOOM": "エクスポート失敗：細分化中にメモリが不足しました。\n\n要求された解像度でモデルに必要な三角形が多すぎる場合に発生します。\n\n解決方法：\n\u2022 解像度（mm）の値を大きくする",
   "alerts.fileTooLarge": "ファイルが大きすぎます ({size} MB)。最大: {max} MB。",
-  "alerts.degenerateTrianglesRemoved": "読み込み時に無効な三角形が {n} 個（NaN座標または面積ゼロ）メッシュから削除されました。モデルは正常に動作します。"
+  "alerts.degenerateTrianglesRemoved": "読み込み時に無効な三角形が {n} 個（NaN座標または面積ゼロ）メッシュから削除されました。モデルは正常に動作します。",
+  "diag.runAdvanced": "詳細チェック",
+  "diag.runAdvancedTitle": "交差・重複三角形を検出します（大きなメッシュでは時間がかかる場合があります）",
+  "diag.running": "チェック中\u2026",
+  "diag.meshOk": "\u2714 メッシュは問題ありません",
+  "diag.openEdges": "{n} 個の開いたエッジ \u2014 メッシュが閉じていません",
+  "diag.nonManifoldEdges": "{n} 個の非多様体エッジ",
+  "diag.multipleShells": "{n} 個の分離したシェル",
+  "diag.intersectingTris": "{n} 組の交差する三角形",
+  "diag.overlappingTris": "{n} 個の重複三角形",
+  "diag.advancedOk": "\u2714 交差や重複は見つかりませんでした",
+  "diag.recommendFix": "テクスチャリング前にCADソフトウェア、スライサー、または<a href=\"https://www.formware.co/onlinestlrepair\" target=\"_blank\" rel=\"noopener\">オンライン</a>でこれらの問題を修正してください。",
+  "diag.show": "表示",
+  "diag.hide": "非表示"
 };

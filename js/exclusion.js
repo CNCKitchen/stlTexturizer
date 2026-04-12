@@ -103,8 +103,12 @@ export function buildAdjacency(geometry) {
   const adjacency = new Array(triCount);
   for (let t = 0; t < triCount; t++) adjacency[t] = [];
 
+  let openEdgeCount = 0;
+  let nonManifoldEdgeCount = 0;
+
   for (const [, tris] of edgeMap) {
-    if (tris.length !== 2) continue;
+    if (tris.length === 1) { openEdgeCount++; continue; }
+    if (tris.length > 2) nonManifoldEdgeCount++;
     const [a, b] = tris;
     const nAx = faceNormals[a * 3], nAy = faceNormals[a * 3 + 1], nAz = faceNormals[a * 3 + 2];
     const nBx = faceNormals[b * 3], nBy = faceNormals[b * 3 + 1], nBz = faceNormals[b * 3 + 2];
@@ -114,7 +118,7 @@ export function buildAdjacency(geometry) {
     adjacency[b].push({ neighbor: a, angle: angleDeg });
   }
 
-  return { adjacency, centroids, boundRadii };
+  return { adjacency, centroids, boundRadii, openEdgeCount, nonManifoldEdgeCount };
 }
 
 // ── Bucket fill ───────────────────────────────────────────────────────────────

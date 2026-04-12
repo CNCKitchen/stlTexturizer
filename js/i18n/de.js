@@ -148,6 +148,20 @@ export default {
   "cta.storeDismiss": "Ausblenden",
   "alerts.loadFailed": "Modell konnte nicht geladen werden: {msg}",
   "alerts.exportFailed": "Export fehlgeschlagen: {msg}",
+  "alerts.exportOOM": "Export fehlgeschlagen: Beim Unterteilen ist der Speicher ausgegangen.\n\nDies passiert, wenn das Modell bei der gew\u00e4hlten Aufl\u00f6sung zu viele Dreiecke erzeugt.\n\nL\u00f6sung:\n\u2022 Erh\u00f6hen Sie den Wert f\u00fcr Aufl\u00f6sung (mm)",
   "alerts.fileTooLarge": "Datei zu gross ({size} MB). Maximum: {max} MB.",
-  "alerts.degenerateTrianglesRemoved": "{n} ungültige(s) Dreieck(e) (NaN-Koordinaten oder null Fläche) wurden beim Laden aus dem Mesh entfernt. Das Modell funktioniert weiterhin korrekt."
+  "alerts.degenerateTrianglesRemoved": "{n} ungültige(s) Dreieck(e) (NaN-Koordinaten oder null Fläche) wurden beim Laden aus dem Mesh entfernt. Das Modell funktioniert weiterhin korrekt.",
+  "diag.runAdvanced": "Erweiterte Prüfung",
+  "diag.runAdvancedTitle": "Auf sich schneidende und überlappende Dreiecke prüfen (kann bei großen Meshes einen Moment dauern)",
+  "diag.running": "Prüfe\u2026",
+  "diag.meshOk": "\u2714 Mesh sieht gut aus",
+  "diag.openEdges": "{n} offene Kante(n) \u2014 Mesh ist nicht wasserdicht",
+  "diag.nonManifoldEdges": "{n} nicht-mannigfaltige Kante(n)",
+  "diag.multipleShells": "{n} getrennte Hülle(n)",
+  "diag.intersectingTris": "{n} sich schneidende Dreieckspaare",
+  "diag.overlappingTris": "{n} überlappende/doppelte Dreieck(e)",
+  "diag.advancedOk": "\u2714 Keine Schnitte oder Überlappungen gefunden",
+  "diag.recommendFix": "Beheben Sie diese Probleme in Ihrer CAD-Software, Ihrem Slicer oder <a href=\"https://www.formware.co/onlinestlrepair\" target=\"_blank\" rel=\"noopener\">online</a> vor dem Texturieren.",
+  "diag.show": "Zeigen",
+  "diag.hide": "Ausbl."
 };

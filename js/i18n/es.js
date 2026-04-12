@@ -148,6 +148,20 @@ export default {
   "cta.storeDismiss": "Cerrar",
   "alerts.loadFailed": "No se pudo cargar el modelo: {msg}",
   "alerts.exportFailed": "Error en la exportación: {msg}",
+  "alerts.exportOOM": "Error en la exportación: se agotó la memoria durante la subdivisión.\n\nEsto ocurre cuando el modelo requiere demasiados triángulos a la resolución solicitada.\n\nCómo solucionarlo:\n\u2022 Aumente el valor de Resolución (mm)",
   "alerts.fileTooLarge": "Archivo demasiado grande ({size} MB). Máximo: {max} MB.",
-  "alerts.degenerateTrianglesRemoved": "Se eliminaron {n} triángulo(s) no válido(s) (coordenadas NaN o área cero) de la malla durante la carga. El modelo seguirá funcionando correctamente."
+  "alerts.degenerateTrianglesRemoved": "Se eliminaron {n} triángulo(s) no válido(s) (coordenadas NaN o área cero) de la malla durante la carga. El modelo seguirá funcionando correctamente.",
+  "diag.runAdvanced": "Verificación avanzada",
+  "diag.runAdvancedTitle": "Buscar triángulos intersectantes y superpuestos (puede tardar un momento en mallas grandes)",
+  "diag.running": "Verificando\u2026",
+  "diag.meshOk": "\u2714 La malla se ve bien",
+  "diag.openEdges": "{n} borde(s) abierto(s) \u2014 la malla no es estanca",
+  "diag.nonManifoldEdges": "{n} borde(s) no manifold",
+  "diag.multipleShells": "{n} cáscara(s) desconectada(s)",
+  "diag.intersectingTris": "{n} par(es) de triángulos intersectantes",
+  "diag.overlappingTris": "{n} triángulo(s) superpuesto(s)/duplicado(s)",
+  "diag.advancedOk": "\u2714 No se encontraron intersecciones ni superposiciones",
+  "diag.recommendFix": "Corrija estos problemas en su software CAD, slicer o <a href=\"https://www.formware.co/onlinestlrepair\" target=\"_blank\" rel=\"noopener\">en l\u00ednea</a> antes de texturizar.",
+  "diag.show": "Mostrar",
+  "diag.hide": "Ocultar"
 };

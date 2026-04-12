@@ -148,6 +148,20 @@ export default {
   "cta.storeDismiss": "Fermer",
   "alerts.loadFailed": "Impossible de charger le modèle : {msg}",
   "alerts.exportFailed": "Échec de l'exportation : {msg}",
+  "alerts.exportOOM": "Échec de l'exportation : mémoire insuffisante lors de la subdivision.\n\nCela se produit lorsque le modèle nécessite trop de triangles à la résolution demandée.\n\nComment résoudre :\n\u2022 Augmentez la valeur Résolution (mm)",
   "alerts.fileTooLarge": "Fichier trop volumineux ({size} Mo). Maximum : {max} Mo.",
-  "alerts.degenerateTrianglesRemoved": "{n} triangle(s) invalide(s) (coordonnées NaN ou aire nulle) ont été supprimés du maillage lors du chargement. Le modèle fonctionnera correctement."
+  "alerts.degenerateTrianglesRemoved": "{n} triangle(s) invalide(s) (coordonnées NaN ou aire nulle) ont été supprimés du maillage lors du chargement. Le modèle fonctionnera correctement.",
+  "diag.runAdvanced": "Vérifications avancées",
+  "diag.runAdvancedTitle": "Rechercher les triangles intersectants et superposés (peut prendre un moment sur les grands maillages)",
+  "diag.running": "Vérification\u2026",
+  "diag.meshOk": "\u2714 Le maillage semble correct",
+  "diag.openEdges": "{n} arête(s) ouverte(s) \u2014 le maillage n'est pas étanche",
+  "diag.nonManifoldEdges": "{n} arête(s) non-manifold",
+  "diag.multipleShells": "{n} coque(s) déconnectée(s)",
+  "diag.intersectingTris": "{n} paire(s) de triangles intersectants",
+  "diag.overlappingTris": "{n} triangle(s) superposé(s)/dupliqué(s)",
+  "diag.advancedOk": "\u2714 Aucune intersection ni superposition trouvée",
+  "diag.recommendFix": "Corrigez ces probl\u00e8mes dans votre logiciel CAO, slicer ou <a href=\"https://www.formware.co/onlinestlrepair\" target=\"_blank\" rel=\"noopener\">en ligne</a> avant la texturation.",
+  "diag.show": "Afficher",
+  "diag.hide": "Masquer"
 };

@@ -148,6 +148,20 @@ export default {
   "cta.storeDismiss": "Dismiss",
   "alerts.loadFailed": "Could not load model: {msg}",
   "alerts.exportFailed": "Export failed: {msg}",
+  "alerts.exportOOM": "Export failed: the model ran out of memory during subdivision.\n\nThis happens when the mesh requires too many triangles at the requested resolution.\n\nHow to fix:\n\u2022 Increase the Resolution (mm) value to produce fewer triangles",
   "alerts.fileTooLarge": "File too large ({size} MB). Maximum: {max} MB.",
-  "alerts.degenerateTrianglesRemoved": "{n} invalid triangle(s) (NaN coordinates or zero area) were removed from the mesh at load time. The model will still work correctly."
+  "alerts.degenerateTrianglesRemoved": "{n} invalid triangle(s) (NaN coordinates or zero area) were removed from the mesh at load time. The model will still work correctly.",
+  "diag.runAdvanced": "Run Advanced Checks",
+  "diag.runAdvancedTitle": "Check for intersecting and overlapping triangles (may take a moment on large meshes)",
+  "diag.running": "Checking\u2026",
+  "diag.meshOk": "\u2714 Mesh looks good",
+  "diag.openEdges": "{n} open edge(s) \u2014 mesh is not watertight",
+  "diag.nonManifoldEdges": "{n} non-manifold edge(s)",
+  "diag.multipleShells": "{n} disconnected shell(s)",
+  "diag.intersectingTris": "{n} intersecting triangle pair(s)",
+  "diag.overlappingTris": "{n} overlapping/duplicate triangle(s)",
+  "diag.advancedOk": "\u2714 No intersections or overlaps found",
+  "diag.recommendFix": "Fix these issues in your CAD software, slicer, or <a href=\"https://www.formware.co/onlinestlrepair\" target=\"_blank\" rel=\"noopener\">online</a> before texturing.",
+  "diag.show": "Show",
+  "diag.hide": "Hide"
 };

@@ -65,6 +65,17 @@
         </div>
         <canvas id="viewport" role="img" aria-label="3D model preview"></canvas>
         <div id="brush-cursor"></div>
+        <div id="mesh-diagnostics" class="mesh-diagnostics hidden">
+          <button id="mesh-diag-dismiss" class="mesh-diag-dismiss" aria-label="Dismiss">&times;</button>
+          <div id="mesh-diag-fast" class="mesh-diag-results"></div>
+          <div class="mesh-diag-advanced-row">
+            <button id="mesh-diag-run-btn" class="mesh-diag-run-btn"
+              data-i18n="diag.runAdvanced" data-i18n-title="diag.runAdvancedTitle"
+              title="Check for intersecting and overlapping triangles (may take a moment on large meshes)">Run Advanced Checks</button>
+            <span id="mesh-diag-spinner" class="mesh-diag-spinner hidden"></span>
+          </div>
+          <div id="mesh-diag-advanced" class="mesh-diag-results hidden"></div>
+        </div>
         <div id="store-cta-wrapper">
           <span id="store-cta">
             <span data-i18n-html="cta.store">Support this tool? Shop at <a href="https://geni.us/CNCStoreTexture" target="_blank" rel="noopener noreferrer">CNCKitchen.STORE</a> or donate on <a href="https://www.paypal.me/CNCKitchen" target="_blank" rel="noopener noreferrer">PayPal</a> / <a href="https://ko-fi.com/cnckitchen" target="_blank" rel="noopener noreferrer">Ko-fi</a></span><button id="store-cta-dismiss" aria-label="Dismiss">&times;</button>

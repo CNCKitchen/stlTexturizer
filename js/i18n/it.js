@@ -148,6 +148,20 @@ export default {
   "cta.storeDismiss": "Chiudi",
   "alerts.loadFailed": "Caricamento del modello fallito: {msg}",
   "alerts.exportFailed": "Esportazione fallita: {msg}",
+  "alerts.exportOOM": "Esportazione fallita: memoria esaurita durante la suddivisione.\n\nQuesto accade quando il modello richiede troppi triangoli alla risoluzione impostata.\n\nCome risolvere:\n\u2022 Aumentare il valore Risoluzione (mm)",
   "alerts.fileTooLarge": "File troppo grande ({size} MB). Massimo: {max} MB.",
-  "alerts.degenerateTrianglesRemoved": "{n} triangolo/i non valido/i (coordinate NaN o area zero) sono stati rimossi dalla mesh durante il caricamento. Il modello continuerà a funzionare correttamente."
+  "alerts.degenerateTrianglesRemoved": "{n} triangolo/i non valido/i (coordinate NaN o area zero) sono stati rimossi dalla mesh durante il caricamento. Il modello continuerà a funzionare correttamente.",
+  "diag.runAdvanced": "Controlli avanzati",
+  "diag.runAdvancedTitle": "Verifica triangoli intersecanti e sovrapposti (potrebbe richiedere un momento per mesh grandi)",
+  "diag.running": "Controllo in corso\u2026",
+  "diag.meshOk": "\u2714 La mesh sembra a posto",
+  "diag.openEdges": "{n} bordo/i aperto/i \u2014 la mesh non è a tenuta stagna",
+  "diag.nonManifoldEdges": "{n} bordo/i non-manifold",
+  "diag.multipleShells": "{n} guscio/i disconnesso/i",
+  "diag.intersectingTris": "{n} coppia/e di triangoli intersecanti",
+  "diag.overlappingTris": "{n} triangolo/i sovrapposto/i o duplicato/i",
+  "diag.advancedOk": "\u2714 Nessuna intersezione o sovrapposizione trovata",
+  "diag.recommendFix": "Correggere questi problemi nel software CAD, nello slicer o <a href=\"https://www.formware.co/onlinestlrepair\" target=\"_blank\" rel=\"noopener\">online</a> prima della texturizzazione.",
+  "diag.show": "Mostra",
+  "diag.hide": "Nascondi"
 };

@@ -25,6 +25,8 @@ let _exclMaterial = null;
 let _hoverMaterial = null;
 let _needsRender = true;
 let _lastSpaceMouseTime = 0;
+let _diagEdges = null;       // LineSegments2 for open/non-manifold edges
+let _diagFaces = [];         // Array of THREE.Mesh overlays for face highlights
 
 // Build a labelled coordinate axes indicator scaled to `size`.
 // X = red, Y = green, Z = blue (up).
@@ -945,4 +947,86 @@ function _buildWireframe(geometry) {
   wireframeLines.renderOrder = 3;  // draw after base mesh (0), overlays (1-2)
   // Add to meshGroup so it's automatically removed when a new model is loaded
   meshGroup.add(wireframeLines);
+}
+
+// ── Diagnostic overlays ──────────────────────────────────────────────────────
+
+/**
+ * Clear all diagnostic overlays (edges + face highlights).
+ */
+export function clearDiagOverlays() {
+  if (_diagEdges) {
+    scene.remove(_diagEdges);
+    _diagEdges.geometry.dispose();
+    _diagEdges.material.dispose();
+    _diagEdges = null;
+  }
+  for (const m of _diagFaces) {
+    scene.remove(m);
+    m.geometry.dispose();
+    m.material.dispose();
+  }
+  _diagFaces = [];
+  requestRender();
+}
+
+/**
+ * Show coloured line segments for problem edges.
+ *
+ * @param {Float32Array} positions  – pairs of 3D points (6 floats per edge)
+ * @param {number}       color      – hex colour
+ */
+export function setDiagEdges(positions, color = 0xff0000) {
+  // Remove previous edge overlay only
+  if (_diagEdges) {
+    scene.remove(_diagEdges);
+    _diagEdges.geometry.dispose();
+    _diagEdges.material.dispose();
+    _diagEdges = null;
+  }
+  if (!positions || positions.length === 0) { requestRender(); return; }
+
+  const lsGeo = new LineSegmentsGeometry();
+  lsGeo.setPositions(positions);
+
+  const lsMat = new LineMaterial({
+    color,
+    linewidth: 3,
+    depthTest: false,
+    resolution: new THREE.Vector2(
+      renderer.domElement.width  * renderer.getPixelRatio(),
+      renderer.domElement.height * renderer.getPixelRatio(),
+    ),
+  });
+
+  _diagEdges = new LineSegments2(lsGeo, lsMat);
+  _diagEdges.renderOrder = 4;
+  scene.add(_diagEdges);
+  requestRender();
+}
+
+/**
+ * Show a coloured face overlay for a set of triangles.
+ *
+ * @param {THREE.BufferGeometry} overlayGeo  – non-indexed geometry of selected faces
+ * @param {number}               color       – hex colour
+ * @param {number}               [opacity=0.6]
+ */
+export function addDiagFaces(overlayGeo, color, opacity = 0.6, xray = false) {
+  if (!overlayGeo || overlayGeo.attributes.position.count === 0) return;
+  const mat = new THREE.MeshBasicMaterial({
+    color,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity,
+    depthTest: !xray,
+    polygonOffset: !xray,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  const mesh = new THREE.Mesh(overlayGeo, mat);
+  mesh.renderOrder = 1;
+  _diagFaces.push(mesh);
+  scene.add(mesh);
+  requestRender();
 }

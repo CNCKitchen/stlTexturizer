@@ -148,6 +148,20 @@ export default {
   "cta.storeDismiss": "Fechar",
   "alerts.loadFailed": "Não foi possível carregar o modelo: {msg}",
   "alerts.exportFailed": "Falha na exportação: {msg}",
+  "alerts.exportOOM": "Falha na exportação: memória esgotada durante a subdivisão.\n\nIsso acontece quando o modelo requer muitos triângulos na resolução solicitada.\n\nComo resolver:\n\u2022 Aumente o valor de Resolução (mm)",
   "alerts.fileTooLarge": "Arquivo muito grande ({size} MB). Máximo: {max} MB.",
-  "alerts.degenerateTrianglesRemoved": "{n} triângulo(s) inválido(s) (coordenadas NaN ou área zero) foram removidos da malha durante o carregamento. O modelo continuará funcionando corretamente."
+  "alerts.degenerateTrianglesRemoved": "{n} triângulo(s) inválido(s) (coordenadas NaN ou área zero) foram removidos da malha durante o carregamento. O modelo continuará funcionando corretamente.",
+  "diag.runAdvanced": "Verificação avançada",
+  "diag.runAdvancedTitle": "Verificar triângulos intersectantes e sobrepostos (pode demorar um momento em malhas grandes)",
+  "diag.running": "Verificando\u2026",
+  "diag.meshOk": "\u2714 A malha parece boa",
+  "diag.openEdges": "{n} aresta(s) aberta(s) \u2014 a malha não é estanque",
+  "diag.nonManifoldEdges": "{n} aresta(s) não-manifold",
+  "diag.multipleShells": "{n} casca(s) desconectada(s)",
+  "diag.intersectingTris": "{n} par(es) de triângulos intersectantes",
+  "diag.overlappingTris": "{n} triângulo(s) sobreposto(s)/duplicado(s)",
+  "diag.advancedOk": "\u2714 Nenhuma interseção ou sobreposição encontrada",
+  "diag.recommendFix": "Corrija esses problemas no software CAD, slicer ou <a href=\"https://www.formware.co/onlinestlrepair\" target=\"_blank\" rel=\"noopener\">online</a> antes da texturização.",
+  "diag.show": "Mostrar",
+  "diag.hide": "Ocultar"
 };

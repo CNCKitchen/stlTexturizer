@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3)"
+      "Bash(python3)",
+      "Bash(python -m http.server 8081)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8081/index.html)",
+      "Bash(node -e ':*)"
     ]
   }
 }

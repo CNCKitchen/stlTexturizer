@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWireframe,
          getControls, getCamera, getCurrentMesh,
          setExclusionOverlay, setHoverPreview, setViewerTheme,
-         setProjection, requestRender } from './viewer.js';
+         setProjection, requestRender,
+         clearDiagOverlays, setDiagEdges, addDiagFaces } from './viewer.js';
 import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js';
 import { loadAllThumbnails, loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextures.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
@@ -12,6 +13,8 @@ import { decimate }           from './decimation.js';
 import { exportSTL, export3MF } from './exporter.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
+import { runFastDiagnostics, runExpensiveDiagnostics,
+         getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -172,6 +175,10 @@ let dispPreviewParentMap = null;   // Int32Array: subdivided face → original f
 let precisionToken   = 0;
 let dispPreviewToken = 0;
 let exportToken      = 0;
+let diagToken        = 0;
+let lastFastDiag     = null;   // cached fast diagnostics result for language refresh
+let lastAdvancedDiag = null;   // cached advanced diagnostics result for language refresh
+let activeDiagHighlight = null; // which highlight is showing: 'openEdges'|'nonManifold'|'shells'|'overlaps'|null
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 
@@ -262,6 +269,14 @@ const precisionOutdated       = document.getElementById('precision-outdated');
 const precisionRefreshBtn     = document.getElementById('precision-refresh-btn');
 const precisionWarning        = document.getElementById('precision-warning');
 
+// ── Mesh diagnostics DOM refs ────────────────────────────────────────────────
+const meshDiagnostics    = document.getElementById('mesh-diagnostics');
+const meshDiagDismiss    = document.getElementById('mesh-diag-dismiss');
+const meshDiagFast       = document.getElementById('mesh-diag-fast');
+const meshDiagRunBtn     = document.getElementById('mesh-diag-run-btn');
+const meshDiagSpinner    = document.getElementById('mesh-diag-spinner');
+const meshDiagAdvanced   = document.getElementById('mesh-diag-advanced');
+
 // ── License panel DOM refs ────────────────────────────────────────────────────
 const licenseLink    = document.getElementById('license-link');
 const licenseOverlay = document.getElementById('license-overlay');
@@ -341,6 +356,8 @@ function populateLanguageSelector() {
       const sz = currentBounds.size.z.toFixed(2);
       meshInfo.textContent = t('ui.meshInfo', { n: triCount.toLocaleString(), mb, sx, sy, sz });
       refreshExclusionOverlay();
+      if (lastFastDiag) renderFastDiag(lastFastDiag);
+      if (lastAdvancedDiag) renderAdvancedDiag(lastAdvancedDiag);
     }
   });
 
@@ -529,6 +546,35 @@ function wireEvents() {
     if (e.target === dropZone) stlFileInput.click();
   });
 
+  // ── Mesh diagnostics: advanced checks ──
+  meshDiagRunBtn.addEventListener('click', async () => {
+    if (!currentGeometry || !triangleAdjacency) return;
+    const myToken = diagToken;
+    meshDiagRunBtn.disabled = true;
+    meshDiagSpinner.classList.remove('hidden');
+    meshDiagAdvanced.classList.add('hidden');
+
+    try {
+      const token = { get() { return diagToken; } };
+      const results = await runExpensiveDiagnostics(currentGeometry, token);
+
+      if (diagToken !== myToken) return; // model changed, discard
+
+      if (!results) return; // aborted
+
+      lastAdvancedDiag = results;
+      renderAdvancedDiag(results);
+      meshDiagAdvanced.classList.remove('hidden');
+    } catch (err) {
+      console.error('Advanced diagnostics failed:', err);
+    } finally {
+      if (diagToken === myToken) {
+        meshDiagSpinner.classList.add('hidden');
+        meshDiagRunBtn.disabled = false;
+      }
+    }
+  });
+
   // ── Custom texture upload ──
   textureInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -627,6 +673,12 @@ function wireEvents() {
   imprintClose.addEventListener('click', () => imprintOverlay.classList.add('hidden'));
   imprintOverlay.addEventListener('click', (e) => {
     if (e.target === imprintOverlay) imprintOverlay.classList.add('hidden');
+  });
+
+  // ── Mesh diagnostics dismiss ──
+  meshDiagDismiss.addEventListener('click', () => {
+    meshDiagnostics.classList.add('hidden');
+    clearDiagHighlight();
   });
 
   // ── Support banner dismiss ──
@@ -1718,6 +1770,7 @@ async function handleModelFile(file) {
     precisionToken++;
     dispPreviewToken++;
     exportToken++;
+    diagToken++;
 
     currentGeometry = geometry;
     currentBounds   = bounds;
@@ -1773,6 +1826,13 @@ async function handleModelFile(file) {
     precisionWarning.classList.add('hidden');
     precisionMaskingRow.classList.add('hidden');
 
+    // Reset mesh diagnostics for the new mesh
+    meshDiagnostics.classList.add('hidden');
+    meshDiagAdvanced.classList.add('hidden');
+    lastFastDiag = null;
+    lastAdvancedDiag = null;
+    clearDiagHighlight();
+
     // Reset exclusion state for the new mesh
     excludedFaces     = new Set();
     precisionExcludedFaces = new Set();
@@ -1796,6 +1856,7 @@ async function handleModelFile(file) {
     triangleAdjacency = adjData.adjacency;
     triangleCentroids = adjData.centroids; triangleBoundRadii = adjData.boundRadii;
     buildSpatialGrid(triangleCentroids, geometry.attributes.position.count / 3, bounds);
+    updateMeshDiagnostics(adjData, geometry.attributes.position.count / 3);
 
     // Reset scale & offset sliders so scale=1 = one tile covers the full bounding box
     const resetVal = (slider, valEl, value) => {
@@ -1841,6 +1902,160 @@ function checkAmplitudeWarning() {
   amplitudeWarning.classList.toggle('hidden', !danger);
   amplitudeSlider.classList.toggle('amp-danger', danger);
   amplitudeVal.classList.toggle('amp-danger', danger);
+}
+
+// Shell colours — evenly spaced hues, high saturation
+const SHELL_COLORS = [0xe6194b, 0x3cb44b, 0x4363d8, 0xf58231, 0x911eb4, 0x42d4f4, 0xf032e6, 0xbfef45, 0xfabed4, 0xdcbeff, 0x9a6324, 0x800000, 0xaaffc3, 0x808000, 0x000075, 0xa9a9a9];
+
+/**
+ * Determine the worst severity across fast + advanced diagnostics and apply it
+ * to the popup container.  'error' > 'warn' > 'ok'.
+ */
+function applyDiagSeverity() {
+  let severity = 'ok';
+  if (lastFastDiag) {
+    if (lastFastDiag.openEdges > 0 || lastFastDiag.nonManifoldEdges > 0) severity = 'error';
+    else if (lastFastDiag.shellCount > 1 && severity !== 'error') severity = 'warn';
+  }
+  if (lastAdvancedDiag) {
+    if (lastAdvancedDiag.intersectingPairs > 0) severity = 'error';
+    else if (lastAdvancedDiag.overlappingPairs > 0 && severity !== 'error') severity = 'warn';
+  }
+  meshDiagnostics.classList.remove('diag-ok', 'diag-warn', 'diag-error');
+  meshDiagnostics.classList.add('diag-' + severity);
+}
+
+function clearDiagHighlight() {
+  clearDiagOverlays();
+  activeDiagHighlight = null;
+  // Reset all toggle buttons in the popup
+  meshDiagnostics.querySelectorAll('.diag-show-btn').forEach(btn => {
+    btn.textContent = t('diag.show');
+  });
+}
+
+function toggleDiagHighlight(kind) {
+  if (activeDiagHighlight === kind) {
+    clearDiagHighlight();
+    return;
+  }
+  clearDiagOverlays();
+  activeDiagHighlight = kind;
+
+  // Reset all buttons then mark the active one
+  meshDiagnostics.querySelectorAll('.diag-show-btn').forEach(btn => {
+    btn.textContent = (btn.dataset.kind === kind) ? t('diag.hide') : t('diag.show');
+  });
+
+  if (!currentGeometry) return;
+
+  if (kind === 'openEdges' || kind === 'nonManifold') {
+    const edgeData = getEdgePositions(currentGeometry);
+    const positions = kind === 'openEdges' ? edgeData.open : edgeData.nonManifold;
+    setDiagEdges(positions, 0xff0000);
+  } else if (kind === 'shells') {
+    const shellIds = getShellAssignments(triangleAdjacency, currentGeometry.attributes.position.count / 3);
+    const shellCount = lastFastDiag ? lastFastDiag.shellCount : 0;
+    const srcPos = currentGeometry.attributes.position.array;
+    const srcNrm = currentGeometry.attributes.normal ? currentGeometry.attributes.normal.array : null;
+    const triCount = srcPos.length / 9;
+
+    for (let s = 0; s < shellCount; s++) {
+      // Count triangles in this shell
+      let count = 0;
+      for (let tt = 0; tt < triCount; tt++) if (shellIds[tt] === s) count++;
+      const outPos = new Float32Array(count * 9);
+      const outNrm = srcNrm ? new Float32Array(count * 9) : null;
+      let dst = 0;
+      for (let tt = 0; tt < triCount; tt++) {
+        if (shellIds[tt] !== s) continue;
+        const src = tt * 9;
+        outPos.set(srcPos.subarray(src, src + 9), dst);
+        if (outNrm) outNrm.set(srcNrm.subarray(src, src + 9), dst);
+        dst += 9;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(outPos, 3));
+      if (outNrm) geo.setAttribute('normal', new THREE.BufferAttribute(outNrm, 3));
+      addDiagFaces(geo, SHELL_COLORS[s % SHELL_COLORS.length], 0.55);
+    }
+  } else if (kind === 'intersects' && lastAdvancedDiag && lastAdvancedDiag.intersectFaces) {
+    const geo = buildExclusionOverlayGeo(currentGeometry, lastAdvancedDiag.intersectFaces);
+    addDiagFaces(geo, 0xff0000, 0.7, true);
+  } else if (kind === 'overlaps' && lastAdvancedDiag && lastAdvancedDiag.overlapFaces) {
+    const geo = buildExclusionOverlayGeo(currentGeometry, lastAdvancedDiag.overlapFaces);
+    addDiagFaces(geo, 0xf59e0b, 0.7);
+  }
+}
+
+/**
+ * Build a single issue line element with a "Show" toggle button.
+ * @param {string} text  – the issue description
+ * @param {string} kind  – highlight kind key
+ * @returns {HTMLElement}
+ */
+function makeDiagLine(text, kind) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;gap:8px';
+  const span = document.createElement('span');
+  span.textContent = '\u26a0 ' + text;
+  const btn = document.createElement('button');
+  btn.className = 'diag-show-btn';
+  btn.dataset.kind = kind;
+  btn.textContent = activeDiagHighlight === kind ? t('diag.hide') : t('diag.show');
+  btn.addEventListener('click', () => toggleDiagHighlight(kind));
+  row.appendChild(span);
+  row.appendChild(btn);
+  return row;
+}
+
+function renderFastDiag(diag) {
+  meshDiagFast.innerHTML = '';
+
+  if (diag.openEdges === 0 && diag.nonManifoldEdges === 0 && diag.shellCount <= 1) {
+    meshDiagFast.textContent = t('diag.meshOk');
+  } else {
+    if (diag.openEdges > 0)
+      meshDiagFast.appendChild(makeDiagLine(t('diag.openEdges', { n: diag.openEdges }), 'openEdges'));
+    if (diag.nonManifoldEdges > 0)
+      meshDiagFast.appendChild(makeDiagLine(t('diag.nonManifoldEdges', { n: diag.nonManifoldEdges }), 'nonManifold'));
+    if (diag.shellCount > 1)
+      meshDiagFast.appendChild(makeDiagLine(t('diag.multipleShells', { n: diag.shellCount }), 'shells'));
+    const tip = document.createElement('div');
+    tip.style.cssText = 'margin-top:4px;opacity:0.8;font-size:10px';
+    tip.innerHTML = t('diag.recommendFix');
+    meshDiagFast.appendChild(tip);
+  }
+  applyDiagSeverity();
+}
+
+function renderAdvancedDiag(results) {
+  meshDiagAdvanced.innerHTML = '';
+
+  if (results.intersectingPairs === 0 && results.overlappingPairs === 0) {
+    meshDiagAdvanced.textContent = t('diag.advancedOk');
+  } else {
+    if (results.intersectingPairs > 0)
+      meshDiagAdvanced.appendChild(makeDiagLine(t('diag.intersectingTris', { n: results.intersectingPairs }), 'intersects'));
+    if (results.overlappingPairs > 0)
+      meshDiagAdvanced.appendChild(makeDiagLine(t('diag.overlappingTris', { n: results.overlappingPairs }), 'overlaps'));
+    const tip = document.createElement('div');
+    tip.style.cssText = 'margin-top:4px;opacity:0.8;font-size:10px';
+    tip.innerHTML = t('diag.recommendFix');
+    meshDiagAdvanced.appendChild(tip);
+  }
+  applyDiagSeverity();
+}
+
+function updateMeshDiagnostics(adjData, triCount) {
+  lastFastDiag = runFastDiagnostics(adjData, triCount);
+  lastAdvancedDiag = null;
+  clearDiagHighlight();
+  renderFastDiag(lastFastDiag);
+
+  meshDiagnostics.classList.remove('hidden');
+  meshDiagAdvanced.classList.add('hidden');
+  meshDiagRunBtn.disabled = false;
 }
 
 function checkResolutionWarning() {
@@ -3097,7 +3312,11 @@ async function handleExport(format = 'stl') {
     }, 1500);
   } catch (err) {
     console.error('Export failed:', err);
-    alert(t('alerts.exportFailed', { msg: err.message }));
+    if (/maximum size|out of memory|alloc/i.test(err.message)) {
+      alert(t('alerts.exportOOM'));
+    } else {
+      alert(t('alerts.exportFailed', { msg: err.message }));
+    }
   } finally {
     // Dispose all intermediate geometries regardless of success, failure, or abort.
     // finalGeometry may alias displaced (no decimation) — avoid double-dispose.
