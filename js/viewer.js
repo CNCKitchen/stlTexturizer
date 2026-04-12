@@ -24,6 +24,7 @@ let hoverMesh = null;        // semi-transparent yellow bucket-fill preview
 let _exclMaterial = null;
 let _hoverMaterial = null;
 let _needsRender = true;
+let _lastSpaceMouseTime = 0;
 
 // Build a labelled coordinate axes indicator scaled to `size`.
 // X = red, Y = green, Z = blue (up).
@@ -391,6 +392,14 @@ export function initViewer(canvas) {
   // Cursor-centric zoom: zoom toward the mouse pointer instead of screen centre
   renderer.domElement.addEventListener('wheel', (e) => {
     e.preventDefault();
+    
+    // 3Dconnexion drivers on Windows automatically emulate mouse scroll wheel events 
+    // when pushing/pulling the SpaceMouse puck on the Z-axis. This causes violent 
+    // camera jumping because this viewer uses cursor-centric zooming (zooming towards 
+    // the idle screen cursor instead of the model center). 
+    // If the SpaceMouse is active, we debounce and ignore these driver-emulated scrolls.
+    if (performance.now() - _lastSpaceMouseTime < 50) return; 
+
     const rect = renderer.domElement.getBoundingClientRect();
     const ndcX =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
     const ndcY = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
@@ -427,9 +436,128 @@ export function initViewer(canvas) {
   // Damping needs controls.update() every frame; re-render only when needed
   controls.addEventListener('change', () => { _needsRender = true; });
 
+  // Cached index of SpaceMouse device.
+  let _smIndex = -1;
+
+  function applySpaceMouse() {
+    if (!controls.enabled) return;
+
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let sm = null;
+
+    // Cache the gamepad index to avoid string allocations and looping every frame
+    if (_smIndex !== -1 && gamepads[_smIndex] && gamepads[_smIndex].connected) {
+      sm = gamepads[_smIndex];
+    } else {
+      _smIndex = -1;
+      for (let i = 0; i < gamepads.length; i++) {
+        const gp = gamepads[i];
+        if (gp && gp.connected) {
+          const id = gp.id.toLowerCase();
+          if (id.includes('spacemouse') ||
+              id.includes('3dconnexion') ||
+              id.includes('space navigator') ||
+              id.includes('spacenavigator')) {
+            sm = gp;
+            _smIndex = i;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!sm) return;
+
+    // Smooth deadzone mapping.
+    // Instead of a step discontinuity (a < threshold ? 0 : a) that causes sudden camera
+    // jumps when crossing the threshold, we scale smoothly from 0.0 to 1.0 after the deadzone.
+    const deadzone = 0.08;
+    const mapAxis = (val) => {
+      const abs = Math.abs(val);
+      return abs < deadzone ? 0 : Math.sign(val) * ((abs - deadzone) / (1 - deadzone));
+    };
+
+    // Apply inline to avoid Array.map() allocations which cause GC pressure every frame
+    const ax0 = mapAxis(sm.axes[0] || 0);
+    const ax1 = mapAxis(sm.axes[1] || 0);
+    const ax2 = mapAxis(sm.axes[2] || 0);
+    const ax3 = mapAxis(sm.axes[3] || 0);
+    const ax4 = mapAxis(sm.axes[4] || 0);
+    const ax5 = mapAxis(sm.axes[5] || 0);
+
+    if (ax0 === 0 && ax1 === 0 && ax2 === 0 && ax3 === 0 && ax4 === 0 && ax5 === 0) return;
+
+    _lastSpaceMouseTime = performance.now();
+
+    const pivot = controls.target;
+
+    const tx =  ax0;
+    const tz =  ax1; 
+    const ty = -ax2; 
+
+    if (tx !== 0 || ty !== 0 || tz !== 0) {
+      let transSpeed = 2.0;
+      if (_isPerspective) {
+        const dist = camera.position.distanceTo(pivot);
+        transSpeed = dist * 0.02; 
+      } else {
+        transSpeed = (orthoCamera.top / orthoCamera.zoom) * 0.04;
+      }
+      
+      _tmpV1.set(0, 0, 1).applyQuaternion(camera.quaternion).normalize();
+      const dollyDelta = _tmpV1.multiplyScalar(tz * (transSpeed * 0.5));
+      
+      _tmpV2.set(tx * transSpeed, ty * transSpeed, 0).applyQuaternion(camera.quaternion);
+      
+      if (_isPerspective) {
+        camera.position.add(dollyDelta).add(_tmpV2);
+        controls.target.add(dollyDelta).add(_tmpV2);
+      } else {
+        camera.zoom = Math.max(0.05, Math.min(200, camera.zoom * (1 - tz * 0.025)));
+        camera.updateProjectionMatrix();
+        camera.position.add(_tmpV2);
+        controls.target.add(_tmpV2);
+      }
+      _needsRender = true;
+    }
+
+    const pitch =  ax3;
+    const roll  =  ax4;
+    const yaw   = -ax5;
+
+    if (pitch !== 0 || roll !== 0 || yaw !== 0) {
+      const rotSpeed = 0.02;
+      camera.updateMatrixWorld();
+      
+      // We use quaternion accumulation for rotation because it provides the 'freelook'
+      // or 'helicopter' feel that is standard for SpaceMouse users, allowing the camera 
+      // to naturally twist and bank off the locked Z-axis.
+      // See: https://discourse.threejs.org/t/spacemouse-liberated-at-last/37241
+      _tmpV2.setFromMatrixColumn(camera.matrixWorld, 0).normalize(); 
+      
+      _tmpQ1.setFromAxisAngle(_tmpV1.set(0, 0, 1), yaw * rotSpeed);
+      
+      _tmpQ2.setFromAxisAngle(_tmpV2, pitch * rotSpeed);
+      _tmpQ1.premultiply(_tmpQ2);
+
+      _tmpV4.set(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+      _tmpQ2.setFromAxisAngle(_tmpV4, roll * rotSpeed);
+      _tmpQ1.premultiply(_tmpQ2);
+
+      _tmpV3.copy(camera.position).sub(pivot);
+      _tmpV3.applyQuaternion(_tmpQ1);
+      camera.position.copy(pivot).add(_tmpV3);
+
+      camera.quaternion.premultiply(_tmpQ1);
+      camera.updateMatrixWorld();
+      _needsRender = true;
+    }
+  }
+
   // Render loop
   (function animate() {
     requestAnimationFrame(animate);
+    applySpaceMouse();
     controls.update();
     if (_needsRender) {
       _needsRender = false;
