@@ -8,7 +8,7 @@ export const TRANSLATIONS = {
   fr: { 'lang.name': 'Français' },
   it: { 'lang.name': 'Italiano' },
   ja: { 'lang.name': '日本語 (beta)' },
-	ko: { 'lang.name': '한국어' }
+  ko: { 'lang.name': '한국어' },
   pt: { 'lang.name': 'Português (beta)' },
   ru: { 'lang.name': 'Русский' }
 };
