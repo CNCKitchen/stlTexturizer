@@ -39,6 +39,8 @@ const sharedGLSL = /* glsl */`
   uniform int       symmetricDisplacement;
   uniform int       useDisplacement;
   uniform vec2      textureAspect;
+  uniform int       useFixedReference;
+  uniform float     referenceExtentMm;
 
   const float PI     = 3.14159265358979;
   const float TWO_PI = 6.28318530717959;
@@ -99,6 +101,9 @@ const sharedGLSL = /* glsl */`
     vec3 rel = pos - boundsCenter;
     float maxDim = max(boundsSize.x, max(boundsSize.y, boundsSize.z));
     float md = max(maxDim, 1e-4);
+    if (useFixedReference > 0) {
+      md = max(referenceExtentMm, 1e-4);
+    }
 
     if (mappingMode == 0) {
       return sampleMap(vec2((pos.x - boundsMin.x) / md, (pos.y - boundsMin.y) / md));
@@ -435,6 +440,8 @@ export function updateMaterial(material, displacementTexture, settings) {
   u.useDisplacement.value         = settings.useDisplacement         ? 1 : 0;
   u.textureAspect.value.set(settings.textureAspectU ?? 1, settings.textureAspectV ?? 1);
   u.boundaryFalloffDist.value       = settings.boundaryFalloff           ?? 0.0;
+  u.useFixedReference.value         = settings.fixedWorldTextureScale ? 1 : 0;
+  u.referenceExtentMm.value         = Math.max(Number(settings.referenceExtentMm) || 200, 1e-4);
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
@@ -467,6 +474,8 @@ function buildUniforms(tex, settings) {
     boundaryEdgeCount:        { value: 0 },
     boundaryEdgeTexWidth:     { value: 1.0 },
     boundaryFalloffDist:        { value: settings.boundaryFalloff ?? 0.0 },
+    useFixedReference:          { value: settings.fixedWorldTextureScale ? 1 : 0 },
+    referenceExtentMm:          { value: Math.max(Number(settings.referenceExtentMm) || 200, 1e-4) },
   };
 }
 

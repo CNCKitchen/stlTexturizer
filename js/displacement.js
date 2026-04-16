@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { computeUV, getDominantCubicAxis, getCubicBlendWeights } from './mapping.js';
+import { computeUV, getDominantCubicAxis, getCubicBlendWeights, getReferenceExtent } from './mapping.js';
 
 /**
  * Apply displacement to every vertex of a non-indexed BufferGeometry.
@@ -320,7 +320,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
       const zaX = zoneAreaX[vid], zaY = zoneAreaY[vid], zaZ = zoneAreaZ[vid];
       const total = zaX + zaY + zaZ;
       if (total > 0) {
-        const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z, 1e-6);
+        const md = getReferenceExtent(settings, bounds);
         const rotRad = (settings.rotation ?? 0) * Math.PI / 180;
         let grey = 0;
         if (zaX > 0) { // X-dominant zone → YZ projection
