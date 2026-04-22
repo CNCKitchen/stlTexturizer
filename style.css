@@ -1400,3 +1400,118 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   border-color: var(--accent);
   color: var(--text);
 }
+/* ── Presets ─────────────────────────────────────────────────────────────── */
+
+.preset-save-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.preset-name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  transition: border-color 0.15s;
+}
+
+.preset-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.preset-action-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.preset-action-btn:hover {
+  background: var(--border);
+  border-color: var(--accent);
+}
+
+.preset-save-btn {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+
+.preset-save-btn:hover {
+  background: var(--accent-hover);
+  border-color: transparent;
+}
+
+.preset-list {
+  margin-bottom: 8px;
+}
+
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.preset-row:last-child {
+  border-bottom: none;
+}
+
+.preset-row-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.preset-load-btn {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+
+.preset-load-btn:hover {
+  background: var(--accent-hover);
+  border-color: transparent;
+}
+
+.preset-delete-btn {
+  padding: 5px 8px;
+  color: var(--text-muted);
+}
+
+.preset-delete-btn:hover {
+  color: var(--text);
+}
+
+.preset-io-row {
+  display: flex;
+  gap: 6px;
+}
+
+.preset-import-label {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.preset-empty-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}

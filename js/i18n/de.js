@@ -168,5 +168,19 @@ export default {
   "diag.advancedOk": "\u2714 Keine Schnitte oder Überlappungen gefunden",
   "diag.recommendFix": "Beheben Sie diese Probleme in Ihrer CAD-Software, Ihrem Slicer oder <a href=\"https://www.formware.co/onlinestlrepair\" target=\"_blank\" rel=\"noopener\">online</a> vor dem Texturieren.",
   "diag.show": "Zeigen",
-  "diag.hide": "Ausbl."
+  "diag.hide": "Ausbl.",
+  "sections.presets": "Voreinstellungen ⓘ",
+  "tooltips.presets": "Speichern Sie Ihre aktuellen Einstellungen als benannte Voreinstellung zur Wiederverwendung. Voreinstellungen werden in Ihrem Browser gespeichert und können zur Sicherung oder Weitergabe als JSON exportiert werden.",
+  "presets.namePlaceholder": "Name der Voreinstellung…",
+  "presets.save": "Speichern",
+  "presets.saveTitle": "Aktuelle Einstellungen als Voreinstellung speichern",
+  "presets.load": "Laden",
+  "presets.loadTitle": "Diese Einstellungen wiederherstellen",
+  "presets.deleteTitle": "Voreinstellung löschen",
+  "presets.export": "JSON exportieren",
+  "presets.exportTitle": "Alle Voreinstellungen als JSON-Datei exportieren",
+  "presets.import": "JSON importieren",
+  "presets.importTitle": "Voreinstellungen aus einer JSON-Datei importieren",
+  "presets.empty": "Noch keine Voreinstellungen gespeichert.",
+  "presets.importError": "Voreinstellungen konnten nicht importiert werden – stellen Sie sicher, dass die Datei ein gültiges BumpMesh-Preset-JSON ist."
 };

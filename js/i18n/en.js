@@ -168,5 +168,19 @@ export default {
   "diag.advancedOk": "\u2714 No intersections or overlaps found",
   "diag.recommendFix": "Fix these issues in your CAD software, slicer, or <a href=\"https://www.formware.co/onlinestlrepair\" target=\"_blank\" rel=\"noopener\">online</a> before texturing.",
   "diag.show": "Show",
-  "diag.hide": "Hide"
+  "diag.hide": "Hide",
+  "sections.presets": "Presets ⓘ",
+  "tooltips.presets": "Save your current settings as a named preset for reuse. Presets are stored in your browser and can be exported as JSON for backup or sharing.",
+  "presets.namePlaceholder": "Preset name…",
+  "presets.save": "Save",
+  "presets.saveTitle": "Save current settings as a preset",
+  "presets.load": "Load",
+  "presets.loadTitle": "Restore these settings",
+  "presets.deleteTitle": "Delete preset",
+  "presets.export": "Export JSON",
+  "presets.exportTitle": "Export all presets as a JSON file",
+  "presets.import": "Import JSON",
+  "presets.importTitle": "Import presets from a JSON file",
+  "presets.empty": "No presets saved yet.",
+  "presets.importError": "Could not import presets — make sure the file is a valid BumpMesh preset JSON."
 };

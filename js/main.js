@@ -17,6 +17,7 @@ import { buildAdjacency, bucketFill,
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
+import { initPresets } from './presets.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -319,6 +320,15 @@ function _applyScaleU(v) {
   clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
 }
 
+function _applyScaleV(v) {
+  v = Math.max(0.01, Math.min(10, v));
+  settings.scaleV = v;
+  scaleVSlider.value = scaleToPos(v);
+  scaleVVal.value = v;
+  if (settings.lockScale) { settings.scaleU = v; scaleUSlider.value = scaleToPos(v); scaleUVal.value = v; }
+  clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 let PRESETS = [];
@@ -414,6 +424,93 @@ wireEvents();
 // Sync scale number inputs with the slider's initial position
 scaleUVal.value = posToScale(parseFloat(scaleUSlider.value));
 scaleVVal.value = posToScale(parseFloat(scaleVSlider.value));
+
+// ── Preset save/load state helpers ────────────────────────────────────────────
+
+function getSettingsSnapshot() {
+  return {
+    mappingMode:           settings.mappingMode,
+    scaleU:                settings.scaleU,
+    scaleV:                settings.scaleV,
+    lockScale:             settings.lockScale,
+    offsetU:               settings.offsetU,
+    offsetV:               settings.offsetV,
+    rotation:              settings.rotation,
+    amplitude:             settings.amplitude,
+    textureHeight:         settings.textureHeight,
+    invertDisplacement:    settings.invertDisplacement,
+    symmetricDisplacement: settings.symmetricDisplacement,
+    textureSmoothing:      settings.textureSmoothing,
+    mappingBlend:          settings.mappingBlend,
+    seamBandWidth:         settings.seamBandWidth,
+    capAngle:              settings.capAngle,
+    boundaryFalloff:       settings.boundaryFalloff,
+    bottomAngleLimit:      settings.bottomAngleLimit,
+    topAngleLimit:         settings.topAngleLimit,
+    refineLength:          settings.refineLength,
+    maxTriangles:          settings.maxTriangles,
+    activeMapName:         activeMapEntry ? activeMapEntry.name : null,
+  };
+}
+
+function applySettingsSnapshot(snap) {
+  // Mapping mode
+  if (snap.mappingMode != null) {
+    mappingSelect.value = String(snap.mappingMode);
+    mappingSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // Scale lock — set state before applying scale values
+  if (snap.lockScale != null && snap.lockScale !== settings.lockScale) {
+    lockScaleBtn.click();
+  }
+
+  // Scale U/V — use hoisted helpers (handle log-scale transform + lock mirroring)
+  if (snap.scaleU != null) _applyScaleU(snap.scaleU);
+  if (snap.scaleV != null && !settings.lockScale) _applyScaleV(snap.scaleV);
+
+  // Sliders wired via linkSlider: set the val input and fire 'change'
+  // so applyLinkedValue runs, which updates settings + slider position + preview
+  const setLinkedVal = (inputEl, value) => {
+    if (inputEl && value != null) {
+      inputEl.value = value;
+      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  };
+  setLinkedVal(offsetUVal,          snap.offsetU);
+  setLinkedVal(offsetVVal,          snap.offsetV);
+  setLinkedVal(rotationVal,         snap.rotation);
+  setLinkedVal(amplitudeVal,        snap.amplitude);
+  setLinkedVal(textureSmoothingVal, snap.textureSmoothing);
+  setLinkedVal(seamBlendVal,        snap.mappingBlend);
+  setLinkedVal(seamBandWidthVal,    snap.seamBandWidth);
+  setLinkedVal(capAngleVal,         snap.capAngle);
+  setLinkedVal(boundaryFalloffVal,  snap.boundaryFalloff);
+  setLinkedVal(bottomAngleLimitVal, snap.bottomAngleLimit);
+  setLinkedVal(topAngleLimitVal,    snap.topAngleLimit);
+  setLinkedVal(refineLenVal,        snap.refineLength);
+
+  // max-triangles uses a <span> val, so drive the slider directly
+  if (snap.maxTriangles != null) {
+    maxTriSlider.value = snap.maxTriangles;
+    maxTriSlider.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // Checkboxes
+  if (snap.symmetricDisplacement != null) {
+    symmetricDispToggle.checked = snap.symmetricDisplacement;
+    symmetricDispToggle.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  // Texture preset — find swatch whose title matches, click it
+  if (snap.activeMapName) {
+    const swatch = Array.from(document.querySelectorAll('.preset-swatch'))
+      .find(s => s.title === snap.activeMapName);
+    if (swatch) swatch.click();
+  }
+}
+
+initPresets({ getState: getSettingsSnapshot, applyState: applySettingsSnapshot, t });
 
 // Load geometry immediately — don't wait for textures
 loadDefaultCube();
@@ -619,19 +716,11 @@ function wireEvents() {
   scaleUVal.addEventListener('change', () => applyScaleU(parseFloat(scaleUVal.value)));
   addFineWheelSupport(scaleUVal, applyScaleU);
 
-  // Scale V — when lock is on, mirror to U
-  const applyScaleV = (v) => {
-    v = Math.max(0.01, Math.min(10, v));
-    settings.scaleV = v;
-    scaleVSlider.value = scaleToPos(v);
-    scaleVVal.value = v;
-    if (settings.lockScale) { settings.scaleU = v; scaleUSlider.value = scaleToPos(v); scaleUVal.value = v; }
-    clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
-  };
-  scaleVSlider.addEventListener('input', () => applyScaleV(posToScale(parseFloat(scaleVSlider.value))));
-  scaleVSlider.addEventListener('dblclick', () => applyScaleV(posToScale(parseFloat(scaleVSlider.defaultValue))));
-  scaleVVal.addEventListener('change', () => applyScaleV(parseFloat(scaleVVal.value)));
-  addFineWheelSupport(scaleVVal, applyScaleV);
+  // Scale V — when lock is on, mirror to U (uses hoisted _applyScaleV)
+  scaleVSlider.addEventListener('input', () => _applyScaleV(posToScale(parseFloat(scaleVSlider.value))));
+  scaleVSlider.addEventListener('dblclick', () => _applyScaleV(posToScale(parseFloat(scaleVSlider.defaultValue))));
+  scaleVVal.addEventListener('change', () => _applyScaleV(parseFloat(scaleVVal.value)));
+  addFineWheelSupport(scaleVVal, _applyScaleV);
 
   // Lock toggle
   lockScaleBtn.addEventListener('click', () => {
