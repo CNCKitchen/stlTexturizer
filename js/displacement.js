@@ -501,6 +501,11 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.BufferAttribute(newPos, 3));
   out.setAttribute('normal',   new THREE.BufferAttribute(newNrm, 3));
+  // Forward excludeWeight (per-vertex 0..1, 1.0 = excluded by user paint or angle mask)
+  // so downstream consumers like colorBake.js can honor the same masking the
+  // displacement pass already respected. Same length as position; the underlying
+  // typed array is shared with the input — safe because nothing writes it later.
+  if (ewAttr) out.setAttribute('excludeWeight', new THREE.BufferAttribute(ewAttr.array, 1));
   return out;
 }
 

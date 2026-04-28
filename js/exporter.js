@@ -91,10 +91,30 @@ export function exportSTL(geometry, filename = 'textured.stl') {
  *
  * @param {THREE.BufferGeometry} geometry  – non-indexed with position attribute
  * @param {string} [filename]
+ * @param {{palette?: Uint8Array, triPaletteIndices?: Uint16Array}} [options]
+ *   Optional 3MF Materials Extension v1.0.1 colorgroup data:
+ *   - `palette`: flat `Uint8Array(N*3)` of RGB triplets (0..255 each).
+ *   - `triPaletteIndices`: `Uint16Array(triCount)` mapping each triangle to a
+ *     palette entry. When both present and `palette.length > 0`, the model
+ *     declares the `m` namespace, emits an `<m:colorgroup id="3">` block
+ *     before the `<object>`, and adds `pid="3" p1="<idx>"` per triangle.
+ *   When absent or empty, the emitted XML is byte-identical to the
+ *   geometry-only output (backward-compat path).
  */
-export function export3MF(geometry, filename = 'textured.3mf') {
+export function export3MF(geometry, filename = 'textured.3mf', options = {}) {
   const posArr = geometry.attributes.position.array;
   const triCount = (posArr.length / 9) | 0;
+
+  // ── Color export prep (3MF Materials Extension v1.0.1) ───────────────────
+  // Activate only when the caller provided BOTH a non-empty palette AND a
+  // matching per-triangle index buffer. Anything else falls through to the
+  // unchanged geometry-only path below.
+  const palette = options && options.palette;
+  const triPidx = options && options.triPaletteIndices;
+  const hasColor = !!(
+    palette && palette.length > 0 &&
+    triPidx && triPidx.length >= triCount
+  );
 
   // ── Deduplicate vertices ─────────────────────────────────────────────────
   // Key on fixed-precision position strings. 4 decimals = 0.0001 mm, safely
@@ -127,15 +147,57 @@ export function export3MF(geometry, filename = 'textured.3mf') {
   // Stream into an array of string chunks then join once — much faster than
   // repeated concatenation for large meshes.
   const chunks = [];
-  chunks.push(
-    '<?xml version="1.0" encoding="UTF-8"?>\n',
-    '<model unit="millimeter" xml:lang="en-US" ',
-    'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n',
-    '<resources>\n',
-    '<object id="1" type="model">\n',
-    '<mesh>\n',
-    '<vertices>\n'
-  );
+  if (hasColor) {
+    // Materials-extended model header: declare the `m` namespace and require
+    // the extension so compliant readers know to honor pid/p1 attributes.
+    chunks.push(
+      '<?xml version="1.0" encoding="UTF-8"?>\n',
+      '<model unit="millimeter" xml:lang="en-US" ',
+      'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" ',
+      'xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02" ',
+      'requiredextensions="m">\n',
+      '<resources>\n'
+    );
+    // Colorgroup MUST precede <object> per the Materials Extension spec.
+    // id="3" leaves room for a future basematerials block at id=2; the
+    // object below stays at id=1.
+    const palCount = (palette.length / 3) | 0;
+    chunks.push('<m:colorgroup id="3">\n');
+    const hex2 = (n) => {
+      // Uppercase 2-char hex; clamp defensively.
+      const v = n < 0 ? 0 : n > 255 ? 255 : n | 0;
+      const s = v.toString(16).toUpperCase();
+      return s.length === 1 ? '0' + s : s;
+    };
+    for (let i = 0; i < palCount; i++) {
+      const b = i * 3;
+      // Slicers (Bambu/Orca/Prusa) want 8-char RGBA; alpha is always FF.
+      chunks.push(
+        '<m:color color="#',
+        hex2(palette[b]),
+        hex2(palette[b + 1]),
+        hex2(palette[b + 2]),
+        'FF"/>\n'
+      );
+    }
+    chunks.push('</m:colorgroup>\n');
+    // The per-triangle pid is sufficient — do NOT put pid on <object>.
+    chunks.push(
+      '<object id="1" type="model">\n',
+      '<mesh>\n',
+      '<vertices>\n'
+    );
+  } else {
+    chunks.push(
+      '<?xml version="1.0" encoding="UTF-8"?>\n',
+      '<model unit="millimeter" xml:lang="en-US" ',
+      'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n',
+      '<resources>\n',
+      '<object id="1" type="model">\n',
+      '<mesh>\n',
+      '<vertices>\n'
+    );
+  }
 
   // Vertices: trim trailing zeros to keep the file compact.
   const fmt = (n) => {
@@ -156,14 +218,30 @@ export function export3MF(geometry, filename = 'textured.3mf') {
 
   chunks.push('</vertices>\n<triangles>\n');
 
-  for (let i = 0; i < triCount; i++) {
-    const b = i * 3;
-    chunks.push(
-      '<triangle v1="', triIdx[b],
-      '" v2="', triIdx[b + 1],
-      '" v3="', triIdx[b + 2],
-      '"/>\n'
-    );
+  if (hasColor) {
+    // Per-triangle color: pid references the colorgroup (id="3"); p1 is the
+    // palette entry index for v1. Omitting p2/p3 means flat-coloring the
+    // whole triangle from p1, which is exactly what we want.
+    for (let i = 0; i < triCount; i++) {
+      const b = i * 3;
+      chunks.push(
+        '<triangle v1="', triIdx[b],
+        '" v2="', triIdx[b + 1],
+        '" v3="', triIdx[b + 2],
+        '" pid="3" p1="', triPidx[i],
+        '"/>\n'
+      );
+    }
+  } else {
+    for (let i = 0; i < triCount; i++) {
+      const b = i * 3;
+      chunks.push(
+        '<triangle v1="', triIdx[b],
+        '" v2="', triIdx[b + 1],
+        '" v3="', triIdx[b + 2],
+        '"/>\n'
+      );
+    }
   }
 
   chunks.push(

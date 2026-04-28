@@ -35,6 +35,13 @@
  * @param {THREE.BufferGeometry} geometry        non-indexed input
  * @param {number}               targetTriangles desired output face count
  * @param {function}             [onProgress]    callback(0–1)
+ * @param {object}               [opts]          optional flags
+ * @param {boolean}              [opts.preserveColor=false]  when true and the
+ *        input has a `color` BufferAttribute (Float32×3), thread it through the
+ *        edge-collapse process and emit it on the output geometry. Vertices
+ *        deduped at index time and merged at collapse time take a uniform
+ *        component-wise average. When false (or color absent) output is
+ *        byte-identical to the colorless path.
  * @returns {THREE.BufferGeometry}
  */
 
@@ -68,10 +75,16 @@ const _hlvLo = new Int32Array(512);
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-export async function decimate(geometry, targetTriangles, onProgress) {
-  const { positions, faces, vertCount, faceCount } = buildIndexed(geometry);
+export async function decimate(geometry, targetTriangles, onProgress, opts = {}) {
+  // Color-threading is gated on BOTH the explicit opt-in AND a present color
+  // attribute on the input. Either condition false → behaves exactly as the
+  // colorless path, with no extra allocations or per-vertex work.
+  const colorAttr = (opts && opts.preserveColor) ? geometry.attributes.color : null;
+  const threadColor = !!(colorAttr && colorAttr.itemSize >= 3);
 
-  if (faceCount <= targetTriangles) return buildOutput(positions, faces, faceCount);
+  const { positions, faces, vertCount, faceCount, colors } = buildIndexed(geometry, threadColor ? colorAttr : null);
+
+  if (faceCount <= targetTriangles) return buildOutput(positions, faces, faceCount, colors);
 
   // Per-vertex error quadrics (10 doubles = upper triangle of symmetric 4×4)
   const quadrics = new Float64Array(vertCount * 10);
@@ -152,6 +165,15 @@ export async function decimate(geometry, targetTriangles, onProgress) {
     positions[v1 * 3 + 1] = py;
     positions[v1 * 3 + 2] = pz;
     mergeQuadric(quadrics, v1, v2);
+    // Uniform average of v1 and v2 colors into v1. Final per-triangle averaging
+    // happens at quantization; this approximation drifts toward the more
+    // recently-merged subtree's color but keeps the hot path branch-light.
+    if (colors) {
+      const c1 = v1 * 3, c2 = v2 * 3;
+      colors[c1]     = (colors[c1]     + colors[c2])     * 0.5;
+      colors[c1 + 1] = (colors[c1 + 1] + colors[c2 + 1]) * 0.5;
+      colors[c1 + 2] = (colors[c1 + 2] + colors[c2 + 2]) * 0.5;
+    }
     version[v1]++;  // v1's quadric and position changed — invalidate old heap entries
 
     // Walk v2's face list; read sNext BEFORE modifying the list.
@@ -200,7 +222,7 @@ export async function decimate(geometry, targetTriangles, onProgress) {
   }
 
   if (onProgress) onProgress(1);
-  return buildOutput(positions, faces, faceCount);
+  return buildOutput(positions, faces, faceCount, colors);
 }
 
 // ── Linked-list vertex-face incidence ────────────────────────────────────────
@@ -554,7 +576,7 @@ function pushEdge(heap, quadrics, positions, version, v1, v2) {
 // Numeric spatial-hash vertex deduplication.
 // Avoids template-string allocation by encoding quantised (ix,iy,iz) as a
 // BigInt key: this is still fast because we only call BigInt() once per vertex.
-function buildIndexed(geometry) {
+function buildIndexed(geometry, colorAttr = null) {
   const posAttr = geometry.attributes.position;
   const n = posAttr.count;
 
@@ -563,6 +585,13 @@ function buildIndexed(geometry) {
   let   vertCount  = 0;
 
   const vertMap = new Map();
+
+  // Color SoA — only allocated when color-threading was requested AND the
+  // input provides a color attribute. Sums are accumulated here, then divided
+  // by per-vertex hit counts at the end to produce an exact uniform mean
+  // across all input vertices that quantised to the same grid cell.
+  const colorSums  = colorAttr ? new Float64Array(n * 3) : null; // double precision sum, trimmed later
+  const colorCount = colorAttr ? new Uint32Array(n)     : null;
 
   for (let i = 0; i < n; i++) {
     const x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
@@ -581,32 +610,57 @@ function buildIndexed(geometry) {
       vertMap.set(key, idx);
     }
     indexRemap[i] = idx;
+    if (colorSums) {
+      colorSums[idx * 3]     += colorAttr.getX(i);
+      colorSums[idx * 3 + 1] += colorAttr.getY(i);
+      colorSums[idx * 3 + 2] += colorAttr.getZ(i);
+      colorCount[idx]++;
+    }
   }
 
   const faceCount = n / 3;
   const faces = new Int32Array(faceCount * 3);
   for (let i = 0; i < n; i++) faces[i] = indexRemap[i];
 
-  return { positions: positions.subarray(0, vertCount * 3), faces, vertCount, faceCount };
+  let colors = null;
+  if (colorSums) {
+    colors = new Float32Array(vertCount * 3);
+    for (let v = 0; v < vertCount; v++) {
+      const c = colorCount[v] || 1;
+      colors[v * 3]     = colorSums[v * 3]     / c;
+      colors[v * 3 + 1] = colorSums[v * 3 + 1] / c;
+      colors[v * 3 + 2] = colorSums[v * 3 + 2] / c;
+    }
+  }
+
+  return { positions: positions.subarray(0, vertCount * 3), faces, vertCount, faceCount, colors };
 }
 
 // (adjacency helpers replaced by buildLinkedAdj and _unlinkSlot/_moveSlot above)
 
-function buildOutput(positions, faces, faceCount) {
+function buildOutput(positions, faces, faceCount, colors = null) {
   let activeFaces = 0;
   for (let f = 0; f < faceCount; f++) {
     if (faces[f * 3] >= 0) activeFaces++;
   }
 
   const posArray = new Float32Array(activeFaces * 9);
+  // Only allocate a non-indexed color buffer when color-threading was active.
+  const colorOut = colors ? new Float32Array(activeFaces * 9) : null;
   let out = 0;
   for (let f = 0; f < faceCount; f++) {
     if (faces[f * 3] < 0) continue;
     for (let v = 0; v < 3; v++) {
       const vi = faces[f * 3 + v];
-      posArray[out++] = positions[vi * 3];
-      posArray[out++] = positions[vi * 3 + 1];
-      posArray[out++] = positions[vi * 3 + 2];
+      posArray[out]     = positions[vi * 3];
+      posArray[out + 1] = positions[vi * 3 + 1];
+      posArray[out + 2] = positions[vi * 3 + 2];
+      if (colorOut) {
+        colorOut[out]     = colors[vi * 3];
+        colorOut[out + 1] = colors[vi * 3 + 1];
+        colorOut[out + 2] = colors[vi * 3 + 2];
+      }
+      out += 3;
     }
   }
 
@@ -630,6 +684,9 @@ function buildOutput(positions, faces, faceCount) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
   geo.setAttribute('normal',   new THREE.BufferAttribute(nrmArray, 3));
+  if (colorOut) {
+    geo.setAttribute('color', new THREE.BufferAttribute(colorOut, 3));
+  }
   return geo;
 }
 

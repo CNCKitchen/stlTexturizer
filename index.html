@@ -512,6 +512,130 @@
         </div>
       </section>
 
+      <!-- Color export (3MF) — Unit D -->
+      <section class="panel-section" id="color-section" data-source="none">
+        <h2 data-i18n="color.heading"
+            data-i18n-title="tooltips.colorExportEnabled"
+            title="When on, exported 3MF includes a colorgroup. STL stays geometry-only. Slicers map colors to filament slots.">Color export (3MF)</h2>
+
+        <!-- Master enable -->
+        <div class="form-row">
+          <label class="checkbox-label" for="color-export-toggle"
+                 data-i18n-title="tooltips.colorExportEnabled"
+                 title="When on, exported 3MF includes a colorgroup. STL stays geometry-only. Slicers map colors to filament slots.">
+            <input type="checkbox" id="color-export-toggle" />
+            <span data-i18n="color.enable">Enable color export</span>
+          </label>
+        </div>
+
+        <!-- Palette size — caps the colorgroup so slicers don't see 32 distinct
+             filament slots when the user only wants 4. -->
+        <div class="form-row palette-size-row">
+          <label for="color-palette-size" data-i18n="color.paletteSize"
+                 data-i18n-title="tooltips.colorPaletteSize"
+                 title="How many distinct colors the exported 3MF contains. Slicers map these to filament slots; pick the number you actually plan to print with.">Export colors</label>
+          <select id="color-palette-size">
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4" selected>4</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
+            <option value="16">16</option>
+            <option value="32">32</option>
+          </select>
+        </div>
+
+        <!-- Auto color source -->
+        <h3 class="panel-subsection-heading" data-i18n="color.sourceLabel">Auto color source</h3>
+        <div class="color-source-row">
+          <label class="color-source-radio">
+            <input type="radio" name="color-auto-source" value="none" checked />
+            <span data-i18n="color.sourceNone">None</span>
+          </label>
+          <label class="color-source-radio">
+            <input type="radio" name="color-auto-source" value="gradient" />
+            <span data-i18n="color.sourceGradient">Gradient (height-based)</span>
+          </label>
+          <label class="color-source-radio">
+            <input type="radio" name="color-auto-source" value="image" />
+            <span data-i18n="color.sourceImage">Color image</span>
+          </label>
+        </div>
+
+        <!-- Gradient sub-section (visible when source=gradient) -->
+        <div class="color-sub gradient-sub">
+          <div id="color-gradient-mount"></div>
+          <p class="color-hint" data-i18n="color.gradientHint">Click bar to add a stop · Click handle to select · Drag to move</p>
+
+          <!-- Stop properties panel: drives the currently-selected stop. -->
+          <div class="stop-props" id="color-stop-props">
+            <div class="stop-props-header" data-i18n="color.stopPropsHeading">Selected stop</div>
+            <div class="stop-props-row">
+              <label for="stop-color-input" data-i18n="color.stopColor">Color</label>
+              <input type="color" id="stop-color-input" value="#888888" />
+              <input type="text" id="stop-hex-input" maxlength="7" placeholder="#rrggbb"
+                     spellcheck="false" autocomplete="off" />
+            </div>
+            <div class="stop-props-row">
+              <label for="stop-pos-input" data-i18n="color.stopPosition">Position</label>
+              <input type="number" id="stop-pos-input" min="0" max="100" step="1" />
+              <span class="stop-pos-suffix">%</span>
+            </div>
+            <div class="stop-props-row">
+              <label class="checkbox-label" for="stop-lock-input">
+                <input type="checkbox" id="stop-lock-input" />
+                <span data-i18n="color.stopLockToBase">Lock to base color</span>
+              </label>
+            </div>
+            <div class="stop-props-row">
+              <button id="stop-remove-btn" class="excl-clear-btn" type="button"
+                      data-i18n="color.stopRemove">Remove stop</button>
+            </div>
+          </div>
+
+          <!-- Live palette preview: the exact colors that will land in the
+               exported 3MF. Updates whenever stops or base color change. -->
+          <div class="palette-preview-wrap">
+            <div class="palette-preview-label" data-i18n="color.paletteLabel">Will export as:</div>
+            <div class="palette-preview" id="color-palette-preview"></div>
+          </div>
+
+          <!-- Gradient toolbar: snap-preview toggle + reset. -->
+          <div class="gradient-toolbar">
+            <label class="checkbox-label" for="color-snap-preview"
+                   data-i18n-title="tooltips.colorSnapPreview"
+                   title="Show the live preview using exactly the exported colors instead of a smooth gradient. More accurate to what your slicer will print.">
+              <input type="checkbox" id="color-snap-preview" />
+              <span data-i18n="color.snapPreview">Show as printed colors</span>
+            </label>
+            <button id="color-gradient-reset" class="excl-clear-btn" type="button"
+                    data-i18n="color.gradientReset"
+                    data-i18n-title="tooltips.colorGradientReset"
+                    title="Restore the default 2-stop greyscale gradient.">↺ Reset</button>
+          </div>
+        </div>
+
+        <!-- Image sub-section (visible when source=image) -->
+        <div class="color-sub image-sub">
+          <div class="color-image-row">
+            <canvas id="color-image-thumb" width="64" height="64" class="color-image-thumb"></canvas>
+            <div class="color-image-buttons">
+              <label class="upload-btn" for="color-image-input">
+                <span data-i18n="color.imageUpload">Upload color image…</span>
+              </label>
+              <input type="file" id="color-image-input" accept="image/*" style="display:none" />
+              <button id="color-image-remove" class="excl-clear-btn" type="button" data-i18n="color.imageRemove">Remove</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Base color (always visible) -->
+        <div class="form-row color-picker-row">
+          <label for="color-base-picker" data-i18n="color.baseColor">Base color (untextured / excluded faces)</label>
+          <input type="color" id="color-base-picker" value="#ffffff" />
+        </div>
+      </section>
+
       <!-- Export -->
       <section class="panel-section">
         <h2 data-i18n="sections.export" data-i18n-title="tooltips.export" title="Smaller edge length = finer displacement detail. Output is then decimated to the triangle limit.">Export ⓘ</h2>

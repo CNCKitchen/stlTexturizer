@@ -1773,3 +1773,292 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   border-color: var(--accent);
   color: var(--text);
 }
+
+/* ── Color export section (Unit D) ───────────────────────────────────── */
+#color-section .color-source-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+#color-section .color-source-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+#color-section .color-source-radio input[type="radio"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+/* CSS-driven sub-section visibility (data-source attribute is wired in
+   js/gradientEditor.js → wireColorSectionVisibility). */
+#color-section[data-source="none"]    .gradient-sub,
+#color-section[data-source="none"]    .image-sub,
+#color-section[data-source="gradient"] .image-sub,
+#color-section[data-source="image"]    .gradient-sub {
+  display: none;
+}
+
+/* Palette-size dropdown applies only to image quantization. Gradient mode
+   uses the user's stop colors directly (snap-to-control-points), and "none"
+   has nothing to quantize. Hide the row outside image mode. */
+#color-section[data-source="none"]     .palette-size-row,
+#color-section[data-source="gradient"] .palette-size-row {
+  display: none;
+}
+
+#color-section .color-sub {
+  margin: 8px 0 12px;
+  padding: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+#color-section .color-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+#color-section .color-image-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#color-section .color-image-thumb {
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background:
+    repeating-conic-gradient(var(--surface) 0% 25%, var(--bg) 0% 50%) 50% / 12px 12px;
+  flex-shrink: 0;
+}
+
+#color-section .color-image-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#color-section .color-picker-row label {
+  flex: 1;
+}
+
+#color-section .color-picker-row input[type="color"] {
+  width: 32px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+/* ── Gradient editor widget ──────────────────────────────────────────── */
+.gradient-editor {
+  width: 100%;
+}
+
+.gradient-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gradient-bar-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 120px;
+  padding-bottom: 18px; /* room for stop handles below the bar */
+}
+
+.gradient-bar {
+  position: relative;
+  width: 100%;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: linear-gradient(to right, #222 0%, #ddd 100%);
+  cursor: copy;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.gradient-stops-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 26px;
+  height: 16px;
+  pointer-events: none; /* handles re-enable individually */
+}
+
+.gradient-stop-handle {
+  position: absolute;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;            /* center the handle on its position */
+  border: 2px solid var(--surface);
+  outline: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: grab;
+  pointer-events: auto;
+  transition: transform 0.1s, outline-color 0.15s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.gradient-stop-handle:hover {
+  transform: scale(1.15);
+}
+
+.gradient-stop-handle.selected {
+  outline: 2px solid var(--accent);
+  z-index: 2;
+}
+
+.gradient-stop-handle.drag-remove {
+  opacity: 0.35;
+  transform: scale(0.85);
+}
+
+/* Stops with lockedToBase: true track the base color picker. Indicate with
+   a small white lock badge in the top-right corner of the handle so users
+   can tell at a glance which stops are auto-managed. Alt-click toggles. */
+.gradient-stop-handle.locked-to-base {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+.gradient-stop-handle.locked-to-base::after {
+  content: "";
+  position: absolute;
+  top: -4px; right: -4px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #000;
+  pointer-events: none;
+}
+
+.gradient-stop-color-input {
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ── Stop properties panel (replaces alt-click + right-click affordances) ── */
+.stop-props {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: grid;
+  gap: 6px;
+}
+.stop-props.disabled { opacity: 0.45; pointer-events: none; }
+.stop-props-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.stop-props-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stop-props-row > label:not(.checkbox-label) {
+  flex: 0 0 70px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.stop-props-row input[type="color"] {
+  width: 32px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.stop-props-row input[type="color"]:disabled { cursor: not-allowed; opacity: 0.5; }
+.stop-props-row input[type="text"],
+.stop-props-row input[type="number"] {
+  width: 90px;
+  padding: 3px 6px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.stop-props-row input[type="text"]:disabled { opacity: 0.5; }
+.stop-pos-suffix { color: var(--muted); font-size: 12px; }
+#stop-remove-btn { font-size: 11px; }
+#stop-remove-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Palette preview (live "what slicer sees" swatches) ─────────────────── */
+.palette-preview-wrap {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.palette-preview-wrap.hidden { display: none; }
+.palette-preview-label {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.palette-preview {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.palette-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2) inset;
+}
+.palette-count {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+/* ── Gradient toolbar (snap-preview + reset) ───────────────────────────── */
+.gradient-toolbar {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gradient-toolbar .checkbox-label { font-size: 12px; }
+#color-gradient-reset { font-size: 11px; }
