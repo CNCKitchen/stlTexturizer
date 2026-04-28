@@ -43,6 +43,19 @@ const sharedGLSL = /* glsl */`
   uniform int       useDisplacement;
   uniform vec2      textureAspect;
 
+  // ── Color preview uniforms (live colored preview, GPU-side) ──────────────
+  // colorPreviewEnabled gates the entire color path; when 0 the shader produces
+  // the historical teal+mask appearance unchanged. When 1, lit colors come from
+  // the gradient LUT (autoSource=1) or color image (autoSource=2), falling back
+  // to colorBaseRGB. UVs match the displacement pipeline exactly so the
+  // on-screen tint lines up with what the export will produce.
+  uniform sampler2D colorGradientLUT;     // 256×1 RGBA, row sampled at the displacement value
+  uniform sampler2D colorImage;
+  uniform int       colorPreviewEnabled;  // 0|1
+  uniform int       colorAutoSource;      // 0=none/base, 1=gradient, 2=image
+  uniform int       hasColorImage;        // 1 iff colorImage holds a real upload
+  uniform vec3      colorBaseRGB;         // 0..1, applied to non-textured / excluded faces
+
   const float PI     = 3.14159265358979;
   const float TWO_PI = 6.28318530717959;
   const float CUBIC_AXIS_EPSILON = 1e-4;
@@ -97,6 +110,18 @@ const sharedGLSL = /* glsl */`
     uv  = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
     uv += 0.5;
     return texture2D(displacementMap, uv).r;
+  }
+
+  // Same UV pipeline as sampleMap but reads the user's color image. Used by
+  // computeColorAtPoint when colorAutoSource == 2 so colors line up with the
+  // displacement texels exactly.
+  vec3 sampleColorMap(vec2 rawUV) {
+    vec2 uv = (rawUV * textureAspect) / scaleUV + offsetUV;
+    float c = cos(rotation); float s = sin(rotation);
+    uv -= 0.5;
+    uv  = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
+    uv += 0.5;
+    return texture2D(colorImage, uv).rgb;
   }
 
   // Compute displacement height at a world-space point.
@@ -203,6 +228,104 @@ const sharedGLSL = /* glsl */`
       return hYZ * wts.x + hXZ * wts.y + hXY * wts.z;
     }
   }
+
+  // RGB analogue of computeHeightAtPoint. Mirrors the structure exactly so a
+  // color image projected through the same UV pipeline as the displacement
+  // texture produces colors that line up with displacement texels on-screen.
+  // Only consulted when colorAutoSource == 2 (image mode).
+  vec3 computeColorAtPoint(vec3 pos, vec3 projN, vec3 blendN) {
+    vec3 rel = pos - boundsCenter;
+    float maxDim = max(boundsSize.x, max(boundsSize.y, boundsSize.z));
+    float md = max(maxDim, 1e-4);
+
+    if (mappingMode == 0) {
+      return sampleColorMap(vec2((pos.x - boundsMin.x) / md, (pos.y - boundsMin.y) / md));
+
+    } else if (mappingMode == 1) {
+      return sampleColorMap(vec2((pos.x - boundsMin.x) / md, (pos.z - boundsMin.z) / md));
+
+    } else if (mappingMode == 2) {
+      return sampleColorMap(vec2((pos.y - boundsMin.y) / md, (pos.z - boundsMin.z) / md));
+
+    } else if (mappingMode == 3) {
+      vec2 cylRel2 = pos.xy - cylinderCenter;
+      float r = max(cylinderRadius, 1e-4);
+      float C = TWO_PI * r;
+      float u_cyl = atan(cylRel2.y, cylRel2.x) / TWO_PI + 0.5;
+      float v_cyl = (pos.z - boundsMin.z) / C;
+
+      float seamBand = seamBandWidth * 0.1;
+      float seamDist = min(u_cyl, 1.0 - u_cyl);
+      vec3 cSide;
+      if (seamBand > 0.001 && seamDist < seamBand) {
+        float d = u_cyl < 0.5 ? u_cyl : u_cyl - 1.0;
+        float t = smoothstep(0.0, 1.0, (d + seamBand) / (2.0 * seamBand));
+        vec3 cLeft  = sampleColorMap(vec2(1.0 + d, v_cyl));
+        vec3 cRight = sampleColorMap(vec2(d, v_cyl));
+        cSide = mix(cLeft, cRight, t);
+      } else {
+        cSide = sampleColorMap(vec2(u_cyl, v_cyl));
+      }
+
+      if (mappingBlend < 0.001) return cSide;
+      float capThreshold = cos(radians(capAngle));
+      float blendHalf = seamBandWidth * 0.5;
+      float capW = smoothstep(capThreshold - blendHalf, capThreshold + blendHalf, abs(blendN.z));
+      vec3 cCap = sampleColorMap(vec2(cylRel2.x / C + 0.5, cylRel2.y / C + 0.5));
+      return mix(cSide, cCap, capW);
+
+    } else if (mappingMode == 4) {
+      float r     = length(rel);
+      float phi   = acos(clamp(rel.z / max(r, 1e-4), -1.0, 1.0));
+      float u_sph = atan(rel.y, rel.x) / TWO_PI + 0.5;
+      float v_sph = phi / PI;
+
+      float seamBand = seamBandWidth * 0.1;
+      float seamDist = min(u_sph, 1.0 - u_sph);
+      if (seamBand > 0.001 && seamDist < seamBand) {
+        float d = u_sph < 0.5 ? u_sph : u_sph - 1.0;
+        float t = smoothstep(0.0, 1.0, (d + seamBand) / (2.0 * seamBand));
+        vec3 cLeft  = sampleColorMap(vec2(1.0 + d, v_sph));
+        vec3 cRight = sampleColorMap(vec2(d, v_sph));
+        return mix(cLeft, cRight, t);
+      }
+      return sampleColorMap(vec2(u_sph, v_sph));
+
+    } else if (mappingMode == 5) {
+      vec3 blend = abs(projN);
+      blend = pow(blend, vec3(4.0));
+      blend /= dot(blend, vec3(1.0)) + 1e-4;
+      float yzU = (pos.y - boundsMin.y) / md;
+      if (projN.x < 0.0) yzU = -yzU;
+      float xzU = (pos.x - boundsMin.x) / md;
+      if (projN.y > 0.0) xzU = -xzU;
+      float xyU = (pos.x - boundsMin.x) / md;
+      if (projN.z < 0.0) xyU = -xyU;
+      vec3 cXY = sampleColorMap(vec2(xyU, (pos.y - boundsMin.y) / md));
+      vec3 cXZ = sampleColorMap(vec2(xzU, (pos.z - boundsMin.z) / md));
+      vec3 cYZ = sampleColorMap(vec2(yzU, (pos.z - boundsMin.z) / md));
+      return cXY * blend.z + cXZ * blend.y + cYZ * blend.x;
+
+    } else {
+      float yzU = (pos.y - boundsMin.y) / md;
+      if (projN.x < 0.0) yzU = -yzU;
+      float xzU = (pos.x - boundsMin.x) / md;
+      if (projN.y > 0.0) xzU = -xzU;
+      float xyU = (pos.x - boundsMin.x) / md;
+      if (projN.z < 0.0) xyU = -xyU;
+      vec3 cYZ = sampleColorMap(vec2(yzU, (pos.z - boundsMin.z) / md));
+      vec3 cXZ = sampleColorMap(vec2(xzU, (pos.z - boundsMin.z) / md));
+      vec3 cXY = sampleColorMap(vec2(xyU, (pos.y - boundsMin.y) / md));
+      vec3 bN = blendN;
+      vec3 absFaceN = abs(projN);
+      float facePrimary = max(absFaceN.x, max(absFaceN.y, absFaceN.z));
+      float faceSecondary = absFaceN.x + absFaceN.y + absFaceN.z - facePrimary
+                          - min(absFaceN.x, min(absFaceN.y, absFaceN.z));
+      if (facePrimary - faceSecondary <= CUBIC_AXIS_EPSILON) bN = projN;
+      vec3 wts = cubicBlendWeights(bN);
+      return cYZ * wts.x + cXZ * wts.y + cXY * wts.z;
+    }
+  }
 `;
 
 const vertexShader = /* glsl */`
@@ -296,10 +419,33 @@ const fragmentShader = /* glsl */`
     return computeHeightAtPoint(vModelPos, PN, vModelNormal);
   }
 
+  // Resolve the surface base color for live preview. Mirrors the export
+  // pipeline's composition: gradient sample at the displacement greyvalue,
+  // image sample at the same UVs, or the user's base color.
+  // The rawGrey arg is the unsymmetrized 0..1 displacement texel value.
+  vec3 resolveSurfaceColor(float rawGrey) {
+    if (colorPreviewEnabled == 0) {
+      return vec3(0.22, 0.68, 0.68); // historical teal — preview unchanged when feature is off
+    }
+    if (colorAutoSource == 1) {
+      // Gradient: LUT row maps grey ∈ [0,1] → RGB.
+      return texture2D(colorGradientLUT, vec2(clamp(rawGrey, 0.0, 1.0), 0.5)).rgb;
+    }
+    if (colorAutoSource == 2 && hasColorImage == 1) {
+      vec3 _dpx = dFdx(vModelPos);
+      vec3 _dpy = dFdy(vModelPos);
+      vec3 _fN  = cross(_dpx, _dpy);
+      vec3 PN   = length(_fN) > 1e-10 ? normalize(_fN) : vModelNormal;
+      return computeColorAtPoint(vModelPos, PN, vModelNormal);
+    }
+    return colorBaseRGB;
+  }
+
   void main() {
     // Flip normal for back faces so flipped-winding geometry still lights correctly.
     vec3 N = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
-    float h = getHeight();
+    float rawGrey = getHeight();
+    float h = rawGrey;
     if (symmetricDisplacement == 1) h = h - 0.5;
 
     // ── Bump mapping via screen-space height derivatives ──────────────────
@@ -363,11 +509,13 @@ const fragmentShader = /* glsl */`
     bumpN = mix(smoothN, bumpN, maskBlend);
 
     // ── Shading ───────────────────────────────────────────────────────────
-    // Compute lighting identically for ALL surfaces using the teal base so
+    // Compute lighting identically for ALL surfaces using one base so
     // that specular highlights, diffuse response, and view-dependent shading
     // are perfectly consistent everywhere.  Mask tinting is applied AFTER
     // lighting as a colour blend so masked areas keep the same glossy look.
-    vec3 tealBase      = vec3(0.22, 0.68, 0.68);
+    // The base is the user's chosen color when colorPreviewEnabled is on,
+    // otherwise the historical teal so the unmodified preview look survives.
+    vec3 surfaceBase   = resolveSurfaceColor(rawGrey);
     vec3 userMaskColor = vec3(0.85, 0.40, 0.15);
     vec3 angleMaskColor = vec3(0.45, 0.48, 0.50);
 
@@ -381,10 +529,10 @@ const fragmentShader = /* glsl */`
     vec3 H1   = normalize(L1 + V);
     float spec = pow(max(dot(bumpN, H1), 0.0), 64.0) * 0.60;
 
-    // Lit teal (identical for textured and masked surfaces)
-    vec3 litTeal = tealBase * 0.55
-                 + tealBase * diff1 * vec3(1.00, 0.96, 0.88) * 0.55
-                 + tealBase * diff2 * vec3(0.80, 0.60, 0.50) * 0.15
+    // Lit surface base (identical lighting model for textured and masked).
+    vec3 litTeal = surfaceBase * 0.55
+                 + surfaceBase * diff1 * vec3(1.00, 0.96, 0.88) * 0.55
+                 + surfaceBase * diff2 * vec3(0.80, 0.60, 0.50) * 0.15
                  + vec3(spec);
 
     // Mask tint: pick colour by mask type, compute same lighting with that base
@@ -492,7 +640,49 @@ function buildUniforms(tex, settings) {
     boundaryEdgeCount:        { value: 0 },
     boundaryEdgeTexWidth:     { value: 1.0 },
     boundaryFalloffDist:        { value: settings.boundaryFalloff ?? 0.0 },
+    // Color preview (live colored shading via the same UV pipeline as displacement).
+    colorPreviewEnabled:    { value: 0 },
+    colorAutoSource:        { value: 0 },          // 0 none, 1 gradient, 2 image
+    colorGradientLUT:       { value: createFallbackTexture() },
+    colorImage:             { value: createFallbackTexture() },
+    hasColorImage:          { value: 0 },
+    colorBaseRGB:           { value: new THREE.Vector3(1, 1, 1) },
   };
+}
+
+/**
+ * Update the color-preview uniforms in-place. Called whenever the user changes
+ * the master toggle, source radio, base color, gradient stops (LUT rebuilt
+ * elsewhere), or color image.
+ *
+ * @param {THREE.ShaderMaterial} material
+ * @param {object} opts
+ *   - enabled: bool
+ *   - autoSource: 'none' | 'gradient' | 'image'
+ *   - baseRGB: [r,g,b] in 0..1
+ *   - gradientLUT: THREE.Texture | null  (256×1)
+ *   - colorImage: THREE.Texture | null
+ */
+export function setColorPreview(material, opts) {
+  if (!material || !material.uniforms) return;
+  const u = material.uniforms;
+  if (!u.colorPreviewEnabled) return; // material was created before color uniforms existed
+  u.colorPreviewEnabled.value = opts.enabled ? 1 : 0;
+  u.colorAutoSource.value =
+    opts.autoSource === 'gradient' ? 1 :
+    opts.autoSource === 'image'    ? 2 : 0;
+  if (Array.isArray(opts.baseRGB) && opts.baseRGB.length === 3) {
+    u.colorBaseRGB.value.set(opts.baseRGB[0], opts.baseRGB[1], opts.baseRGB[2]);
+  }
+  if (opts.gradientLUT && u.colorGradientLUT.value !== opts.gradientLUT) {
+    u.colorGradientLUT.value = opts.gradientLUT;
+  }
+  if (opts.colorImage) {
+    u.colorImage.value = opts.colorImage;
+    u.hasColorImage.value = 1;
+  } else {
+    u.hasColorImage.value = 0;
+  }
 }
 
 function createFallbackTexture() {

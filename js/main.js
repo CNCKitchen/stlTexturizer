@@ -7,7 +7,7 @@ import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWirefram
          setRotationGizmo, isGizmoDragging } from './viewer.js';
 import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js';
 import { loadAllThumbnails, loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextures.js';
-import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
+import { createPreviewMaterial, updateMaterial, setColorPreview } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { applyDisplacement }  from './displacement.js';
 import { decimate }           from './decimation.js';
@@ -66,6 +66,9 @@ let _shiftLineMesh     = null;        // THREE.Line — preview line from last p
 // rather than in `settings` so the binary asset never lands in sessionStorage —
 // it persists in `.bumpmesh` projects via a separate `color.png` zip entry.
 let _lastColorMap      = null;        // { name, imageData, width, height, fullCanvas }
+let _colorImageTexture = null;        // THREE.CanvasTexture wrapping _lastColorMap.fullCanvas
+let _gradientLUTCanvas = null;        // 256×1 canvas, rebuilt from gradient stops
+let _gradientLUTTexture = null;       // THREE.CanvasTexture wrapping _gradientLUTCanvas
 
 let _lastEffectiveTexture = null;
 let _effectiveMapCache    = null;
@@ -1750,6 +1753,7 @@ function wireColorExportUI() {
       editor.onChange((stops) => {
         // Deep-copy on assign so settings never aliases the editor's internal array.
         settings.colorGradientStops = stops.map(s => ({ pos: s.pos, color: s.color }));
+        _pushColorPreviewState();
         _scheduleUndoCapture();
         const sp = document.getElementById('settings-panel');
         if (sp) sp.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1766,6 +1770,7 @@ function wireColorExportUI() {
     enableEl.checked = !!settings.colorExportEnabled;
     enableEl.addEventListener('change', () => {
       settings.colorExportEnabled = !!enableEl.checked;
+      _pushColorPreviewState();
     });
   }
 
@@ -1773,7 +1778,10 @@ function wireColorExportUI() {
   document.querySelectorAll('input[name="color-auto-source"]').forEach(el => {
     if (el.value === settings.colorAutoSource) el.checked = true;
     el.addEventListener('change', () => {
-      if (el.checked) settings.colorAutoSource = el.value;
+      if (el.checked) {
+        settings.colorAutoSource = el.value;
+        _pushColorPreviewState();
+      }
     });
   });
 
@@ -1781,7 +1789,10 @@ function wireColorExportUI() {
   const baseEl = document.getElementById('color-base-picker');
   if (baseEl) {
     baseEl.value = settings.colorBaseColor;
-    baseEl.addEventListener('change', () => { settings.colorBaseColor = baseEl.value; });
+    baseEl.addEventListener('change', () => {
+      settings.colorBaseColor = baseEl.value;
+      _pushColorPreviewState();
+    });
   }
 
   // 4b) Palette size selector — controls how many distinct colors land in the
@@ -1818,6 +1829,7 @@ function wireColorExportUI() {
         };
         bmp.close && bmp.close();
         if (typeof window._refreshColorImageUI === 'function') window._refreshColorImageUI();
+        _pushColorPreviewState();
         _scheduleUndoCapture();
       } catch (err) {
         console.error('Color image load failed:', err);
@@ -1832,6 +1844,7 @@ function wireColorExportUI() {
     colorRemoveBtn.addEventListener('click', () => {
       _lastColorMap = null;
       if (typeof window._refreshColorImageUI === 'function') window._refreshColorImageUI();
+      _pushColorPreviewState();
       _scheduleUndoCapture();
     });
   }
@@ -1840,6 +1853,80 @@ function wireColorExportUI() {
   // and .bumpmesh import paths.
   window._refreshColorImageUI = refreshColorImageUI;
   refreshColorImageUI();
+  // Initial uniform sync — runs once after the gradient editor mounts and
+  // settings are populated. Subsequent changes flow through the listeners above.
+  _pushColorPreviewState();
+}
+
+// ── Color preview helpers ────────────────────────────────────────────────────
+// Build a 256×1 LUT canvas from gradient stops; the fragment shader samples
+// this with the displacement greyvalue to produce the gradient color.
+function _rebuildGradientLUT() {
+  if (!_gradientLUTCanvas) {
+    _gradientLUTCanvas = document.createElement('canvas');
+    _gradientLUTCanvas.width = 256; _gradientLUTCanvas.height = 1;
+  }
+  const ctx = _gradientLUTCanvas.getContext('2d');
+  const stops = (Array.isArray(settings.colorGradientStops) && settings.colorGradientStops.length >= 2)
+    ? settings.colorGradientStops.slice().sort((a, b) => a.pos - b.pos)
+    : [{ pos: 0, color: '#222222' }, { pos: 1, color: '#dddddd' }];
+  const grad = ctx.createLinearGradient(0, 0, 256, 0);
+  for (const s of stops) {
+    const p = Math.max(0, Math.min(1, +s.pos));
+    grad.addColorStop(p, s.color);
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 1);
+  if (!_gradientLUTTexture) {
+    _gradientLUTTexture = new THREE.CanvasTexture(_gradientLUTCanvas);
+    _gradientLUTTexture.minFilter = THREE.LinearFilter;
+    _gradientLUTTexture.magFilter = THREE.LinearFilter;
+    _gradientLUTTexture.wrapS = _gradientLUTTexture.wrapT = THREE.ClampToEdgeWrapping;
+  } else {
+    _gradientLUTTexture.needsUpdate = true;
+  }
+  return _gradientLUTTexture;
+}
+
+function _rebuildColorImageTexture() {
+  if (!_lastColorMap || !_lastColorMap.fullCanvas) {
+    if (_colorImageTexture) { _colorImageTexture.dispose && _colorImageTexture.dispose(); }
+    _colorImageTexture = null;
+    return null;
+  }
+  if (!_colorImageTexture || _colorImageTexture.image !== _lastColorMap.fullCanvas) {
+    if (_colorImageTexture) _colorImageTexture.dispose && _colorImageTexture.dispose();
+    _colorImageTexture = new THREE.CanvasTexture(_lastColorMap.fullCanvas);
+    _colorImageTexture.wrapS = _colorImageTexture.wrapT = THREE.RepeatWrapping;
+    _colorImageTexture.minFilter = THREE.LinearFilter;
+    _colorImageTexture.magFilter = THREE.LinearFilter;
+  } else {
+    _colorImageTexture.needsUpdate = true;
+  }
+  return _colorImageTexture;
+}
+
+function _hexToRGB01(hex) {
+  if (typeof hex !== 'string') return [1, 1, 1];
+  const h = hex.trim().replace(/^#/, '');
+  if (h.length !== 6) return [1, 1, 1];
+  const n = parseInt(h, 16);
+  if (!Number.isFinite(n)) return [1, 1, 1];
+  return [((n >> 16) & 0xff) / 255, ((n >> 8) & 0xff) / 255, (n & 0xff) / 255];
+}
+
+// Push the current color settings into the live preview material.
+// Call this after any settings change that should affect the on-screen tint.
+function _pushColorPreviewState() {
+  if (!previewMaterial) return;
+  setColorPreview(previewMaterial, {
+    enabled:     !!settings.colorExportEnabled,
+    autoSource:  settings.colorAutoSource || 'none',
+    baseRGB:     _hexToRGB01(settings.colorBaseColor || '#ffffff'),
+    gradientLUT: _rebuildGradientLUT(),
+    colorImage:  _rebuildColorImageTexture(),
+  });
+  requestRender();
 }
 
 function refreshColorImageUI() {
@@ -3829,6 +3916,7 @@ function updatePreview() {
   if (!previewMaterial) {
     previewMaterial = createPreviewMaterial(effectiveEntry.texture, fullSettings);
     loadGeometry(activeGeo, previewMaterial);
+    _pushColorPreviewState();
   } else {
     updateMaterial(previewMaterial, effectiveEntry.texture, fullSettings);
   }
@@ -4240,6 +4328,7 @@ async function toggleDisplacementPreview(enable) {
     previewMaterial = createPreviewMaterial(getEffectiveMapEntry().texture, fullSettings);
     setMeshGeometry(dispPreviewGeometry);
     setMeshMaterial(previewMaterial);
+    _pushColorPreviewState();
 
 
   } catch (err) {
