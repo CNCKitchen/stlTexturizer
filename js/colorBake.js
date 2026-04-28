@@ -4,7 +4,6 @@
  * Writes a Float32×3 `color` BufferAttribute onto the displaced (post-subdivision,
  * pre-decimation) geometry. Composition order per vertex:
  *   excludeWeight ≥ 0.99       → settings.colorBaseColor
- *   manual paint override hit  → paintedFaceColors[origFace] (unpacked 0xRRGGBB)
  *   autoSource === 'gradient'  → sample displacementImageData (same UV pipeline as
  *                                 displacement.js Pass 2), look up grey in
  *                                 settings.colorGradientStops
@@ -26,7 +25,6 @@ export function applyColors(
   displacementImageData, dispW, dispH,
   colorImageData, colorW, colorH,
   settings, bounds,
-  paintedFaceColors, excludedFaces, selectionMode,
 ) {
   if (!geometry || !geometry.attributes || !geometry.attributes.position) return geometry;
   const posAttr = geometry.attributes.position;
@@ -39,7 +37,6 @@ export function applyColors(
   const autoSource = settings.colorAutoSource || 'none';
   const haveGradient = autoSource === 'gradient' && displacementImageData && displacementImageData.data;
   const haveImage    = autoSource === 'image' && colorImageData && colorImageData.data;
-  const havePaint    = paintedFaceColors && paintedFaceColors.size > 0;
 
   // Pre-sort gradient stops once (defensive — UI may emit unsorted).
   let gradientStops = null;
@@ -285,16 +282,11 @@ export function applyColors(
   const out = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
     const subdivFaceIdx = (i / 3) | 0;
-    const origFace = faceParentId ? faceParentId[subdivFaceIdx] : -1;
 
-    // Excluded faces always get base color regardless of paint or auto source.
+    // Excluded faces always get base color regardless of auto source.
     let r, g, b;
     if (faceExcluded[subdivFaceIdx]) {
       r = baseRGB[0]; g = baseRGB[1]; b = baseRGB[2];
-    } else if (havePaint && origFace >= 0 && paintedFaceColors.has(origFace)) {
-      const packed = paintedFaceColors.get(origFace);
-      const rgb = _packedToRGB(packed);
-      r = rgb[0]; g = rgb[1]; b = rgb[2];
     } else if (useAuto) {
       const vid = vertexId[i];
       r = autoR[vid]; g = autoG[vid]; b = autoB[vid];
@@ -421,16 +413,6 @@ function _parseHex(hex) {
   if (s.length !== 6) return [1, 1, 1];
   const n = parseInt(s, 16);
   if (!Number.isFinite(n)) return [1, 1, 1];
-  return [
-    ((n >> 16) & 0xff) / 255,
-    ((n >>  8) & 0xff) / 255,
-    ( n        & 0xff) / 255,
-  ];
-}
-
-/** Unpack a 0xRRGGBB int → [r, g, b] in 0..1. */
-function _packedToRGB(packed) {
-  const n = packed | 0;
   return [
     ((n >> 16) & 0xff) / 255,
     ((n >>  8) & 0xff) / 255,

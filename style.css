@@ -1857,33 +1857,6 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   flex-shrink: 0;
 }
 
-#color-section .color-paint-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-#color-section .color-paint-row input[type="color"] {
-  width: 32px;
-  height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
-  padding: 0;
-  flex-shrink: 0;
-}
-
-#color-section #color-paint-toggle {
-  flex: 0 0 auto;
-}
-
-#color-section #color-paint-toggle.active {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 /* ── Gradient editor widget ──────────────────────────────────────────── */
 .gradient-editor {
   width: 100%;

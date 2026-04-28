@@ -220,10 +220,6 @@ export default {
   "color.imageRemove": "Remove",
   "color.imageReplace": "Replace…",
   "color.baseColor": "Base color (untextured / excluded faces)",
-  "color.paintMode": "Paint color",
-  "color.paintColor": "Active paint color",
-  "color.paintHint": "Click & drag to paint. Hold Shift to erase. Click 'Clear' to reset.",
-  "color.paintClear": "Clear painted colors",
   "alerts.colorImageFailed": "Could not load color image: {msg}",
   "progress.bakingColor": "Baking color…",
   "tooltips.colorExportEnabled": "When on, exported 3MF includes a colorgroup. STL stays geometry-only. Slicers map colors to filament slots."

@@ -17,7 +17,6 @@ import { buildAdjacency, bucketFill,
 import { applyColors }         from './colorBake.js';
 import { medianCut }           from './quantize.js';
 import { GradientEditor }      from './gradientEditor.js';
-import { setColorPaintHandlers } from './colorPaint.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
@@ -62,15 +61,11 @@ const _raycaster       = new THREE.Raycaster();
 let _lastPaintHitPoint = null;        // THREE.Vector3 — last brush paint position for shift-line
 let _shiftLineMesh     = null;        // THREE.Line — preview line from last paint to cursor
 
-// ── Color paint state ─────────────────────────────────────────────────────────
-// Per-original-face manual color overrides keyed on original face indices so they
-// survive subdivision the same way `excludedFaces` does (propagation via faceParentId).
-// Packed as 0xRRGGBB to keep the Map lean and JSON serialization trivial.
-let paintedFaceColors  = new Map();   // Map<origFaceIdx:number, packedRGB:number>
-let colorPaintActive   = false;       // user clicked the "color paint" tool
-let colorPaintEraseMode = false;      // shift held while color paint is active
-let _lastColorMap      = null;        // { name, imageData, width, height, fullCanvas } — uploaded color image (mirrors _lastCustomMap)
-let _colorPaintHandlers = null;       // { paintAt, paintLineBetween, paintBucket } from colorPaint.js, set by wireColorPaintUI()
+// ── Color image state ─────────────────────────────────────────────────────────
+// Uploaded color image (separate from displacement texture). Held at module scope
+// rather than in `settings` so the binary asset never lands in sessionStorage —
+// it persists in `.bumpmesh` projects via a separate `color.png` zip entry.
+let _lastColorMap      = null;        // { name, imageData, width, height, fullCanvas }
 
 let _lastEffectiveTexture = null;
 let _effectiveMapCache    = null;
@@ -116,7 +111,6 @@ const settings = {
     { pos: 0, color: '#222222' },
     { pos: 1, color: '#dddddd' },
   ],
-  colorPaintActiveColor: '#cccccc',     // active swatch for manual color paint
 };
 
 // ── Canvas filter support (Safari / iOS WebView don't support ctx.filter) ────
@@ -1618,14 +1612,6 @@ function wireEvents() {
       return;
     }
 
-    // Color paint takes priority over exclusion painting when active.
-    // startPaint returns true iff the click hit the mesh and a stroke has begun.
-    if (colorPaintActive && _colorPaintHandlers && _colorPaintHandlers.startPaint(e)) {
-      e.preventDefault();
-      getControls().enabled = false;
-      return;
-    }
-
     if (!exclusionTool) return;
 
     // Block painting while precision mesh is being built
@@ -1673,12 +1659,6 @@ function wireEvents() {
   let _hoverRafId = 0;
 
   canvas.addEventListener('mousemove', (e) => {
-    // Color paint stroke continues — fire immediately, no RAF batching, so
-    // the painted region tracks the cursor without gaps on fast drags.
-    if (colorPaintActive && _colorPaintHandlers && _colorPaintHandlers.isPainting()) {
-      _colorPaintHandlers.paintAt(e);
-      return;
-    }
     // Paint-Events sofort verarbeiten (jeder Event zaehlt fuer lueckenloses Malen)
     if (isPainting && exclusionTool === 'brush') {
       paintAt(e);
@@ -1720,14 +1700,6 @@ function wireEvents() {
   });
 
   document.addEventListener('mouseup', () => {
-    // Color paint stroke termination, if any.
-    if (colorPaintActive && _colorPaintHandlers && _colorPaintHandlers.isPainting()) {
-      _colorPaintHandlers.endPaint();
-      getControls().enabled = true;
-      _flushUndoCapture();
-      _commitUndoCapture();
-      return;
-    }
     if (!isPainting) return;
     isPainting = false;
     getControls().enabled = true;
@@ -1753,53 +1725,18 @@ function wireEvents() {
     if (e.key === 'Control') _clearShiftLinePreview();
   });
 
-  // ── Color paint + gradient editor wiring ─────────────────────────────────
-  // wireColorPaintUI is defined below; it pulls in the colorPaint factory and
-  // mounts the GradientEditor on its placeholder. Safe no-op when those DOM
-  // elements aren't present yet (e.g. during the staged Unit-D rollout).
-  wireColorPaintUI();
+  // ── Color export UI wiring ────────────────────────────────────────────────
+  // Mounts the gradient editor and binds the master toggle, source radio,
+  // base-color picker, and color-image upload. Safe no-op when DOM elements
+  // are missing.
+  wireColorExportUI();
 }
 
-// ── Color paint UI wiring ────────────────────────────────────────────────────
-// Owns: the integration glue between Unit D's colorPaint.js / gradientEditor.js
-// and the rest of the app. Called once from wireEvents().
-//
-// Defensive against missing DOM nodes — color UI may not yet be present in
-// index.html mid-rollout. Each lookup uses optional chaining / null guards.
-function wireColorPaintUI() {
-  // 1) Install color paint pointer handlers if the colorPaint module is wired up.
-  // colorPaint.js exports a factory that takes our internal hooks and returns
-  // pointer handlers; the existing canvas mousedown/mousemove/mouseup branches
-  // in wireEvents() above check `_colorPaintHandlers` before delegating.
-  try {
-    _colorPaintHandlers = setColorPaintHandlers({
-      pickTriangle,
-      bfsBrushSelect,
-      bucketFill,
-      getCamera,
-      getCurrentMesh,
-      getCurrentGeometry: () => currentGeometry,
-      getTriangleAdjacency: () => triangleAdjacency,
-      getPaintedFaceColors: () => paintedFaceColors,
-      getActiveColor:       () => parseInt((settings.colorPaintActiveColor || '#cccccc').slice(1), 16),
-      getBrushIsRadius:     () => brushIsRadius,
-      getBrushRadius:       () => brushRadius,
-      getEraseMode:         () => colorPaintEraseMode || eraseMode,
-      refreshOverlay:       () => refreshExclusionOverlay(),
-      scheduleUndo:         _scheduleUndoCapture,
-      flushUndo:            _flushUndoCapture,
-      getControls,
-      _viewDirFor,
-      raycaster: _raycaster,
-      _canvasNDC,
-      getFrontFaceHit,
-    });
-  } catch (err) {
-    console.warn('Color paint module not available:', err);
-    _colorPaintHandlers = null;
-  }
-
-  // 2) Mount the gradient editor on its placeholder div.
+// ── Color export UI wiring ───────────────────────────────────────────────────
+// Wires the master toggle, source radio, gradient editor, base color picker,
+// and color image upload. Runs once from wireEvents().
+function wireColorExportUI() {
+  // 1) Mount the gradient editor on its placeholder div.
   const gradMount = document.getElementById('color-gradient-mount');
   if (gradMount && typeof GradientEditor === 'function') {
     try {
@@ -1810,7 +1747,6 @@ function wireColorPaintUI() {
         // Deep-copy on assign so settings never aliases the editor's internal array.
         settings.colorGradientStops = stops.map(s => ({ pos: s.pos, color: s.color }));
         _scheduleUndoCapture();
-        // Trigger autosave + (when implemented) preview refresh.
         const sp = document.getElementById('settings-panel');
         if (sp) sp.dispatchEvent(new Event('change', { bubbles: true }));
       });
@@ -1820,7 +1756,7 @@ function wireColorPaintUI() {
     }
   }
 
-  // 3) Master enable toggle.
+  // 2) Master enable toggle.
   const enableEl = document.getElementById('color-export-toggle');
   if (enableEl) {
     enableEl.checked = !!settings.colorExportEnabled;
@@ -1829,7 +1765,7 @@ function wireColorPaintUI() {
     });
   }
 
-  // 4) Auto-source radio (None / Gradient / Image).
+  // 3) Auto-source radio (None / Gradient / Image).
   document.querySelectorAll('input[name="color-auto-source"]').forEach(el => {
     if (el.value === settings.colorAutoSource) el.checked = true;
     el.addEventListener('change', () => {
@@ -1837,51 +1773,14 @@ function wireColorPaintUI() {
     });
   });
 
-  // 5) Base color picker.
+  // 4) Base color picker.
   const baseEl = document.getElementById('color-base-picker');
   if (baseEl) {
     baseEl.value = settings.colorBaseColor;
     baseEl.addEventListener('change', () => { settings.colorBaseColor = baseEl.value; });
   }
 
-  // 6) Active paint color picker.
-  const paintEl = document.getElementById('color-paint-picker');
-  if (paintEl) {
-    paintEl.value = settings.colorPaintActiveColor;
-    paintEl.addEventListener('change', (ev) => {
-      settings.colorPaintActiveColor = paintEl.value;
-      // Avoid stomping an in-flight stroke's undo coalescing.
-      if (_colorPaintHandlers && _colorPaintHandlers.isPainting()) {
-        ev.stopPropagation();
-      }
-    });
-  }
-
-  // 7) Color paint mode toggle.
-  const paintToggle = document.getElementById('color-paint-toggle');
-  if (paintToggle) {
-    paintToggle.addEventListener('click', () => {
-      colorPaintActive = !colorPaintActive;
-      paintToggle.classList.toggle('active', colorPaintActive);
-      paintToggle.setAttribute('aria-pressed', String(colorPaintActive));
-      // Mutual exclusion with exclusion paint, place-on-face, and precision
-      // masking. Precision is incompatible because the colorBake pipeline keys
-      // paintedFaceColors on ORIGINAL face indices (via faceParentId), while
-      // precision paint records subdivided indices. Deactivating precision
-      // collapses any precision-painted state back to original indices via the
-      // existing _restoreMask path, keeping the two paint systems in lockstep.
-      if (colorPaintActive) {
-        if (exclusionTool) setExclusionTool(null);
-        if (placeOnFaceActive) togglePlaceOnFace(false);
-        if (precisionMaskingEnabled) deactivatePrecisionMasking();
-        canvas.style.cursor = brushIsRadius ? 'none' : 'crosshair';
-      } else {
-        canvas.style.cursor = '';
-      }
-    });
-  }
-
-  // 8) Color image upload (mirrors customMapSwatch / texture pattern).
+  // 5) Color image upload.
   const colorFileInput = document.getElementById('color-image-input');
   if (colorFileInput) {
     colorFileInput.addEventListener('change', async (ev) => {
@@ -1912,7 +1811,7 @@ function wireColorPaintUI() {
     });
   }
 
-  // 9) Color image remove button.
+  // 6) Color image remove button.
   const colorRemoveBtn = document.getElementById('color-image-remove');
   if (colorRemoveBtn) {
     colorRemoveBtn.addEventListener('click', () => {
@@ -1922,17 +1821,7 @@ function wireColorPaintUI() {
     });
   }
 
-  // 10) Clear painted-color faces button.
-  const clearPaintBtn = document.getElementById('color-paint-clear');
-  if (clearPaintBtn) {
-    clearPaintBtn.addEventListener('click', () => {
-      paintedFaceColors = new Map();
-      refreshExclusionOverlay();
-      _scheduleUndoCapture();
-    });
-  }
-
-  // 11) Color image thumbnail / label refresh, used by upload, remove, reset,
+  // 7) Color image thumbnail / label refresh, used by upload, remove, reset,
   // and .bumpmesh import paths.
   window._refreshColorImageUI = refreshColorImageUI;
   refreshColorImageUI();
@@ -4472,7 +4361,7 @@ async function handleExport(format = 'stl') {
           _lastColorMap && _lastColorMap.imageData ? _lastColorMap.imageData : null,
           _lastColorMap ? _lastColorMap.width  : 0,
           _lastColorMap ? _lastColorMap.height : 0,
-          settings, currentBounds, paintedFaceColors, excludedFaces, selectionMode);
+          settings, currentBounds);
       } catch (err) {
         console.warn('Color bake failed; exporting without color:', err);
       }
@@ -4933,11 +4822,11 @@ const PERSISTED_KEYS = [
   // null means "fall back to AABB defaults", which is what fresh loads get.
   'snapSeamlessWrap', 'cylinderCenterX', 'cylinderCenterY', 'cylinderRadius',
   'cylinderPanelMinimized',
-  // Color export. colorImageDataURL is intentionally NOT here — color images are
-  // shipped as a separate `color.png` zip entry in .bumpmesh and never touch
-  // sessionStorage (would blow the 5MB quota). _lastColorMap holds the runtime cache.
+  // Color export. The uploaded color image is intentionally NOT here — it's
+  // shipped as a separate `color.png` zip entry in .bumpmesh and never touches
+  // sessionStorage (would blow the 5MB quota). `_lastColorMap` holds the
+  // runtime cache.
   'colorExportEnabled', 'colorAutoSource', 'colorBaseColor', 'colorGradientStops',
-  'colorPaintActiveColor',
 ];
 
 function getSettingsSnapshot() {
@@ -5051,10 +4940,8 @@ function applySettingsSnapshot(snap) {
   updateCylinderUIVisibility();
 
   // ── Color export settings ─────────────────────────────────────────────────
-  // Color UI controls are wired by Unit D (gradientEditor + the color section
-  // in index.html). When those land, dispatching change events on each control
-  // pulls them through the standard auto-save / undo / preview flow. Until
-  // wireColorPaintUI() runs (Step 5 integration), missing DOM elements are no-op.
+  // Dispatching change events on each control pulls them through the standard
+  // auto-save / undo / preview flow. Missing DOM elements are silently skipped.
   if ('colorExportEnabled' in snap) {
     settings.colorExportEnabled = !!snap.colorExportEnabled;
     const el = document.getElementById('color-export-toggle');
@@ -5076,11 +4963,6 @@ function applySettingsSnapshot(snap) {
     if (window._gradientEditor && typeof window._gradientEditor.setStops === 'function') {
       window._gradientEditor.setStops(settings.colorGradientStops);
     }
-  }
-  if ('colorPaintActiveColor' in snap && typeof snap.colorPaintActiveColor === 'string') {
-    settings.colorPaintActiveColor = snap.colorPaintActiveColor;
-    const el = document.getElementById('color-paint-picker');
-    if (el) { el.value = settings.colorPaintActiveColor; el.dispatchEvent(new Event('change', { bubbles: true })); }
   }
 }
 
@@ -5161,7 +5043,6 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
     { pos: 0, color: '#222222' },
     { pos: 1, color: '#dddddd' },
   ],
-  colorPaintActiveColor: '#cccccc',
   activeMapName: DEFAULT_PRESET_NAME,
 });
 
@@ -5196,7 +5077,6 @@ function resetSettingsToDefaults() {
     if (selectionMode) setSelectionMode(false);
     excludedFaces          = new Set();
     precisionExcludedFaces = new Set();
-    paintedFaceColors      = new Map();
     _lastColorMap          = null;
     refreshColorImageUI();
     if (currentGeometry) refreshExclusionOverlay();
@@ -5342,17 +5222,8 @@ function _collectCurrentMask() {
   } else {
     liveExcluded = excludedFaces;
   }
-  // Manual color paint overrides — packed RGB per original face index.
-  // Serialize as a compact array of [idx, '#RRGGBB'] pairs (small overhead vs Map.toJSON).
-  const coloredFaces = paintedFaceColors.size > 0
-    ? Array.from(paintedFaceColors.entries(), ([idx, packed]) =>
-        [idx, '#' + packed.toString(16).padStart(6, '0')])
-    : null;
-  // Empty exclude-mode + empty paint = nothing meaningful to save.
-  if (liveExcluded.size === 0 && !selectionMode && !coloredFaces) return null;
-  const out = { selectionMode, excluded: [...liveExcluded] };
-  if (coloredFaces) out.coloredFaces = coloredFaces;
-  return out;
+  if (liveExcluded.size === 0 && !selectionMode) return null;
+  return { selectionMode, excluded: [...liveExcluded] };
 }
 
 /**
@@ -5370,12 +5241,10 @@ function _restoreMask(mask) {
     if (selectionMode) setSelectionMode(false); // also clears the face sets
     excludedFaces = new Set();
     precisionExcludedFaces = new Set();
-    paintedFaceColors = new Map();
     refreshExclusionOverlay();
     return;
   }
   const triCount = (currentGeometry.attributes.position.count / 3) | 0;
-  // setSelectionMode clears any current paint, so flip mode FIRST then seed.
   if (mask.selectionMode === true)  setSelectionMode(true);
   else if (mask.selectionMode === false && selectionMode) setSelectionMode(false);
 
@@ -5383,18 +5252,8 @@ function _restoreMask(mask) {
     .filter(i => Number.isInteger(i) && i >= 0 && i < triCount);
   excludedFaces = new Set(valid);
   precisionExcludedFaces = new Set(); // precision rebuilds from this on demand
-
-  // Restore manual color paint overrides. Each entry is [origFaceIdx, '#RRGGBB'].
-  paintedFaceColors = new Map();
-  if (Array.isArray(mask.coloredFaces)) {
-    for (const entry of mask.coloredFaces) {
-      if (!Array.isArray(entry) || entry.length !== 2) continue;
-      const [idx, hex] = entry;
-      if (!Number.isInteger(idx) || idx < 0 || idx >= triCount) continue;
-      if (typeof hex !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(hex)) continue;
-      paintedFaceColors.set(idx, parseInt(hex.slice(1), 16));
-    }
-  }
+  // Older .bumpmesh files (pre-paint-removal) may include `mask.coloredFaces`;
+  // we silently ignore it. The data isn't useful without the paint UI.
   refreshExclusionOverlay();
 }
 
@@ -5559,13 +5418,6 @@ function _undoSnapshotsEqual(a, b) {
   if (ma.excluded.length !== mb.excluded.length) return false;
   const sb = new Set(mb.excluded);
   for (const v of ma.excluded) if (!sb.has(v)) return false;
-  // Compare manual color paint overrides.
-  const ca = ma.coloredFaces || null, cb = mb.coloredFaces || null;
-  if (!ca && !cb) return true;
-  if (!ca || !cb) return false;
-  if (ca.length !== cb.length) return false;
-  const cbm = new Map(cb);
-  for (const [idx, hex] of ca) if (cbm.get(idx) !== hex) return false;
   return true;
 }
 
