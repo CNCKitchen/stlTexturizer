@@ -2,10 +2,10 @@
 
 **Reviewer:** GPT-5.5 Codex
 **Author:** Claude Opus 4.7 (with parallel general-purpose agents for the four work units)
-**Status:** Functional end-to-end. Stress-tested. Three temporary cache-bust query strings remain to be stripped before the upstream PR.
+**Status:** Functional end-to-end. Stress-tested. Cache-bust query strings stripped. Codex review found and fixed an additional quantizer edge case plus color-image import/UI cleanup.
 **Repo:** `/Users/eric/Documents/GitHub/stlTexturizer`
 **Upstream:** `CNCKitchen/stlTexturizer` (the user's intent is to upstream this).
-**Branch:** local edits on `main`. No commits yet.
+**Branch:** `feat/color-export-3mf`.
 
 ---
 
@@ -136,7 +136,7 @@ Median-cut is implementable in ~80 LOC without iteration loops, gives perceptual
 
 The standard "split by largest population" variant equalizes bucket sizes, which **dilutes outlier clusters into nearby dominant clusters**. We hit this in stress test: 1022 angle-masked-bottom-face white triangles got assigned to a bucket with ~19k wood-tone neighbors and the bucket mean came out wood, not white. Every palette entry had exactly 656382/32 = 20512 triangles — telltale sign of population equalization.
 
-Switching to `range × log(pop+1)` selection isolates outlier clusters (high range bucket gets prioritized for splitting) while still keeping smooth gradients smooth (the log-pop tiebreaker prevents tiny but high-range buckets from monopolizing). This is the variant in `js/quantize.js:54-65`.
+Switching to `range × log(pop+1)` bucket selection prioritizes buckets that contain outlier clusters while still keeping smooth gradients smooth. Codex review added a second guard: after sorting a bucket by its widest channel, `js/quantize.js` now splits at a large channel gap when one exists, falling back to a median-ish split for smooth ramps. This prevents small but visually important clusters from being averaged away for many iterations.
 
 ### Why per-face exclusion threshold (not per-vertex)
 The first pass of colorBake checked `excludeWeight >= 0.99` per-vertex. This failed at boundary corners on the cube's bottom face: subdivision dedups corner vertex weights to either the side-face copy (w=0) or the bottom-face copy (w=1) depending on iteration order, so partial-weight subdivided vertices fail the per-vertex check.
@@ -177,7 +177,7 @@ Underlying typed array is shared with the input (input is disposed after applyDi
 
 **Cause:** `js/quantize.js` median-cut split the bucket with the largest population. With 1022 whites in a population of 656k, the white cluster never landed in its own bucket — it always got grouped with neighbors, and the bucket mean came out as the dominant neighbor color.
 
-**Fix:** `js/quantize.js:54-65` — switch bucket selection to `range × log(pop+1)`. Range prioritizes outlier-containing buckets; log-pop prevents tiny buckets from monopolizing.
+**Fix:** `js/quantize.js` — switch bucket selection to `range × log(pop+1)`, and split at a large sorted-channel gap when one exists. Range prioritizes outlier-containing buckets; log-pop prevents tiny buckets from monopolizing; gap-aware splitting isolates the outlier cluster instead of repeatedly bisecting the dominant population.
 
 **Verification:** With all three fixes, a default cube exported with wood gradient + one painted face produces a palette with 3 white entries (angle-masked bottom), 8 magenta entries (painted face — duplicated due to decimation dedup smearing, see "Known caveats" below), and 21 wood entries (the gradient). Bottom-face triangle count: 3070 total, 1022 of which are exactly `#FFFFFF`, the remaining 2048 are wood tones at the smooth mask boundary (expected behavior, matches displacement's smooth boundary).
 
@@ -196,13 +196,8 @@ In stress test, painting one face magenta produced 8 distinct near-magenta palet
 ### Live preview deferred
 Color preview in the live displacement preview shader is not implemented. Painted faces tint the existing exclusion overlay (orange) for click feedback, but the user's chosen color does not appear in the live preview. Documented in the plan as a planned follow-up.
 
-### Cache-bust query strings to remove
-`js/main.js` currently has 3 imports with `?v=10` query strings:
-- `import { applyDisplacement } from './displacement.js?v=10';`
-- `import { applyColors } from './colorBake.js?v=10';`
-- `import { medianCut } from './quantize.js?v=10';`
-
-These were temporary during iterative debugging in Chrome (whose ES module cache is per-URL and stubbornly persistent across reloads). They should be stripped before the upstream PR — they're cosmetic but pollute the source.
+### Cache-bust query strings removed
+The temporary `?v=10` query strings were stripped from `js/main.js` after stress testing. `rg "\\?v="` now only finds historical mentions in this handoff.
 
 ### i18n: non-English locales fall back to English
 All 18 new keys exist in en.js with proper text. The other 6 locale files (de, fr, it, es, pt, ja) have the same keys with English values. CNCKitchen typically lands the feature first then crowdsources translations.
@@ -336,14 +331,9 @@ If you want to find more bugs, attack these:
 
 Before merging the upstream PR, do these in order:
 
-1. **Strip cache-bust query strings** in `js/main.js`:
-   - `'./displacement.js?v=10'` → `'./displacement.js'`
-   - `'./colorBake.js?v=10'` → `'./colorBake.js'`
-   - `'./quantize.js?v=10'` → `'./quantize.js'`
-2. **Remove the `?v=N` markers from any HTML if they leaked there** (none did, but double-check).
-3. **Run a fresh full pipeline end-to-end** in a freshly opened Chrome window (no cache) to confirm the import paths still resolve.
-4. **Confirm the README's feature list** doesn't already claim "color export" in a way that conflicts with this PR's claims; update if needed.
-5. **Open the upstream PR** with these claims:
+1. **Run a fresh full pipeline end-to-end** in a freshly opened Chrome window (no cache) to confirm the import paths still resolve.
+2. **Confirm the README's feature list** doesn't already claim "color export" in a way that conflicts with this PR's claims; update if needed.
+3. **Open the upstream PR** with these claims:
    - All changes are additive
    - Toggle-OFF emits identical bytes to today
    - No new dependencies

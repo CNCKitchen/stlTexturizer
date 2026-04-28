@@ -1827,10 +1827,12 @@ function wireColorPaintUI() {
   const paintEl = document.getElementById('color-paint-picker');
   if (paintEl) {
     paintEl.value = settings.colorPaintActiveColor;
-    paintEl.addEventListener('change', () => {
-      // Avoid stomping an in-flight stroke's undo coalescing.
-      if (_colorPaintHandlers && _colorPaintHandlers.isPainting()) return;
+    paintEl.addEventListener('change', (ev) => {
       settings.colorPaintActiveColor = paintEl.value;
+      // Avoid stomping an in-flight stroke's undo coalescing.
+      if (_colorPaintHandlers && _colorPaintHandlers.isPainting()) {
+        ev.stopPropagation();
+      }
     });
   }
 
@@ -1909,9 +1911,41 @@ function wireColorPaintUI() {
     });
   }
 
-  // 11) Convenience for restoring the color image preview after .bumpmesh import.
-  // Unit D defines the actual UI refresh; we expose a hook so import paths can call it.
-  window._refreshColorImageUI = window._refreshColorImageUI || function _noop() { /* Unit D may override */ };
+  // 11) Color image thumbnail / label refresh, used by upload, remove, reset,
+  // and .bumpmesh import paths.
+  window._refreshColorImageUI = refreshColorImageUI;
+  refreshColorImageUI();
+}
+
+function refreshColorImageUI() {
+  const thumb = document.getElementById('color-image-thumb');
+  const removeBtn = document.getElementById('color-image-remove');
+  const uploadLabel = document.querySelector('label[for="color-image-input"] span');
+
+  if (thumb && thumb.getContext) {
+    const ctx = thumb.getContext('2d');
+    const w = thumb.width || 64;
+    const h = thumb.height || 64;
+    ctx.clearRect(0, 0, w, h);
+
+    if (_lastColorMap && _lastColorMap.fullCanvas) {
+      const sw = _lastColorMap.fullCanvas.width;
+      const sh = _lastColorMap.fullCanvas.height;
+      const scale = Math.min(w / sw, h / sh);
+      const dw = sw * scale;
+      const dh = sh * scale;
+      ctx.drawImage(_lastColorMap.fullCanvas, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    }
+  }
+
+  if (removeBtn) removeBtn.disabled = !(_lastColorMap && _lastColorMap.fullCanvas);
+  if (uploadLabel) {
+    const key = _lastColorMap && _lastColorMap.fullCanvas
+      ? 'color.imageReplace'
+      : 'color.imageUpload';
+    uploadLabel.setAttribute('data-i18n', key);
+    uploadLabel.textContent = t(key);
+  }
 }
 
 // ── Exclusion helpers ─────────────────────────────────────────────────────────
@@ -4857,6 +4891,7 @@ function resetSettingsToDefaults() {
     precisionExcludedFaces = new Set();
     paintedFaceColors      = new Map();
     _lastColorMap          = null;
+    refreshColorImageUI();
     if (currentGeometry) refreshExclusionOverlay();
 
     const defaultIdx = IMAGE_PRESETS.findIndex(p => p.name === DEFAULT_PRESET_NAME);
@@ -5151,6 +5186,9 @@ async function importProject(file) {
       if (typeof window._refreshColorImageUI === 'function') window._refreshColorImageUI();
       bmp.close && bmp.close();
     } catch (err) { console.warn('Could not restore color image:', err); }
+  } else {
+    _lastColorMap = null;
+    if (typeof window._refreshColorImageUI === 'function') window._refreshColorImageUI();
   }
 
   _autoSaveSettings();

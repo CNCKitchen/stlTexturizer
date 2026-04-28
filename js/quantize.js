@@ -7,9 +7,10 @@
  *
  * Algorithm:
  *   1. Place all triangles in one bucket.
- *   2. Pick the bucket with the largest population (with > 1 distinct colour),
- *      find its widest channel (max−min over R, G, B), partition by the median
- *      of that channel into two child buckets via in-place index sort.
+ *   2. Pick the bucket with the largest range-weighted score (with > 1 distinct
+ *      colour), find its widest channel (max−min over R, G, B), sort that
+ *      channel, then partition at a large color gap when one exists; otherwise
+ *      partition near the median.
  *   3. Repeat until bucket count == maxColors or no further bucket can be split.
  *   4. Each bucket's palette entry = mean RGB of its members.
  *
@@ -90,8 +91,12 @@ export function medianCut(triRGBs, maxColors = 32) {
     tmp.sort((a, b) => triRGBs[a * 3 + chan] - triRGBs[b * 3 + chan]);
     for (let k = 0; k < tmp.length; k++) sub[k] = tmp[k];
 
-    // Split at median index. Use floor((s+e)/2) so left bucket has the lower half.
-    const mid = (s + e) >> 1;
+    // Split at a strong color boundary when one exists. A pure median split can
+    // bury a small distinctive cluster (for example a white masked face among
+    // thousands of wood-toned triangles) for many iterations. Gap-aware splits
+    // isolate those clusters immediately while smooth ramps still fall back to
+    // the count median.
+    const mid = _chooseSplitPoint(triRGBs, order, s, e, chan, bRange[bestIdx]);
     if (mid <= s || mid >= e) {
       // Degenerate — mark unsplittable (e.g. pop == 1).
       bSplittable[bestIdx] = 0;
@@ -163,4 +168,66 @@ function _computeBucketStats(triRGBs, order, s, e, b, bRange, bChan, bSplittable
   bChan[b]  = chan;
   // Splittable iff at least one channel has range > 0 AND we have ≥ 2 elements.
   bSplittable[b] = (range > 0 && (e - s) > 1) ? 1 : 0;
+}
+
+/**
+ * Pick a split point for a sorted bucket slice.
+ *
+ * Prefer a visually meaningful channel gap when present. This protects small
+ * but important regions from being averaged into a dominant cluster. For
+ * ordinary smooth gradients, adjacent gaps are small, so we use a median-ish
+ * split and nudge it to the nearest color boundary to avoid splitting a run of
+ * identical channel values.
+ */
+function _chooseSplitPoint(triRGBs, order, s, e, chan, range) {
+  const median = (s + e) >> 1;
+  let bestGap = 0;
+  let bestGapMid = -1;
+
+  for (let k = s + 1; k < e; k++) {
+    const prev = triRGBs[order[k - 1] * 3 + chan];
+    const cur  = triRGBs[order[k] * 3 + chan];
+    const gap = cur - prev;
+    if (gap > bestGap) {
+      bestGap = gap;
+      bestGapMid = k;
+    }
+  }
+
+  // A gap this large is a real color boundary, not normal gradient stepping.
+  const gapThreshold = Math.max(8, range * 0.2);
+  if (bestGapMid > s && bestGapMid < e && bestGap >= gapThreshold) {
+    return bestGapMid;
+  }
+
+  // Median fallback, nudged to the nearest distinct-value boundary so a bucket
+  // made mostly of duplicate colors does not produce redundant child buckets.
+  const leftVal = triRGBs[order[median - 1] * 3 + chan];
+  const rightVal = triRGBs[order[median] * 3 + chan];
+  if (leftVal !== rightVal) return median;
+
+  let left = median - 1;
+  while (left > s) {
+    const a = triRGBs[order[left - 1] * 3 + chan];
+    const b = triRGBs[order[left] * 3 + chan];
+    if (a !== b) break;
+    left--;
+  }
+
+  let right = median + 1;
+  while (right < e) {
+    const a = triRGBs[order[right - 1] * 3 + chan];
+    const b = triRGBs[order[right] * 3 + chan];
+    if (a !== b) break;
+    right++;
+  }
+
+  const haveLeft = left > s;
+  const haveRight = right < e;
+  if (haveLeft && haveRight) {
+    return (median - left <= right - median) ? left : right;
+  }
+  if (haveLeft) return left;
+  if (haveRight) return right;
+  return median;
 }
