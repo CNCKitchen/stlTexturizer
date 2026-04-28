@@ -2140,11 +2140,16 @@ function _refreshPalettePreview() {
 function _pushColorPreviewState() {
   if (!previewMaterial) return;
   setColorPreview(previewMaterial, {
-    enabled:     !!settings.colorExportEnabled,
-    autoSource:  settings.colorAutoSource || 'none',
-    baseRGB:     _hexToRGB01(settings.colorBaseColor || '#ffffff'),
-    gradientLUT: _rebuildGradientLUT(),
-    colorImage:  _rebuildColorImageTexture(),
+    enabled:      !!settings.colorExportEnabled,
+    autoSource:   settings.colorAutoSource || 'none',
+    baseRGB:      _hexToRGB01(settings.colorBaseColor || '#ffffff'),
+    gradientLUT:  _rebuildGradientLUT(),
+    colorImage:   _rebuildColorImageTexture(),
+    // Color image's own aspect — colorBake.js applies the same correction
+    // separately from the displacement texture's aspect, so we must too or
+    // the live preview will be scale-mismatched against the export.
+    colorImageW:  _lastColorMap ? _lastColorMap.width  : 0,
+    colorImageH:  _lastColorMap ? _lastColorMap.height : 0,
   });
   requestRender();
 }

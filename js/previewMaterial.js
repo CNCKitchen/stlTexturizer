@@ -55,6 +55,11 @@ const sharedGLSL = /* glsl */`
   uniform int       colorAutoSource;      // 0=none/base, 1=gradient, 2=image
   uniform int       hasColorImage;        // 1 iff colorImage holds a real upload
   uniform vec3      colorBaseRGB;         // 0..1, applied to non-textured / excluded faces
+  // Aspect correction for the color image. Independent of textureAspect
+  // (which is the displacement texture's aspect) — the color image may have
+  // a different width:height ratio. colorBake.js applies this same correction
+  // on the export side, so preview UVs line up with baked UVs exactly.
+  uniform vec2      colorTextureAspect;   // tmax/w, tmax/h for the color image
 
   const float PI     = 3.14159265358979;
   const float TWO_PI = 6.28318530717959;
@@ -112,11 +117,13 @@ const sharedGLSL = /* glsl */`
     return texture2D(displacementMap, uv).r;
   }
 
-  // Same UV pipeline as sampleMap but reads the user's color image. Used by
-  // computeColorAtPoint when colorAutoSource == 2 so colors line up with the
-  // displacement texels exactly.
+  // Same UV pipeline as sampleMap but reads the user's color image. Uses
+  // colorTextureAspect (NOT textureAspect) because the color image's aspect
+  // ratio is independent of the displacement texture's. This matches
+  // colorBake.js, which builds a separate colSettings struct with the color
+  // image's aspect for its UV math.
   vec3 sampleColorMap(vec2 rawUV) {
-    vec2 uv = (rawUV * textureAspect) / scaleUV + offsetUV;
+    vec2 uv = (rawUV * colorTextureAspect) / scaleUV + offsetUV;
     float c = cos(rotation); float s = sin(rotation);
     uv -= 0.5;
     uv  = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
@@ -647,6 +654,9 @@ function buildUniforms(tex, settings) {
     colorImage:             { value: createFallbackTexture() },
     hasColorImage:          { value: 0 },
     colorBaseRGB:           { value: new THREE.Vector3(1, 1, 1) },
+    // Aspect correction for the color image. Independent of textureAspect
+    // (displacement). Updated by setColorPreview when the image changes.
+    colorTextureAspect:     { value: new THREE.Vector2(1, 1) },
   };
 }
 
@@ -662,6 +672,9 @@ function buildUniforms(tex, settings) {
  *   - baseRGB: [r,g,b] in 0..1
  *   - gradientLUT: THREE.Texture | null  (256×1)
  *   - colorImage: THREE.Texture | null
+ *   - colorImageW, colorImageH: integers — color image dimensions; used to
+ *     compute aspect correction independent of the displacement texture.
+ *     When omitted (or image absent) defaults to 1×1.
  */
 export function setColorPreview(material, opts) {
   if (!material || !material.uniforms) return;
@@ -680,8 +693,14 @@ export function setColorPreview(material, opts) {
   if (opts.colorImage) {
     u.colorImage.value = opts.colorImage;
     u.hasColorImage.value = 1;
+    // Aspect correction matching colorBake.js: tmax/w, tmax/h.
+    const w = Math.max(1, opts.colorImageW || 1);
+    const h = Math.max(1, opts.colorImageH || 1);
+    const tmax = Math.max(w, h, 1);
+    u.colorTextureAspect.value.set(tmax / w, tmax / h);
   } else {
     u.hasColorImage.value = 0;
+    u.colorTextureAspect.value.set(1, 1);
   }
 }
 
