@@ -2034,6 +2034,106 @@ function _hexToRGB255(hex) {
  * so the exported colors are pixel-exact what the user picked. Slicer-side
  * AMS slot assignment is predictable.
  */
+/**
+ * Reduce color-region fragmentation by reassigning isolated triangles to
+ * their majority-neighbor color. The output of medianCut / snapToStops can
+ * produce a "speckle" pattern at color boundaries — triangles whose averaged
+ * color happened to land closer to a non-dominant palette entry. Slicers like
+ * Bambu Studio / OrcaSlicer treat each color as a distinct filament region;
+ * tens of thousands of single-triangle speckles produce a chaotic slice plan
+ * with non-manifold-style errors at every region boundary.
+ *
+ * Algorithm: for each triangle, look at its ≤3 face-adjacent neighbors. If
+ * 2+ neighbors share a color that isn't the triangle's own, switch. Iterate
+ * until stable (capped). Geometry untouched; only triPaletteIndices change.
+ *
+ * @param {Uint16Array} indices  triangle → palette index (mutated in place)
+ * @param {Array<Array<{neighbor:number,angle:number}>>} adjacency
+ * @param {number} maxIters
+ * @returns {number} total reassignments across all iterations
+ */
+function _smoothPaletteRegions(indices, adjacency, maxIters = 3) {
+  const triCount = indices.length;
+  let totalChanges = 0;
+  // Double-buffer so each pass sees a consistent snapshot.
+  const next = new Uint16Array(triCount);
+
+  // Pass A — conservative: flip iff ≥2 of my (≤3) neighbors share a non-self
+  // color. Preserves genuine sharp boundary triangles.
+  for (let iter = 0; iter < maxIters; iter++) {
+    next.set(indices);
+    let changes = 0;
+    for (let t = 0; t < triCount; t++) {
+      const nbrs = adjacency[t];
+      if (!nbrs || nbrs.length < 2) continue;
+      const me = indices[t];
+      let p0 = -1, c0 = 0, p1 = -1, c1 = 0, p2 = -1, c2 = 0;
+      for (let k = 0; k < nbrs.length; k++) {
+        const p = indices[nbrs[k].neighbor];
+        if      (p === p0) c0++;
+        else if (p === p1) c1++;
+        else if (p === p2) c2++;
+        else if (p0 < 0)   { p0 = p; c0 = 1; }
+        else if (p1 < 0)   { p1 = p; c1 = 1; }
+        else               { p2 = p; c2 = 1; }
+      }
+      let bestPid = -1, bestCount = 0;
+      if (c0 > bestCount) { bestPid = p0; bestCount = c0; }
+      if (c1 > bestCount) { bestPid = p1; bestCount = c1; }
+      if (c2 > bestCount) { bestPid = p2; bestCount = c2; }
+      if (bestPid >= 0 && bestPid !== me && bestCount >= 2) {
+        next[t] = bestPid;
+        changes++;
+      }
+    }
+    if (changes === 0) break;
+    indices.set(next);
+    totalChanges += changes;
+  }
+
+  // Pass B — aggressive cleanup of fully-surrounded triangles only. After
+  // the conservative passes have run to fixpoint, any triangle whose ALL ≥3
+  // neighbors disagree with self is a true outlier (typically a "trijunction"
+  // where 3+ regions meet). Flip to whichever neighbor color appears most
+  // (lowest pid breaks ties), since "any neighbor color" is strictly better
+  // than "an island of one". A single pass is enough — by definition this
+  // doesn't propagate.
+  next.set(indices);
+  let aggChanges = 0;
+  for (let t = 0; t < triCount; t++) {
+    const nbrs = adjacency[t];
+    if (!nbrs || nbrs.length < 2) continue;
+    const me = indices[t];
+    let agree = 0;
+    let p0 = -1, c0 = 0, p1 = -1, c1 = 0, p2 = -1, c2 = 0;
+    for (let k = 0; k < nbrs.length; k++) {
+      const p = indices[nbrs[k].neighbor];
+      if (p === me) { agree++; }
+      if      (p === p0) c0++;
+      else if (p === p1) c1++;
+      else if (p === p2) c2++;
+      else if (p0 < 0)   { p0 = p; c0 = 1; }
+      else if (p1 < 0)   { p1 = p; c1 = 1; }
+      else               { p2 = p; c2 = 1; }
+    }
+    if (agree > 0) continue; // not a fully-surrounded speckle
+    // All neighbors disagree. Pick the most common neighbor color (any
+    // neighbor color is better than self, which has 0 local support).
+    let bestPid = p0, bestCount = c0;
+    if (c1 > bestCount || (c1 === bestCount && p1 < bestPid)) { bestPid = p1; bestCount = c1; }
+    if (c2 > bestCount || (c2 === bestCount && p2 < bestPid)) { bestPid = p2; bestCount = c2; }
+    if (bestPid >= 0 && bestPid !== me) {
+      next[t] = bestPid;
+      aggChanges++;
+    }
+  }
+  if (aggChanges > 0) {
+    indices.set(next);
+    totalChanges += aggChanges;
+  }
+  return totalChanges;
+}
+
 function _snapToControlPoints(triRGB, s) {
   const stops = Array.isArray(s.colorGradientStops) ? s.colorGradientStops : [];
   const palRGB = []; // array of [r, g, b] in 0..255
@@ -4797,6 +4897,19 @@ async function handleExport(format = 'stl') {
             const { palette, indices } = medianCut(triRGB, paletteCap);
             exportOpts = { palette, triPaletteIndices: indices };
           }
+
+          // Region smoothing: collapse speckle triangles into their majority-
+          // neighbor color. With per-vertex baking + decimation averaging,
+          // boundary triangles can land on an isolated palette entry that
+          // disagrees with all their neighbors — the slicer then treats every
+          // such triangle as its own filament region and produces a chaotic
+          // slice plan (non-manifold-style errors, fractured fill paths).
+          // 3 passes is plenty empirically — converges by then for most meshes.
+          setProgress(0.96, t('progress.smoothingColorRegions') || 'Smoothing color regions…');
+          await yieldFrame();
+          if (exportToken !== myToken) return;
+          const adj = buildAdjacency(finalGeometry);
+          _smoothPaletteRegions(exportOpts.triPaletteIndices, adj.adjacency, 3);
         } catch (err) {
           console.warn('Quantization failed; exporting without color:', err);
         }
