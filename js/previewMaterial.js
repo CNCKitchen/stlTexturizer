@@ -62,7 +62,11 @@ const sharedGLSL = /* glsl */`
                     : axis == 1 ? max(absN.x, absN.z)
                                 : max(absN.x, absN.y);
 
-    if (mappingBlend < 0.001 || primary - secondary <= CUBIC_AXIS_EPSILON) {
+    // blend=0: hard one-hot for sharp seams. Do NOT also short-circuit at
+    // primary≈secondary when blend>0 — the smooth branch produces 0.5/0.5
+    // there, and short-circuiting to one-hot creates a single-fragment spike
+    // wherever a fillet's smooth normal lands exactly on the 45° tie.
+    if (mappingBlend < 0.001) {
       if (axis == 0) return vec3(1.0, 0.0, 0.0);
       if (axis == 1) return vec3(0.0, 1.0, 0.0);
       return vec3(0.0, 0.0, 1.0);

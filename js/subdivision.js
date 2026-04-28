@@ -14,7 +14,12 @@
 
 import * as THREE from 'three';
 
-const QUANTISE   = 1e4;
+// 10 µm vertex-dedup cells. Below 1e5 (= 100 µm) small-fillet meshes have
+// distinct fillet vertices that round to the same key and merge incorrectly,
+// producing zero-length edges and non-manifold artifacts after displacement.
+// 1e5 still tolerates float32 round-trip noise (~1e-4 mm worst case at metre
+// scales) so well-formed inputs continue to dedup cleanly.
+const QUANTISE   = 1e5;
 const SAFETY_CAP = 20_000_000; // absolute OOM guard
 
 // ── Public entry point ───────────────────────────────────────────────────────
@@ -229,6 +234,16 @@ function subdividePass(positions, normals, weights, indices, maxEdgeLength, safe
       // with its two adjacent midpoints; the remaining quadrilateral is
       // split along the diagonal that connects those two midpoints to the
       // opposite vertices, preserving consistent CCW winding throughout.
+      //
+      // KNOWN LIMITATION: on sliver parents (one short edge from CAD
+      // tessellation noise + two long edges), the inner mid-mid diagonal
+      // inherits half the parent's short edge and propagates the sliver
+      // into two new sub-triangles per pass. We can't avoid this — the
+      // alternative pentagon diagonal that would skip the midpoints
+      // necessarily passes through one of them (since each midpoint sits
+      // on its parent edge), producing a degenerate zero-area triangle.
+      // The fix is upstream: clean sub-µm CAD slivers from the input
+      // mesh before texturing.
 
       if (!sAB) {                        // sBC + sCA: fan from C
         const mBC = getMidpoint(positions, normals, weights, midCache, b, c, canonIdx, posCanonMap);

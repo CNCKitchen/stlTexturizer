@@ -1,2 +1,6 @@
 assets/
 .claude/
+node_modules/
+package.json
+package-lock.json
+debug_out/

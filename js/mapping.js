@@ -27,16 +27,6 @@ export function getDominantCubicAxis(normal) {
   return 'z';
 }
 
-export function isAmbiguousCubicNormal(normal) {
-  const ax = Math.abs(normal.x);
-  const ay = Math.abs(normal.y);
-  const az = Math.abs(normal.z);
-  const axis = getDominantCubicAxis(normal);
-  const primary = axis === 'x' ? ax : axis === 'y' ? ay : az;
-  const secondary = axis === 'x' ? Math.max(ay, az) : axis === 'y' ? Math.max(ax, az) : Math.max(ax, ay);
-  return primary - secondary <= CUBIC_AXIS_EPSILON;
-}
-
 export function getCubicBlendWeights(normal, blend, seamBandWidth = 0.35) {
   const axis = getDominantCubicAxis(normal);
   const ax = Math.abs(normal.x);
@@ -45,7 +35,12 @@ export function getCubicBlendWeights(normal, blend, seamBandWidth = 0.35) {
   const primary = axis === 'x' ? ax : axis === 'y' ? ay : az;
   const secondary = axis === 'x' ? Math.max(ay, az) : axis === 'y' ? Math.max(ax, az) : Math.max(ax, ay);
 
-  if (blend <= 0.001 || isAmbiguousCubicNormal(normal)) {
+  // blend=0: hard one-hot for sharp seams. Do NOT also short-circuit at the
+  // primary≈secondary tie when blend>0 — the smooth weight branch handles
+  // an exact 45° normal correctly (it produces 0.5/0.5), and short-circuiting
+  // to one-hot there creates a single-vertex spike on fillets where the
+  // smooth normal sweeps continuously across the cube-face boundary.
+  if (blend <= 0.001) {
     return {
       x: axis === 'x' ? 1 : 0,
       y: axis === 'y' ? 1 : 0,

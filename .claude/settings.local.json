@@ -46,7 +46,12 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(node test-cylindrical.mjs)",
       "Bash(node --check js/mapping.js)",
-      "Bash(node --check js/previewMaterial.js)"
+      "Bash(node --check js/previewMaterial.js)",
+      "Bash(node -e \"console.log\\(process.version\\)\")",
+      "Bash(npm init *)",
+      "Bash(node test-fillet-debug.mjs)",
+      "Bash(node test-fillet-quant.mjs)",
+      "Bash(node test-fillet-quant-sweep.mjs)"
     ]
   }
 }

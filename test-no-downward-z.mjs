@@ -34,7 +34,7 @@ function approxEq(a, b, eps = 1e-9) { return Math.abs(a - b) <= eps; }
 //   - new position = orig + smoothNrm * disp (per-axis)
 //   - existing maskedFrac>0 Z clamps for bottom/top angle limits
 //   - new noDownwardZ Z clamp
-function displaceVertex({ pos, smoothNrm, disp, maskedFrac, settings }) {
+function displaceVertex({ pos, smoothNrm, disp, maskedFrac, bottomZ, settings }) {
   const newX = pos.x + smoothNrm.x * disp;
   const newY = pos.y + smoothNrm.y * disp;
   let   newZ = pos.z + smoothNrm.z * disp;
@@ -45,6 +45,12 @@ function displaceVertex({ pos, smoothNrm, disp, maskedFrac, settings }) {
   }
 
   if (settings.noDownwardZ && newZ < pos.z) newZ = pos.z;
+  // Bottom-plane flat clamp: when overhang protection is on and the vertex
+  // was originally on the print bottom, also clamp upward movement so the
+  // bed-contact surface stays perfectly flat regardless of the texture.
+  if (settings.noDownwardZ && bottomZ !== undefined && pos.z <= bottomZ + 1e-5) {
+    newZ = pos.z;
+  }
 
   return { x: newX, y: newY, z: newZ };
 }
@@ -207,6 +213,43 @@ console.log('\nTest 8: 50k random vertices, invariants under noDownwardZ=true');
   expect('a substantial fraction of vertices were clamped (mix of branches)',
          zClampCount > N * 0.2 && zClampCount < N * 0.8,
          `clamped ${zClampCount}/${N}`);
+}
+
+// ── Test 9: bottom-plane stays perfectly flat under noDownwardZ ──────────────
+console.log('\nTest 9: noDownwardZ also clamps upward movement on bottom-plane vertices');
+{
+  // Real-world bug: a flat-bottom face (smoothNrm = (0,0,-1)) under
+  // symmetric displacement gets pulled UPWARD by negative-grey samples
+  // because the existing noDownwardZ clamp only catches downward motion.
+  // Adjacent bottom-face vertices end up at slightly different Z heights,
+  // and PrusaSlicer renders the now-tilted bottom triangles with visibly
+  // varying shading. Once overhang protection is on, the bottom plane
+  // must also stay perfectly flat so the print bed-contact surface is
+  // a single Z value.
+  const bottomZ = 0;
+  const pos = { x: 5, y: 5, z: bottomZ };
+  const smoothNrm = { x: 0, y: 0, z: -1 };
+
+  // Centred grey of -0.1 → disp = -0.15 (with amp 1.5). newZ = 0 + (-1)*(-0.15) = +0.15.
+  const disp = -0.15;
+  const off = displaceVertex({ pos, smoothNrm, disp, maskedFrac: 0, bottomZ,
+    settings: { ...baseSettings, noDownwardZ: false } });
+  const on  = displaceVertex({ pos, smoothNrm, disp, maskedFrac: 0, bottomZ,
+    settings: { ...baseSettings, noDownwardZ: true } });
+
+  expect('flag off: bottom vertex moves up to +0.15 (regression case)',
+         approxEq(off.z, 0.15));
+  expect('flag on:  bottom vertex stays at bottomZ',
+         approxEq(on.z, bottomZ));
+
+  // Vertex slightly above the bottom plane (e.g. 0.5 mm into a side fillet)
+  // must NOT be clamped — that's the textured surface, not the bed contact.
+  const filletPos = { x: 5, y: 5, z: bottomZ + 0.5 };
+  const filletNrm = { x: 1, y: 0, z: 0 };          // horizontal-facing fillet
+  const filletOut = displaceVertex({ pos: filletPos, smoothNrm: filletNrm, disp: 0.1,
+    maskedFrac: 0, bottomZ, settings: { ...baseSettings, noDownwardZ: true } });
+  expect('above-bottom fillet vertex still receives full XY displacement',
+         approxEq(filletOut.x, 5.1) && approxEq(filletOut.z, bottomZ + 0.5));
 }
 
 console.log(`\n${_failed === 0 ? 'All tests PASSED' : `${_failed} test(s) FAILED`}`);
