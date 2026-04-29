@@ -10,6 +10,7 @@ export const TRANSLATIONS = {
   fr: { 'lang.name': 'Français' },
   ja: { 'lang.name': '日本語' },
   ko: { 'lang.name': '한국어' },
+  zh: { 'lang.name': '简体中文' },
 };
 
 // ── Module state ──────────────────────────────────────────────────────────────
