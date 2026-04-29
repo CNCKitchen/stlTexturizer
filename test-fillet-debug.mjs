@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 
 import { subdivide } from './js/subdivision.js';
+import { regularizeMesh } from './js/regularize.js';
 import { applyDisplacement } from './js/displacement.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -197,14 +198,20 @@ function faceNormal(pa, t) {
 }
 
 async function runCase(label, settings, inputGeo, bounds, refineLength, tex) {
-  const { geometry: subdivided } = await subdivide(
+  const { geometry: subdivided, faceParentId } = await subdivide(
     inputGeo.clone(), refineLength, null, null, { fast: false }
   );
-  const subDiag = analyseEdges(subdivided);
-  const subTris = subdivided.attributes.position.count / 3;
+  // Mirror main.js: subdivide → regularize → displace.  Catches regressions
+  // where the regularizer accidentally damages real fine geometry (small
+  // fillets here) by collapsing edges that aren't pure CAD-tessellation noise.
+  const reg = regularizeMesh(subdivided, faceParentId, refineLength);
+  subdivided.dispose();
+  const regularized = reg.geometry;
+  const subDiag = analyseEdges(regularized);
+  const subTris = regularized.attributes.position.count / 3;
 
   const displaced = applyDisplacement(
-    subdivided, tex, tex.width, tex.height, settings, bounds
+    regularized, tex, tex.width, tex.height, settings, bounds
   );
   const outDiag = analyseEdges(displaced);
   const fillets = findFilletFaces(displaced);

@@ -465,6 +465,9 @@
           <span id="excl-shift-hint" class="excl-shift-hint" data-i18n="excl.shiftHint">Hold Shift to erase</span>
           <button id="excl-clear-btn" class="excl-clear-btn" data-i18n="ui.clearAll">Clear All</button>
         </div>
+
+        <!-- Debug: stats for last picked triangle (sliver/edge-length investigation) -->
+        <pre id="masking-tri-debug" class="masking-tri-debug" hidden></pre>
       </section>
 
       <!-- Advanced / Beta Features (collapsible) -->
@@ -486,6 +489,60 @@
               <input type="checkbox" id="no-downward-z-chk" />
               <span data-i18n="ui.noDownwardZ">Prevent downward (−Z) vertex displacement</span>
             </label>
+          </div>
+
+          <h3 class="panel-subsection-heading" data-i18n="ui.smoothBottomHeading">Smooth Bottom</h3>
+          <p class="advanced-blurb" data-i18n="ui.smoothBottomDesc">Snap any vertex within 0.1 mm of the bottom plane onto it after texturing. Keeps the bed-contact surface perfectly flat so slicers don't shade tiny height variations on bottom slivers.</p>
+          <div class="form-row">
+            <label class="checkbox-label" for="smooth-bottom-chk">
+              <input type="checkbox" id="smooth-bottom-chk" checked />
+              <span data-i18n="ui.smoothBottom">Snap near-bottom vertices to the bottom plane</span>
+            </label>
+          </div>
+
+          <h3 class="panel-subsection-heading">Regularize Mesh ⓘ</h3>
+          <p class="advanced-blurb">After subdividing, collapse sliver triangles produced by CAD-tessellation needles (fan-tessellated faces, near-collinear "flat slivers") so each output triangle samples coherent texels. A second subdivide brings stretched edges back near the resolution target, while masked surfaces are skipped.</p>
+          <div class="form-row">
+            <label class="checkbox-label" for="regularize-enabled-chk">
+              <input type="checkbox" id="regularize-enabled-chk" checked />
+              <span>Enable mesh regularization</span>
+            </label>
+          </div>
+          <div id="regularize-debug-rows" class="regularize-debug-rows">
+            <div class="form-row">
+              <label class="checkbox-label" for="reg-clean-input-chk" title="Run regularize on the freshly-loaded mesh (and after Bake) so CAD-tessellation slivers in the input are collapsed before any other operation. Modifies the imported geometry.">
+                <input type="checkbox" id="reg-clean-input-chk" />
+                <span>Auto-clean input mesh on load / bake</span>
+              </label>
+            </div>
+            <div class="form-row slider-row">
+              <label for="reg-aspect-threshold" title="Triangles with thinness (longest edge / shortest altitude) above this become collapse candidates. Lower = more aggressive sliver detection.">Sliver threshold</label>
+              <input type="number" id="reg-aspect-threshold" class="val" min="1" max="50" step="0.1" value="5" />
+            </div>
+            <div class="form-row slider-row">
+              <label for="reg-slack" title="Base edge cap = refineLength × slack. Surviving collapses must keep new edges below this.">Edge slack (base)</label>
+              <input type="number" id="reg-slack" class="val" min="1" max="20" step="0.1" value="3.0" />
+            </div>
+            <div class="form-row slider-row">
+              <label for="reg-aggressive-slack" title="Loose edge cap used when at least one wing of the collapse is an extreme sliver. Higher = more aggressive sliver clearing, larger stretched edges (re-subdivided afterwards).">Edge slack (aggressive)</label>
+              <input type="number" id="reg-aggressive-slack" class="val" min="1" max="20" step="0.1" value="8.0" />
+            </div>
+            <div class="form-row slider-row">
+              <label for="reg-extreme-aspect" title="Thinness above which a wing counts as 'extreme', triggering the aggressive edge & normal caps. Higher = more conservative (protects fillets).">Extreme sliver threshold</label>
+              <input type="number" id="reg-extreme-aspect" class="val" min="1" max="100" step="0.5" value="8" />
+            </div>
+            <div class="form-row slider-row">
+              <label for="reg-normal-deg" title="Maximum normal swing per collapse (degrees). Lower = better feature preservation.">Normal change limit (°)</label>
+              <input type="number" id="reg-normal-deg" class="val" min="0" max="90" step="1" value="15" />
+            </div>
+            <div class="form-row slider-row">
+              <label for="reg-aggressive-normal-deg" title="Looser normal swing limit when both wings are extreme slivers. Higher = better chain-sliver dissolution, risk of bending fine fillets.">Aggressive normal limit (°)</label>
+              <input type="number" id="reg-aggressive-normal-deg" class="val" min="0" max="90" step="1" value="25" />
+            </div>
+            <div class="form-row slider-row">
+              <label for="reg-second-pass-mul" title="Cap for the post-regularize subdivide = refineLength × this. Higher = fewer triangles but uneven sampling near sliver-cleared regions.">Re-subdivide cap (× target)</label>
+              <input type="number" id="reg-second-pass-mul" class="val" min="1" max="8" step="0.1" value="1.5" />
+            </div>
           </div>
 
           <h3 class="panel-subsection-heading" data-i18n="ui.bakeTexturesHeading">Bake Textures</h3>

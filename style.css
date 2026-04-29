@@ -1238,6 +1238,43 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 /* Hide utility (used by JS to show/hide exclusion sub-rows) */
 .form-row.hidden { display: none; }
 
+/* Regularize debug knob group — visually nested under the toggle */
+.regularize-debug-rows {
+  margin: 4px 0 8px 16px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+.regularize-debug-rows .form-row {
+  margin: 4px 0;
+}
+.regularize-debug-rows label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.regularize-debug-rows input[type="number"] {
+  width: 80px;
+}
+.regularize-debug-rows.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* Debug stats for last picked triangle in masking mode */
+.masking-tri-debug {
+  margin: 8px 0 0 0;
+  padding: 6px 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.35;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre;
+  overflow-x: auto;
+}
+
 /* ── Precision masking ───────────────────────────────────────────────── */
 .precision-masking-row {
   display: flex;

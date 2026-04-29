@@ -9,6 +9,7 @@ import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js'
 import { loadAllThumbnails, loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextures.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
+import { regularizeMesh }     from './regularize.js';
 import { applyDisplacement }  from './displacement.js';
 import { decimate }           from './decimation.js';
 import { exportSTL, export3MF } from './exporter.js';
@@ -83,6 +84,7 @@ const settings = {
   boundaryFalloff:  0,
   symmetricDisplacement: false,
   noDownwardZ: false,
+  smoothBottom: true,
   useDisplacement: false,
   // Cylindrical-mode controls.
   // null/undefined → derive from bounds (preserves legacy / non-cylindrical behavior).
@@ -91,6 +93,24 @@ const settings = {
   cylinderCenterY:  null,
   cylinderRadius:   null,
   cylinderPanelMinimized: false,
+  // Regularize Mesh (Advanced/Beta).  Two-step pipeline applied after the
+  // initial subdivide: collapse sliver chains, then re-subdivide stretched
+  // edges back to a configurable multiple of refineLength.  All knobs here
+  // mirror regularize.js opts; second-pass cap is for the post-regularize
+  // subdivide step in main.js.
+  regularizeEnabled:        true,
+  regularizeAspectThreshold: 5,
+  regularizeSlack:           3.0,
+  regularizeAggressiveSlack: 8.0,
+  regularizeExtremeAspect:   8,
+  regularizeNormalDeg:       15,
+  regularizeAggressiveNormalDeg: 25,
+  regularizeSecondPassMul:   1.5,
+  // When enabled, run regularize on the freshly-loaded (or re-baked) input
+  // mesh to collapse CAD-tessellation slivers (sub-µm-thick fillet strips,
+  // near-collinear flat slivers) before any other operation sees them.  Off
+  // by default — modifies the imported geometry, which surprises some users.
+  regularizeCleanInput:     false,
 };
 
 // ── Canvas filter support (Safari / iOS WebView don't support ctx.filter) ────
@@ -281,6 +301,17 @@ const boundaryFalloffVal       = document.getElementById('boundary-falloff-val')
 const symmetricDispToggle    = document.getElementById('symmetric-displacement');
 const dispPreviewToggle      = document.getElementById('displacement-preview');
 const noDownwardZChk         = document.getElementById('no-downward-z-chk');
+const smoothBottomChk        = document.getElementById('smooth-bottom-chk');
+const regularizeEnabledChk   = document.getElementById('regularize-enabled-chk');
+const regularizeDebugRows    = document.getElementById('regularize-debug-rows');
+const regAspectThresholdEl   = document.getElementById('reg-aspect-threshold');
+const regSlackEl             = document.getElementById('reg-slack');
+const regAggressiveSlackEl   = document.getElementById('reg-aggressive-slack');
+const regExtremeAspectEl     = document.getElementById('reg-extreme-aspect');
+const regNormalDegEl         = document.getElementById('reg-normal-deg');
+const regAggressiveNormalDegEl = document.getElementById('reg-aggressive-normal-deg');
+const regSecondPassMulEl     = document.getElementById('reg-second-pass-mul');
+const regCleanInputChk       = document.getElementById('reg-clean-input-chk');
 
 // ── Exclusion panel DOM refs ──────────────────────────────────────────────────
 const exclBrushBtn        = document.getElementById('excl-brush-btn');
@@ -1366,6 +1397,42 @@ function wireEvents() {
     settings.noDownwardZ = noDownwardZChk.checked;
     updatePreview();
   });
+  smoothBottomChk.checked = settings.smoothBottom;
+  smoothBottomChk.addEventListener('change', () => {
+    settings.smoothBottom = smoothBottomChk.checked;
+    // No preview rebuild needed — the snap is a final-export step only.
+  });
+
+  // Regularize (Advanced/Beta) — toggle + 7 debug knobs.  The toggle disables
+  // the entire regularize+resub pipeline; the knobs adjust regularize.js opts.
+  regularizeEnabledChk.checked = settings.regularizeEnabled;
+  regularizeDebugRows.classList.toggle('disabled', !settings.regularizeEnabled);
+  regularizeEnabledChk.addEventListener('change', () => {
+    settings.regularizeEnabled = regularizeEnabledChk.checked;
+    regularizeDebugRows.classList.toggle('disabled', !settings.regularizeEnabled);
+    updatePreview();
+  });
+  // Helper — wire a number input to a settings key, schedule a preview update.
+  const _wireRegNumber = (el, key, parser = parseFloat) => {
+    el.value = settings[key];
+    el.addEventListener('input', () => {
+      const v = parser(el.value);
+      if (Number.isFinite(v)) { settings[key] = v; updatePreview(); }
+    });
+  };
+  regCleanInputChk.checked = settings.regularizeCleanInput;
+  regCleanInputChk.addEventListener('change', () => {
+    settings.regularizeCleanInput = regCleanInputChk.checked;
+    // Don't auto-apply on toggle — only on subsequent loads/bakes — to avoid
+    // surprising the user by mutating their currently-loaded mesh.
+  });
+  _wireRegNumber(regAspectThresholdEl,    'regularizeAspectThreshold');
+  _wireRegNumber(regSlackEl,              'regularizeSlack');
+  _wireRegNumber(regAggressiveSlackEl,    'regularizeAggressiveSlack');
+  _wireRegNumber(regExtremeAspectEl,      'regularizeExtremeAspect');
+  _wireRegNumber(regNormalDegEl,          'regularizeNormalDeg');
+  _wireRegNumber(regAggressiveNormalDegEl,'regularizeAggressiveNormalDeg');
+  _wireRegNumber(regSecondPassMulEl,      'regularizeSecondPassMul');
 
   dispPreviewToggle.addEventListener('change', () => {
     toggleDisplacementPreview(dispPreviewToggle.checked);
@@ -1601,6 +1668,7 @@ function wireEvents() {
       e.preventDefault();
       _lastHoverTriIdx = -1;
       setHoverPreview(null);
+      updateMaskingTriDebug(e);
       const triIdx = pickTriangle(e);
       if (triIdx >= 0) {
         const filled = bucketFill(triIdx, triangleAdjacency, bucketThreshold);
@@ -1626,6 +1694,7 @@ function wireEvents() {
       const triIdx = pickTriangle(e);
       if (triIdx < 0) return;          // miss → let OrbitControls handle the drag
       e.preventDefault();
+      updateMaskingTriDebug(e);
       getControls().enabled = false;
       isPainting = true;
       _lastHoverTriIdx = -1;
@@ -1762,6 +1831,8 @@ function setExclusionTool(tool) {
   if (!exclusionTool) {
     isPainting = false;
     getControls().enabled = true;
+    const dbg = document.getElementById('masking-tri-debug');
+    if (dbg) { dbg.hidden = true; dbg.textContent = ''; }
     // Recompute boundary falloff now that masking is done
     if (_falloffDirty && currentGeometry) {
       const activeGeo = (precisionMaskingEnabled && precisionGeometry)
@@ -1817,6 +1888,47 @@ function pickTriangle(e) {
     fi = precisionParentMap[fi];
   }
   return fi;
+}
+
+// Debug panel: dump vertex coords + edge stats for the *visually picked*
+// triangle on the currently rendered mesh.  Used to investigate sliver chains:
+// pickTriangle() collapses to the original-mesh ancestor (needed by
+// excludedFaces), but for sliver debugging we want the actual subdivided /
+// regularized / preview face that the user clicked on.
+function updateMaskingTriDebug(e) {
+  const el = document.getElementById('masking-tri-debug');
+  if (!el) return;
+  const mesh = getCurrentMesh();
+  if (!mesh) return;
+  _raycaster.setFromCamera(_canvasNDC(e), getCamera());
+  const hits = _raycaster.intersectObject(mesh);
+  const hit = getFrontFaceHit(hits, mesh);
+  if (!hit) return;
+  const fi  = hit.faceIndex;
+  const geo = hit.object.geometry;
+  const pos = geo.attributes.position;
+  // Non-indexed geometry — three corners are at fi*3, fi*3+1, fi*3+2.
+  const ax = pos.getX(fi*3),     ay = pos.getY(fi*3),     az = pos.getZ(fi*3);
+  const bx = pos.getX(fi*3 + 1), by = pos.getY(fi*3 + 1), bz = pos.getZ(fi*3 + 1);
+  const cx = pos.getX(fi*3 + 2), cy = pos.getY(fi*3 + 2), cz = pos.getZ(fi*3 + 2);
+  const lAB = Math.hypot(bx-ax, by-ay, bz-az);
+  const lBC = Math.hypot(cx-bx, cy-by, cz-bz);
+  const lCA = Math.hypot(ax-cx, ay-cy, az-cz);
+  const lmin = Math.min(lAB, lBC, lCA);
+  const lmax = Math.max(lAB, lBC, lCA);
+  const aspect = lmin > 0 ? lmax / lmin : Infinity;
+  const tag = geo === currentGeometry        ? 'orig'
+            : geo === precisionGeometry      ? 'precision'
+            : geo === dispPreviewGeometry    ? 'preview'
+            : 'mesh';
+  el.textContent =
+    `tri #${fi}  (${tag})\n` +
+    `A:  (${ax.toFixed(4)}, ${ay.toFixed(4)}, ${az.toFixed(4)})\n` +
+    `B:  (${bx.toFixed(4)}, ${by.toFixed(4)}, ${bz.toFixed(4)})\n` +
+    `C:  (${cx.toFixed(4)}, ${cy.toFixed(4)}, ${cz.toFixed(4)})\n` +
+    `AB=${lAB.toFixed(4)}  BC=${lBC.toFixed(4)}  CA=${lCA.toFixed(4)}  mm\n` +
+    `min=${lmin.toFixed(4)}  max=${lmax.toFixed(4)}  aspect=${aspect.toFixed(2)}`;
+  el.hidden = false;
 }
 
 /**
@@ -2640,7 +2752,7 @@ function formatM(n) {
 function loadDefaultCube() {
   // Create a 50×50×50 mm box; convert to non-indexed so it behaves like a
   // real STL (buildAdjacency and displacement expect non-indexed geometry).
-  const geo = new THREE.BoxGeometry(50, 50, 50).toNonIndexed();
+  let geo = new THREE.BoxGeometry(50, 50, 50).toNonIndexed();
   geo.computeBoundingBox();
   geo.computeVertexNormals();
 
@@ -2653,6 +2765,14 @@ function loadDefaultCube() {
   currentBounds   = computeBounds(geo);
   currentStlName  = 'cube_50x50x50';
   checkAmplitudeWarning();
+
+  // Optional input-mesh cleanup (Advanced toggle).
+  {
+    const diag = Math.sqrt(currentBounds.size.x ** 2 + currentBounds.size.y ** 2 + currentBounds.size.z ** 2);
+    const cleanLen = Math.max(0.05, Math.min(5.0, +(diag / 250).toFixed(2)));
+    currentGeometry = _maybeCleanInputMesh(currentGeometry, cleanLen);
+    geo = currentGeometry;
+  }
 
   loadGeometry(geo);
   dropHint.classList.add('hidden');
@@ -2737,6 +2857,17 @@ async function handleModelFile(file) {
       console.warn(`Removed ${nanCount} NaN and ${degenerateCount} degenerate triangles at load time`);
     }
 
+    // Optional input-mesh cleanup (Advanced toggle).  Must happen before the
+    // adjacency / loadGeometry / triangle-info passes below so they all see
+    // the cleaned geometry.  We derive refineLength inline using the same
+    // formula as below, since settings.refineLength isn't set yet at this
+    // point in the flow.
+    {
+      const diag = Math.sqrt(bounds.size.x ** 2 + bounds.size.y ** 2 + bounds.size.z ** 2);
+      const cleanLen = Math.max(0.05, Math.min(5.0, +(diag / 250).toFixed(2)));
+      currentGeometry = _maybeCleanInputMesh(currentGeometry, cleanLen);
+    }
+
     // Dispose old preview material and reset state for the new mesh
     if (previewMaterial) {
       previewMaterial.dispose();
@@ -2765,8 +2896,10 @@ async function handleModelFile(file) {
     _cylSilhouetteAnchor = null;
     updateCylinderUIVisibility();
 
-    // Show mesh with a default material until a map is selected
-    loadGeometry(geometry);
+    // Show mesh with a default material until a map is selected.  Use
+    // currentGeometry (not the destructured `geometry`) since the input-clean
+    // pass above may have replaced it with a regularized copy.
+    loadGeometry(currentGeometry);
     dropHint.classList.add('hidden');
 
     // Reset displacement preview for the new mesh
@@ -2818,11 +2951,11 @@ async function handleModelFile(file) {
     exclCount.textContent = t('excl.initExcluded');
     // Build adjacency data for brush/bucket tools (synchronous; fast enough for
     // typical STL sizes processed by this tool)
-    const adjData = buildAdjacency(geometry);
+    const adjData = buildAdjacency(currentGeometry);
     triangleAdjacency = adjData.adjacency;
     triangleCentroids = adjData.centroids;
     triangleFaceNormals = adjData.faceNormals;
-    updateMeshDiagnostics(adjData, geometry.attributes.position.count / 3);
+    updateMeshDiagnostics(adjData, currentGeometry.attributes.position.count / 3);
 
     // Carry scale, offset, rotation, and all other tuning across model swaps —
     // they're normalized to the bounding box so they apply meaningfully to the
@@ -2839,8 +2972,8 @@ async function handleModelFile(file) {
     refineLenVal.value = defaultEdge;
     checkResolutionWarning();
 
-    const triCount = getTriangleCount(geometry);
-    const mb = ((geometry.attributes.position.array.byteLength) / 1024 / 1024).toFixed(2);
+    const triCount = getTriangleCount(currentGeometry);
+    const mb = ((currentGeometry.attributes.position.array.byteLength) / 1024 / 1024).toFixed(2);
     const sx = bounds.size.x.toFixed(2);
     const sy = bounds.size.y.toFixed(2);
     const sz = bounds.size.z.toFixed(2);
@@ -3618,6 +3751,36 @@ function getEffectiveMapEntry() {
   return _effectiveMapCache;
 }
 
+// If the auto-clean-input toggle is on, run regularize on a freshly-loaded
+// (or freshly-baked) mesh to collapse CAD-tessellation slivers — the
+// sub-µm-thick fillet strips and near-collinear flat slivers some CAD tools
+// emit.  Returns the cleaned geometry (caller assigns it; old one disposed)
+// or the original geometry unchanged when the toggle is off.
+function _maybeCleanInputMesh(geo, refineLength) {
+  if (!settings.regularizeCleanInput || !settings.regularizeEnabled) return geo;
+  const triCount = geo.attributes.position.count / 3;
+  const initialFaceIds = new Int32Array(triCount);
+  for (let i = 0; i < triCount; i++) initialFaceIds[i] = i;
+  const reg = regularizeMesh(geo, initialFaceIds, refineLength, _regularizeOpts());
+  const outTris = reg.geometry.attributes.position.count / 3;
+  console.log(`[clean-input] regularize collapsed ${reg.collapseCount} edges (${triCount} → ${outTris} tris)`);
+  geo.dispose();
+  return reg.geometry;
+}
+
+// Build the regularize.js opts object from current settings.  Centralised so
+// preview / export / bake stay in sync with the Advanced-panel debug knobs.
+function _regularizeOpts() {
+  return {
+    aspectThreshold:           settings.regularizeAspectThreshold,
+    slack:                     settings.regularizeSlack,
+    aggressiveSlack:           settings.regularizeAggressiveSlack,
+    extremeSliverAspect:       settings.regularizeExtremeAspect,
+    maxNormalDeltaCos:         Math.cos(settings.regularizeNormalDeg          * Math.PI / 180),
+    aggressiveNormalDeltaCos:  Math.cos(settings.regularizeAggressiveNormalDeg * Math.PI / 180),
+  };
+}
+
 function updatePreview() {
   if (!currentGeometry || !currentBounds) return;
 
@@ -4053,16 +4216,66 @@ async function toggleDisplacementPreview(enable) {
     );
     if (dispPreviewToken !== myToken) { subdivided.dispose(); return; }
 
-    addSmoothNormals(subdivided);
-    addFaceNormals(subdivided);
+    // Pipeline: subdivide → regularize → subdivide.  The first subdivide
+    // brings edges down to previewEdge but creates sliver chains from any
+    // CAD-tessellation needles in the input (laserPlate-style fans).  The
+    // regularize collapses those slivers, possibly stretching a few edges
+    // along the way.  The second subdivide brings those stretched edges
+    // back to ≤ previewEdge × secondPassMul for clean displacement sampling.
+    // The whole regularize+resub block can be disabled from the Advanced panel.
+    let activeGeo, activeParents;
+    if (settings.regularizeEnabled) {
+      const regPrev = regularizeMesh(subdivided, faceParentId, previewEdge, _regularizeOpts());
+      subdivided.dispose();
+      if (dispPreviewToken !== myToken) { regPrev.geometry.dispose(); return; }
+
+      // Build per-face exclusion weights for the second subdivide so masked
+      // surfaces don't get refined (they won't be displaced anyway).  Preview's
+      // first subdivide doesn't bake mask into geometry (shader handles it),
+      // so we derive it here from app state mapped through regPrev.faceParentId.
+      let secondPassWeightsPrev = null;
+      if (excludedFaces.size > 0 || selectionMode) {
+        const triCount = regPrev.geometry.attributes.position.count / 3;
+        secondPassWeightsPrev = new Float32Array(triCount * 3);
+        for (let i = 0; i < triCount; i++) {
+          const origFace = regPrev.faceParentId[i];
+          let isExcluded = excludedFaces.has(origFace);
+          if (selectionMode) isExcluded = !isExcluded;
+          if (isExcluded) {
+            secondPassWeightsPrev[i*3]     = 1.0;
+            secondPassWeightsPrev[i*3 + 1] = 1.0;
+            secondPassWeightsPrev[i*3 + 2] = 1.0;
+          }
+        }
+      }
+      const { geometry: resubPrev, faceParentId: resubParentsPrev } = await subdivide(
+        regPrev.geometry, previewEdge * settings.regularizeSecondPassMul, null, secondPassWeightsPrev, { fast: true }
+      );
+      regPrev.geometry.dispose();
+      if (dispPreviewToken !== myToken) { resubPrev.dispose(); return; }
+
+      // Compose parent maps: resubParents → regularize-faces → original-mesh faces.
+      const composedParentsPrev = new Int32Array(resubParentsPrev.length);
+      for (let i = 0; i < resubParentsPrev.length; i++) {
+        composedParentsPrev[i] = regPrev.faceParentId[resubParentsPrev[i]];
+      }
+      activeGeo = resubPrev;
+      activeParents = composedParentsPrev;
+    } else {
+      activeGeo = subdivided;
+      activeParents = faceParentId;
+    }
+
+    addSmoothNormals(activeGeo);
+    addFaceNormals(activeGeo);
 
     // Dispose previous preview geometry if any
     if (dispPreviewGeometry) dispPreviewGeometry.dispose();
-    dispPreviewGeometry = subdivided;
+    dispPreviewGeometry = activeGeo;
 
     // Use the face parent IDs tracked through subdivision (O(n) instead of spatial search)
-    dispPreviewParentMap = faceParentId;
-    updateFaceMask(subdivided);
+    dispPreviewParentMap = activeParents;
+    updateFaceMask(activeGeo);
 
     // Force material recreation so it binds the new geometry with smoothNormal
     if (previewMaterial) {
@@ -4174,6 +4387,22 @@ async function handleExport(format = 'stl') {
     ));
     if (exportToken !== myToken) return;
 
+    // Regularize sub-slivers, then re-subdivide stretched edges — see preview
+    // pipeline for rationale.  Skipped entirely when the Advanced toggle is
+    // off.  Faceweight mapping isn't propagated through regularize on this
+    // branch because user-painted exclusions were already baked into the
+    // first subdivide via faceWeights → excludeWeight, which regularize then
+    // copies through and we can pass straight to the second subdivide.
+    if (settings.regularizeEnabled) {
+      const reg = regularizeMesh(subdivided, new Int32Array(subdivided.attributes.position.count / 3), settings.refineLength, _regularizeOpts());
+      subdivided.dispose();
+      const exclAttr = reg.geometry.attributes.excludeWeight;
+      const secondPassWeights = exclAttr ? exclAttr.array : null;
+      const { geometry: resub } = await subdivide(reg.geometry, settings.refineLength * settings.regularizeSecondPassMul, null, secondPassWeights, { fast: false });
+      reg.geometry.dispose();
+      subdivided = resub;
+    }
+
     const subTriCount = subdivided.attributes.position.count / 3;
     setProgress(0.38, t('progress.applyingDisplacement', { n: subTriCount.toLocaleString() }));
 
@@ -4250,6 +4479,16 @@ async function handleExport(format = 'stl') {
       else finalGeometry.attributes.normal.needsUpdate = true;
     }
 
+    // Smooth Bottom: snap any vertex within 0.1 mm of the bottom plane onto
+    // it so the bed-contact surface is perfectly flat. Catches the residual
+    // height drift on bottom slivers that the in-displacement clamp can't
+    // touch (e.g. fillet vertices a few µm above bottomZ that get tilted
+    // by texture sampling). Runs after the bottomAngleLimit clamp so the
+    // two complement each other when both are active.
+    if (settings.smoothBottom) {
+      snapBottomToFlat(finalGeometry, currentBounds.min.z, 0.1);
+    }
+
     const texLabel = activeMapEntry.isCustom ? 'custom' : activeMapEntry.name.replace(/\s+/g, '-');
     const ampLabel = settings.amplitude.toFixed(2).replace('.', 'p');
     const baseName = `${currentStlName}_${texLabel}_amp${ampLabel}`;
@@ -4298,6 +4537,53 @@ function setProgress(fraction, label) {
   exportProgBar.style.width = `${pct}%`;
   exportProgPct.textContent = `${pct}%`;
   exportProgLbl.textContent = label;
+}
+
+// ── Smooth Bottom (advanced feature) ────────────────────────────────────────
+// Snaps every vertex within `tol` of the bottom plane onto it, so the bed-
+// contact surface comes out perfectly flat regardless of any tiny per-vertex
+// height drift introduced by sliver triangles, displacement noise, or
+// near-horizontal smooth normals tilting the bottom face during texturing.
+// Recomputes face normals on triangles whose vertices moved so slicers shade
+// the now-planar surface uniformly.
+//
+// Threshold default 0.1 mm is well above float-precision noise but below
+// any printer's resolution, so legitimate above-bottom geometry (side
+// fillets, the rest of the model) is left alone. Caller passes `bottomZ`
+// explicitly so this function works on any geometry / coordinate system.
+function snapBottomToFlat(geometry, bottomZ, tol = 0.1) {
+  const pa = geometry.attributes.position.array;
+  const na = geometry.attributes.normal
+    ? geometry.attributes.normal.array
+    : new Float32Array(pa.length);
+  let dirtyTris = 0;
+
+  for (let i = 0; i < pa.length; i += 9) {
+    let dirty = false;
+    if (Math.abs(pa[i+2] - bottomZ) <= tol) { pa[i+2] = bottomZ; dirty = true; }
+    if (Math.abs(pa[i+5] - bottomZ) <= tol) { pa[i+5] = bottomZ; dirty = true; }
+    if (Math.abs(pa[i+8] - bottomZ) <= tol) { pa[i+8] = bottomZ; dirty = true; }
+    if (dirty) {
+      dirtyTris++;
+      const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
+      const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
+      const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
+      const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
+      na[i]   = na[i+3] = na[i+6] = nx/len;
+      na[i+1] = na[i+4] = na[i+7] = ny/len;
+      na[i+2] = na[i+5] = na[i+8] = nz/len;
+    }
+  }
+
+  if (dirtyTris > 0) {
+    geometry.attributes.position.needsUpdate = true;
+    if (!geometry.attributes.normal) {
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
+    } else {
+      geometry.attributes.normal.needsUpdate = true;
+    }
+  }
+  return dirtyTris;
 }
 
 function setBakeProgress(fraction, label) {
@@ -4352,6 +4638,27 @@ async function bakeTextures() {
       faceWeights
     ));
 
+    // Regularize sub-slivers, then re-subdivide stretched edges — see preview
+    // pipeline for rationale.  Skipped entirely when the Advanced toggle is
+    // off.  Compose the two parent maps so faceParentId still points at
+    // original-mesh faces (used below to remap user exclusions onto baked output).
+    if (settings.regularizeEnabled) {
+      const reg = regularizeMesh(subdivided, faceParentId, settings.refineLength, _regularizeOpts());
+      subdivided.dispose();
+      const exclAttr = reg.geometry.attributes.excludeWeight;
+      const secondPassWeights = exclAttr ? exclAttr.array : null;
+      const { geometry: resub, faceParentId: resubParents } = await subdivide(
+        reg.geometry, settings.refineLength * settings.regularizeSecondPassMul, null, secondPassWeights, { fast: false }
+      );
+      reg.geometry.dispose();
+      const composed = new Int32Array(resubParents.length);
+      for (let i = 0; i < resubParents.length; i++) {
+        composed[i] = reg.faceParentId[resubParents[i]];
+      }
+      subdivided = resub;
+      faceParentId = composed;
+    }
+
     const subTriCount = subdivided.attributes.position.count / 3;
     setBakeProgress(0.47, t('progress.applyingDisplacement', { n: subTriCount.toLocaleString() }));
 
@@ -4398,6 +4705,12 @@ async function bakeTextures() {
       displaced.attributes.position.needsUpdate = true;
       if (!displaced.attributes.normal) displaced.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
       else displaced.attributes.normal.needsUpdate = true;
+    }
+
+    // Smooth Bottom — same post-process as the export pipeline so a baked
+    // model and an exported one have an identical bed-contact surface.
+    if (settings.smoothBottom) {
+      snapBottomToFlat(displaced, currentBounds.min.z, 0.1);
     }
 
     setBakeProgress(0.90, t('progress.finalizing'));
@@ -4477,6 +4790,11 @@ function adoptBakedGeometry(geometry, bounds, opts = {}) {
   currentBounds   = bounds;
   currentStlName  = `${currentStlName}_baked`;
   checkAmplitudeWarning();
+
+  // Optional input-mesh cleanup (Advanced toggle) — bake re-authors the
+  // geometry so the same CAD-sliver risk applies as on a fresh load.
+  currentGeometry = _maybeCleanInputMesh(currentGeometry, settings.refineLength);
+  geometry = currentGeometry;
 
   // Dispose preview material so updatePreview rebuilds it on the new mesh.
   if (previewMaterial) {
@@ -4613,7 +4931,7 @@ const PERSISTED_KEYS = [
   'mappingMode', 'scaleU', 'scaleV', 'lockScale',
   'offsetU', 'offsetV', 'rotation',
   'amplitude', 'textureHeight', 'invertDisplacement',
-  'symmetricDisplacement', 'noDownwardZ', 'textureSmoothing',
+  'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'textureSmoothing',
   'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff',
   'bottomAngleLimit', 'topAngleLimit',
   'refineLength', 'maxTriangles',
@@ -4708,6 +5026,10 @@ function applySettingsSnapshot(snap) {
     noDownwardZChk.checked = snap.noDownwardZ;
     noDownwardZChk.dispatchEvent(new Event('change', { bubbles: true }));
   }
+  if (snap.smoothBottom != null) {
+    smoothBottomChk.checked = snap.smoothBottom;
+    smoothBottomChk.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 
   // Cylindrical-mode state. cylinderCenterX/Y/radius pass through unchanged
   // (null is meaningful — falls back to AABB defaults during projection).
@@ -4787,7 +5109,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   mappingMode: 5, scaleU: 0.5, scaleV: 0.5, lockScale: true,
   offsetU: 0, offsetV: 0, rotation: 0,
   amplitude: 0.5, textureHeight: 0.5, invertDisplacement: false,
-  symmetricDisplacement: false, noDownwardZ: false, textureSmoothing: 0,
+  symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, textureSmoothing: 0,
   mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
   bottomAngleLimit: 5, topAngleLimit: 0,
   refineLength: 1, maxTriangles: 750000,

@@ -51,7 +51,10 @@
       "Bash(npm init *)",
       "Bash(node test-fillet-debug.mjs)",
       "Bash(node test-fillet-quant.mjs)",
-      "Bash(node test-fillet-quant-sweep.mjs)"
+      "Bash(node test-fillet-quant-sweep.mjs)",
+      "Bash(node test-sliver-collapse.mjs)",
+      "Bash(node test-smooth-bottom.mjs)",
+      "Bash(node test-laserplate-diag.mjs)"
     ]
   }
 }
