@@ -191,6 +191,8 @@ export default {
   "diag.hide": "Nascondi",
   "header.exportProject": "Salva progetto (.bumpmesh)",
   "header.importProject": "Carica progetto (.bumpmesh)",
+  "header.save": "Salva",
+  "header.load": "Carica",
   "header.resetSettings": "Ripristina valori predefiniti",
   "header.undo": "Annulla (Ctrl+Z)",
   "header.redo": "Ripeti (Ctrl+Maiusc+Z)",

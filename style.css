@@ -1748,6 +1748,16 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   cursor: not-allowed;
 }
 
+.project-io .icon-btn.text-btn {
+  width: auto;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
 .export-dialog {
   position: absolute;
   top: calc(100% + 6px);

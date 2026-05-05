@@ -66,12 +66,12 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 9 9 9"/></svg>
         </button>
         <span class="project-io-gap" aria-hidden="true"></span>
-        <button id="export-project-btn" class="icon-btn" data-i18n-title="header.exportProject" title="Save project (.bumpmesh)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <button id="export-project-btn" class="icon-btn text-btn" data-i18n-title="header.exportProject" title="Save project (.bumpmesh)">
+          <span data-i18n="header.save">Save</span>
         </button>
         <input type="file" id="import-project-input" accept=".bumpmesh" hidden />
-        <label for="import-project-input" class="icon-btn" data-i18n-title="header.importProject" title="Load project (.bumpmesh)" role="button" tabindex="0">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <label for="import-project-input" class="icon-btn text-btn" data-i18n-title="header.importProject" title="Load project (.bumpmesh)" role="button" tabindex="0">
+          <span data-i18n="header.load">Load</span>
         </label>
         <div id="export-dialog" class="export-dialog hidden">
           <label><input type="checkbox" id="export-settings-chk" checked disabled /> <span data-i18n="header.exportSettingsLabel">Settings</span></label>

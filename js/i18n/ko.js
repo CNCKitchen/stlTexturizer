@@ -191,6 +191,8 @@ export default {
   "diag.hide": "숨기기",
   "header.exportProject": "프로젝트 저장 (.bumpmesh)",
   "header.importProject": "프로젝트 불러오기 (.bumpmesh)",
+  "header.save": "저장",
+  "header.load": "불러오기",
   "header.resetSettings": "기본값으로 재설정",
   "header.undo": "실행 취소 (Ctrl+Z)",
   "header.redo": "다시 실행 (Ctrl+Shift+Z)",

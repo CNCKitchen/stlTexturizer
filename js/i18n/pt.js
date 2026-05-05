@@ -191,6 +191,8 @@ export default {
   "diag.hide": "Ocultar",
   "header.exportProject": "Guardar projeto (.bumpmesh)",
   "header.importProject": "Carregar projeto (.bumpmesh)",
+  "header.save": "Guardar",
+  "header.load": "Carregar",
   "header.resetSettings": "Repor predefinições",
   "header.undo": "Desfazer (Ctrl+Z)",
   "header.redo": "Refazer (Ctrl+Shift+Z)",

@@ -191,6 +191,8 @@ export default {
   "diag.hide": "非表示",
   "header.exportProject": "プロジェクトを保存 (.bumpmesh)",
   "header.importProject": "プロジェクトを読み込み (.bumpmesh)",
+  "header.save": "保存",
+  "header.load": "読込",
   "header.resetSettings": "デフォルトに戻す",
   "header.undo": "元に戻す (Ctrl+Z)",
   "header.redo": "やり直し (Ctrl+Shift+Z)",
