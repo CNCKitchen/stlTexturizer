@@ -1,0 +1,11 @@
+services:
+  stltexturizer:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: stltexturizer
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    volumes:
+      - /mnt/raid1/stltexturizer/logs:/var/log/nginx
