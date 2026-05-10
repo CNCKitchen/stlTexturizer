@@ -5,7 +5,7 @@ import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWirefram
          setProjection, requestRender,
          clearDiagOverlays, setDiagEdges, addDiagFaces,
          setRotationGizmo, isGizmoDragging } from './viewer.js';
-import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js';
+import { loadModelFile, computeBounds, getTriangleCount } from './stlLoader.js';
 import { computeSmartResolution } from './smartResolution.js';
 import { loadAllThumbnails, loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextures.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
@@ -13,7 +13,7 @@ import { subdivide }          from './subdivision.js';
 import { regularizeMesh }     from './regularize.js';
 import { applyDisplacement }  from './displacement.js';
 import { decimate }           from './decimation.js';
-import { exportSTL, export3MF } from './exporter.js';
+import { exportSTL, export3MF, get3mfBodies, build3MFBytes } from './exporter.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
@@ -2943,6 +2943,16 @@ async function handleModelFile(file) {
     triangleCentroids = adjData.centroids;
     triangleFaceNormals = adjData.faceNormals;
     updateMeshDiagnostics(adjData, currentGeometry.attributes.position.count / 3);
+	// Clear per-body bake state from any previous session
+	const oldBodies = get3mfBodies();
+	if (oldBodies) {
+	  for (const body of oldBodies) {
+		body.wasPainted = false;
+		body.excludedFaces = null;
+		body._origStartTri = null;
+		body._origTriCount = null;
+	  }
+	}
 
     // Carry scale, offset, rotation, and all other tuning across model swaps —
     // they're normalized to the bounding box so they apply meaningfully to the
@@ -4378,26 +4388,204 @@ async function handleExport(format = 'stl') {
   export3mfBtn.classList.add('busy');
   exportProgress.classList.remove('hidden');
 
-  // If precision masking is active, bake the refined mesh before exporting
   if (precisionMaskingEnabled) {
     deactivatePrecisionMasking();
   }
 
-  // Hoist intermediate geometries so the finally block can always dispose them
   let subdivided      = null;
   let displaced       = null;
   let finalGeometry   = null;
-  let exportSucceeded = false; // set true only after exportSTL so finally can clean up on abort/error
+  let exportSucceeded = false;
 
   try {
+    const bodies = (format === '3mf') ? get3mfBodies() : null;
+
+    if (bodies && bodies.length > 1) {
+      setProgress(0.02, t('progress.subdividing'));
+      await yieldFrame();
+      if (exportToken !== myToken) return;
+
+      const exportEntry   = getEffectiveMapEntry();
+      const bodyResults   = [];
+      const perBodyBudget = settings.maxTriangles;
+
+      for (let bi = 0; bi < bodies.length; bi++) {
+        const body    = bodies[bi];
+        const bodyGeo = body.geometry;
+
+        if (!bodyGeo || bodyGeo.attributes.position.array.length === 0) continue;
+
+        const frac = bi / bodies.length;
+
+        setProgress(
+          0.02 + frac * 0.93,
+          t('progress.subdividing') + ` (${bi + 1}/${bodies.length})`
+        );
+        await yieldFrame();
+        if (exportToken !== myToken) return;
+
+        let bodySubdivided = null, bodyDisplaced = null, bodyFinal = null;
+        try {
+          const alreadyBaked = !!body.wasPainted;
+
+          if (alreadyBaked) {
+            // Body was painted and baked — write the baked geometry directly
+            bodyFinal = bodyGeo.clone();
+          } else {
+            // Not baked — apply current texture.
+            // Map excludedFaces from merged currentGeometry to this body's
+            // local triangle indices using body.startTri.
+            // After baking, startTri was updated to reflect the post-bake
+            // merged geometry, so this mapping is correct.
+            const bodyLocalTriCount = bodyGeo.attributes.position.count / 3;
+            const bodyExcludedLocal = new Set();
+            if (excludedFaces.size > 0 && body.startTri != null) {
+              for (const mergedIdx of excludedFaces) {
+                const localIdx = mergedIdx - body.startTri;
+                if (localIdx >= 0 && localIdx < bodyLocalTriCount) {
+                  bodyExcludedLocal.add(localIdx);
+                }
+              }
+            }
+
+            const hasAngleMask = settings.bottomAngleLimit > 0 || settings.topAngleLimit > 0;
+            const faceWeights  = (bodyExcludedLocal.size > 0 || selectionMode || hasAngleMask)
+              ? buildCombinedFaceWeights(bodyGeo, bodyExcludedLocal, selectionMode, settings)
+              : null;
+
+            let safetyCapHit;
+            ({ geometry: bodySubdivided, safetyCapHit } = await subdivide(
+              bodyGeo,
+              settings.refineLength,
+              (p) => setProgress(
+                0.02 + (frac + p / bodies.length) * 0.40,
+                t('progress.subdividing') + ` (${bi + 1}/${bodies.length})`
+              ),
+              faceWeights
+            ));
+            if (exportToken !== myToken) return;
+
+            if (settings.regularizeEnabled) {
+              setProgress(0.02 + frac * 0.93, t('progress.regularizing'));
+              await yieldFrame();
+              const reg = regularizeMesh(
+                bodySubdivided,
+                new Int32Array(bodySubdivided.attributes.position.count / 3),
+                settings.refineLength,
+                _regularizeOpts()
+              );
+              bodySubdivided.dispose();
+              const exclAttr = reg.geometry.attributes.excludeWeight;
+              const { geometry: resub } = await subdivide(
+                reg.geometry,
+                settings.refineLength * settings.regularizeSecondPassMul,
+                null,
+                exclAttr ? exclAttr.array : null,
+                { fast: false }
+              );
+              reg.geometry.dispose();
+              bodySubdivided = resub;
+              if (exportToken !== myToken) return;
+            }
+
+            bodyDisplaced = await runAsync(() =>
+              applyDisplacement(
+                bodySubdivided,
+                exportEntry.imageData,
+                exportEntry.width,
+                exportEntry.height,
+                settings,
+                currentBounds,
+                (p) => setProgress(
+                  0.02 + (frac + p / bodies.length) * 0.70,
+                  t('progress.displacingVertices') + ` (${bi + 1}/${bodies.length})`
+                )
+              )
+            );
+            if (exportToken !== myToken) return;
+
+            bodySubdivided.dispose(); bodySubdivided = null;
+
+            const dispTris = bodyDisplaced.attributes.position.count / 3;
+            if (dispTris > perBodyBudget) {
+              setProgress(
+                0.02 + frac * 0.93,
+                t('progress.decimatingTo', {
+                  from: dispTris.toLocaleString(),
+                  to:   perBodyBudget.toLocaleString(),
+                })
+              );
+              bodyFinal = await runAsync(() => decimate(bodyDisplaced, perBodyBudget, null));
+              bodyDisplaced.dispose(); bodyDisplaced = null;
+              if (exportToken !== myToken) return;
+            } else {
+              bodyFinal = bodyDisplaced; bodyDisplaced = null;
+            }
+          }
+
+          // Flat-bottom clamp
+          if (settings.bottomAngleLimit > 0) {
+            const bottomZ = currentBounds.min.z;
+            const pa = bodyFinal.attributes.position.array;
+            const na = bodyFinal.attributes.normal
+              ? bodyFinal.attributes.normal.array
+              : new Float32Array(pa.length);
+            for (let i = 0; i < pa.length; i += 9) {
+              let dirty = false;
+              if (pa[i+2]<bottomZ){pa[i+2]=bottomZ;dirty=true;}
+              if (pa[i+5]<bottomZ){pa[i+5]=bottomZ;dirty=true;}
+              if (pa[i+8]<bottomZ){pa[i+8]=bottomZ;dirty=true;}
+              if (dirty) {
+                const ux=pa[i+3]-pa[i],uy=pa[i+4]-pa[i+1],uz=pa[i+5]-pa[i+2];
+                const vx=pa[i+6]-pa[i],vy=pa[i+7]-pa[i+1],vz=pa[i+8]-pa[i+2];
+                const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+                const len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+                na[i]=na[i+3]=na[i+6]=nx/len;
+                na[i+1]=na[i+4]=na[i+7]=ny/len;
+                na[i+2]=na[i+5]=na[i+8]=nz/len;
+              }
+            }
+            bodyFinal.attributes.position.needsUpdate = true;
+            if (!bodyFinal.attributes.normal)
+              bodyFinal.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
+            else
+              bodyFinal.attributes.normal.needsUpdate = true;
+          }
+
+          if (settings.smoothBottom) snapBottomToFlat(bodyFinal, currentBounds.min.z, 0.1);
+
+          bodyResults.push({ geometry: bodyFinal, name: body.name, matrix: body.matrix });
+          bodyFinal = null;
+
+        } finally {
+          if (bodySubdivided) bodySubdivided.dispose();
+          if (bodyDisplaced)  bodyDisplaced.dispose();
+          if (bodyFinal)      bodyFinal.dispose();
+        }
+      }
+
+      setProgress(0.97, t('progress.writing3mf'));
+      await yieldFrame();
+      if (exportToken !== myToken) return;
+
+      const texLabel = activeMapEntry.isCustom ? 'custom' : activeMapEntry.name.replace(/\s+/g, '-');
+      const ampLabel = settings.amplitude.toFixed(2).replace('.', 'p');
+      export3MF(bodyResults, `${currentStlName}_${texLabel}_amp${ampLabel}.3mf`);
+
+      for (const r of bodyResults) r.geometry.dispose();
+
+      exportSucceeded = true;
+      setProgress(1.0, t('progress.done'));
+      setTimeout(() => { exportProgress.classList.add('hidden'); setProgress(0, ''); }, 1500);
+      return;
+    }
+
+    // ── Single-body path ─────────────────────────────────────────────────────
+
     setProgress(0.02, t('progress.subdividing'));
     await yieldFrame();
     if (exportToken !== myToken) return;
 
-    // Build per-vertex exclusion weights combining user-painted exclusion + angle masking.
-    // Faces masked by top/bottom angle limits are treated the same as user-excluded faces
-    // so subdivision skips their interior edges too, saving triangles where no
-    // displacement will be applied.
     const hasAngleMask = settings.bottomAngleLimit > 0 || settings.topAngleLimit > 0;
     const faceWeights = (excludedFaces.size > 0 || selectionMode || hasAngleMask)
       ? buildCombinedFaceWeights(currentGeometry, excludedFaces, selectionMode, settings)
@@ -4416,12 +4604,6 @@ async function handleExport(format = 'stl') {
     ));
     if (exportToken !== myToken) return;
 
-    // Regularize sub-slivers, then re-subdivide stretched edges — see preview
-    // pipeline for rationale.  Skipped entirely when the Advanced toggle is
-    // off.  Faceweight mapping isn't propagated through regularize on this
-    // branch because user-painted exclusions were already baked into the
-    // first subdivide via faceWeights → excludeWeight, which regularize then
-    // copies through and we can pass straight to the second subdivide.
     if (settings.regularizeEnabled) {
       setProgress(0.30, t('progress.regularizing'));
       await yieldFrame();
@@ -4460,7 +4642,6 @@ async function handleExport(format = 'stl') {
     );
     if (exportToken !== myToken) return;
 
-    // Free subdivided geometry — displacement created a separate copy
     subdivided.dispose();
 
     const dispTriCount = displaced.attributes.position.count / 3;
@@ -4484,50 +4665,37 @@ async function handleExport(format = 'stl') {
           }
         )
       );
-      // Free pre-decimation geometry — decimate created a separate copy
       displaced.dispose();
-	  if (exportToken !== myToken) return;
+      if (exportToken !== myToken) return;
     }
 
-    // Flat-bottom clamp: when bottom faces are masked (bottomAngleLimit > 0),
-    // any vertex that ended up below the original model's bottom layer gets
-    // snapped back up to that Z. Single pass with selective normal recomputation.
     if (settings.bottomAngleLimit > 0) {
       const bottomZ = currentBounds.min.z;
       const pa = finalGeometry.attributes.position.array;
       const na = finalGeometry.attributes.normal ? finalGeometry.attributes.normal.array : new Float32Array(pa.length);
-
       for (let i = 0; i < pa.length; i += 9) {
         let dirty = false;
-        if (pa[i+2] < bottomZ) { pa[i+2] = bottomZ; dirty = true; }
-        if (pa[i+5] < bottomZ) { pa[i+5] = bottomZ; dirty = true; }
-        if (pa[i+8] < bottomZ) { pa[i+8] = bottomZ; dirty = true; }
-
+        if (pa[i+2]<bottomZ){pa[i+2]=bottomZ;dirty=true;}
+        if (pa[i+5]<bottomZ){pa[i+5]=bottomZ;dirty=true;}
+        if (pa[i+8]<bottomZ){pa[i+8]=bottomZ;dirty=true;}
         if (dirty) {
-          const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
-          const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
-          const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
-          const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
-          na[i]   = na[i+3] = na[i+6] = nx/len;
-          na[i+1] = na[i+4] = na[i+7] = ny/len;
-          na[i+2] = na[i+5] = na[i+8] = nz/len;
+          const ux=pa[i+3]-pa[i],uy=pa[i+4]-pa[i+1],uz=pa[i+5]-pa[i+2];
+          const vx=pa[i+6]-pa[i],vy=pa[i+7]-pa[i+1],vz=pa[i+8]-pa[i+2];
+          const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+          const len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+          na[i]=na[i+3]=na[i+6]=nx/len;
+          na[i+1]=na[i+4]=na[i+7]=ny/len;
+          na[i+2]=na[i+5]=na[i+8]=nz/len;
         }
       }
-
       finalGeometry.attributes.position.needsUpdate = true;
-      if (!finalGeometry.attributes.normal) finalGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
-      else finalGeometry.attributes.normal.needsUpdate = true;
+      if (!finalGeometry.attributes.normal)
+        finalGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
+      else
+        finalGeometry.attributes.normal.needsUpdate = true;
     }
 
-    // Smooth Bottom: snap any vertex within 0.1 mm of the bottom plane onto
-    // it so the bed-contact surface is perfectly flat. Catches the residual
-    // height drift on bottom slivers that the in-displacement clamp can't
-    // touch (e.g. fillet vertices a few µm above bottomZ that get tilted
-    // by texture sampling). Runs after the bottomAngleLimit clamp so the
-    // two complement each other when both are active.
-    if (settings.smoothBottom) {
-      snapBottomToFlat(finalGeometry, currentBounds.min.z, 0.1);
-    }
+    if (settings.smoothBottom) snapBottomToFlat(finalGeometry, currentBounds.min.z, 0.1);
 
     const texLabel = activeMapEntry.isCustom ? 'custom' : activeMapEntry.name.replace(/\s+/g, '-');
     const ampLabel = settings.amplitude.toFixed(2).replace('.', 'p');
@@ -4547,10 +4715,8 @@ async function handleExport(format = 'stl') {
     exportSucceeded = true;
 
     setProgress(1.0, t('progress.done'));
-    setTimeout(() => {
-      exportProgress.classList.add('hidden');
-      setProgress(0, '');
-    }, 1500);
+    setTimeout(() => { exportProgress.classList.add('hidden'); setProgress(0, ''); }, 1500);
+
   } catch (err) {
     console.error('Export failed:', err);
     if (/maximum size|out of memory|alloc/i.test(err.message)) {
@@ -4559,12 +4725,9 @@ async function handleExport(format = 'stl') {
       alert(t('alerts.exportFailed', { msg: err.message }));
     }
   } finally {
-    // Dispose all intermediate geometries regardless of success, failure, or abort.
-    // finalGeometry may alias displaced (no decimation) — avoid double-dispose.
     if (subdivided) subdivided.dispose();
     if (displaced && displaced !== subdivided) displaced.dispose();
     if (finalGeometry && finalGeometry !== displaced && finalGeometry !== subdivided) finalGeometry.dispose();
-    // Hide progress immediately on error or stale abort; success hides it after 1500 ms.
     if (!exportSucceeded) exportProgress.classList.add('hidden');
     isExporting = false;
     exportBtn.classList.remove('busy');
@@ -4642,6 +4805,7 @@ function setBakeProgress(fraction, label) {
 // Decimation is intentionally skipped — decimate() drops the per-face parent
 // mapping needed to translate "which input faces were textured" into the new
 // mesh's triangle indices. Final decimation still happens on Export.
+
 async function bakeTextures() {
   if (!currentGeometry || !activeMapEntry || isBaking || isExporting) return;
   isBaking = true;
@@ -4659,8 +4823,6 @@ async function bakeTextures() {
     setBakeProgress(0.02, t('progress.subdividing'));
     await yieldFrame();
 
-    // Mirror handleExport's pre-flight: combine user mask + angle masking
-    // into per-vertex weights for subdivision.
     const hasAngleMask = settings.bottomAngleLimit > 0 || settings.topAngleLimit > 0;
     const faceWeights = (excludedFaces.size > 0 || selectionMode || hasAngleMask)
       ? buildCombinedFaceWeights(currentGeometry, excludedFaces, selectionMode, settings)
@@ -4678,10 +4840,6 @@ async function bakeTextures() {
       faceWeights
     ));
 
-    // Regularize sub-slivers, then re-subdivide stretched edges — see preview
-    // pipeline for rationale.  Skipped entirely when the Advanced toggle is
-    // off.  Compose the two parent maps so faceParentId still points at
-    // original-mesh faces (used below to remap user exclusions onto baked output).
     if (settings.regularizeEnabled) {
       setBakeProgress(0.36, t('progress.regularizing'));
       await yieldFrame();
@@ -4724,78 +4882,290 @@ async function bakeTextures() {
       )
     );
 
-    // Free pre-displacement subdivision — applyDisplacement returns a separate copy.
     subdivided.dispose();
     subdivided = null;
 
-    // Mirror the export-side flat-bottom clamp.
     if (settings.bottomAngleLimit > 0) {
       const bottomZ = currentBounds.min.z;
       const pa = displaced.attributes.position.array;
       const na = displaced.attributes.normal ? displaced.attributes.normal.array : new Float32Array(pa.length);
-
       for (let i = 0; i < pa.length; i += 9) {
         let dirty = false;
-        if (pa[i+2] < bottomZ) { pa[i+2] = bottomZ; dirty = true; }
-        if (pa[i+5] < bottomZ) { pa[i+5] = bottomZ; dirty = true; }
-        if (pa[i+8] < bottomZ) { pa[i+8] = bottomZ; dirty = true; }
-
+        if (pa[i+2]<bottomZ){pa[i+2]=bottomZ;dirty=true;}
+        if (pa[i+5]<bottomZ){pa[i+5]=bottomZ;dirty=true;}
+        if (pa[i+8]<bottomZ){pa[i+8]=bottomZ;dirty=true;}
         if (dirty) {
-          const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
-          const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
-          const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
-          const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
-          na[i]   = na[i+3] = na[i+6] = nx/len;
-          na[i+1] = na[i+4] = na[i+7] = ny/len;
-          na[i+2] = na[i+5] = na[i+8] = nz/len;
+          const ux=pa[i+3]-pa[i],uy=pa[i+4]-pa[i+1],uz=pa[i+5]-pa[i+2];
+          const vx=pa[i+6]-pa[i],vy=pa[i+7]-pa[i+1],vz=pa[i+8]-pa[i+2];
+          const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+          const len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+          na[i]=na[i+3]=na[i+6]=nx/len;
+          na[i+1]=na[i+4]=na[i+7]=ny/len;
+          na[i+2]=na[i+5]=na[i+8]=nz/len;
         }
       }
-
       displaced.attributes.position.needsUpdate = true;
       if (!displaced.attributes.normal) displaced.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
       else displaced.attributes.normal.needsUpdate = true;
     }
 
-    // Smooth Bottom — same post-process as the export pipeline so a baked
-    // model and an exported one have an identical bed-contact surface.
-    if (settings.smoothBottom) {
-      snapBottomToFlat(displaced, currentBounds.min.z, 0.1);
-    }
+    if (settings.smoothBottom) snapBottomToFlat(displaced, currentBounds.min.z, 0.1);
+	displaced.computeBoundingBox();
+	
+	const bb = displaced.boundingBox;
+	const newBounds = {
+		min:    bb.min.clone(),
+		max:    bb.max.clone(),
+		size:   new THREE.Vector3().subVectors(bb.max, bb.min),
+		center: new THREE.Vector3().addVectors(bb.min, bb.max).multiplyScalar(0.5),
+	};
 
     setBakeProgress(0.90, t('progress.finalizing'));
     await yieldFrame();
 
-    // Build the new exclusion set: every output triangle whose parent face
-    // was NOT excluded (by user paint, selectionMode, or angle masking) got
-    // textured this round → mask it on the new mesh so a follow-up texture
-    // pass won't double-up. faceWeights[parentIdx*3] > 0.99 captures all
-    // three exclusion paths in a single check (it's the same predicate
-    // subdivide uses to skip subdividing those faces).
+    // Build the merged preExcluded list (triangles that were just baked).
+    // These become the new excludedFaces after adoptBakedGeometry().
     let preExcluded = null;
     if (bakeMaskChk.checked) {
       preExcluded = [];
       const wasParentExcluded = faceWeights
         ? (parentIdx) => faceWeights[parentIdx * 3] > 0.99
-        : () => false; // no exclusions at all → every face was textured
+        : () => false;
       for (let i = 0; i < faceParentId.length; i++) {
         if (!wasParentExcluded(faceParentId[i])) preExcluded.push(i);
       }
     }
 
-    // Compute new bounds from the displaced geometry. Do NOT re-center —
-    // the displaced mesh is approximately at the same location, and
-    // re-centering would shift the user's frame of reference.
-    displaced.computeBoundingBox();
-    const bb = displaced.boundingBox;
-    const newBounds = {
-      min:    bb.min.clone(),
-      max:    bb.max.clone(),
-      size:   new THREE.Vector3().subVectors(bb.max, bb.min),
-      center: new THREE.Vector3().addVectors(bb.min, bb.max).multiplyScalar(0.5),
-    };
+    // ── Per-body bake ─────────────────────────────────────────────────────────
+    const bodies = get3mfBodies();
+    if (bodies && bodies.length > 1) {
+      const exportEntry_bake = getEffectiveMapEntry();
+      const perBodyFraction  = 0.08 / bodies.length;
+      const bakeBodyBudget = settings.maxTriangles;
+
+      // Build triToBody: for each triangle in the post-bake displaced geometry,
+      // which body index does it belong to?
+      // faceParentId[i] = index of the pre-bake triangle in currentGeometry
+      // that produced displaced triangle i.
+      // body.startTri / body.triCount describe ranges in the pre-bake currentGeometry.
+      const postBakeTrisTotal = faceParentId ? faceParentId.length : 0;
+	   for (const body of bodies) {
+        body._origStartTri = body.startTri;
+        body._origTriCount = body.triCount;
+      }
+      const triToBody = new Int32Array(postBakeTrisTotal).fill(-1);
+      if (faceParentId) {
+        for (let i = 0; i < postBakeTrisTotal; i++) {
+          const origTri = faceParentId[i];
+          for (let bi = 0; bi < bodies.length; bi++) {
+            const b = bodies[bi];
+            if (b.startTri != null && origTri >= b.startTri && origTri < b.startTri + b.triCount) {
+              triToBody[i] = bi;
+              break;
+            }
+          }
+        }
+      }
+		
+      // Update body.startTri and body.triCount to reflect the post-bake
+      // displaced geometry, so painting after the bake maps correctly.
+      // We walk triToBody to count how many post-bake triangles belong to each body
+      // and assign contiguous ranges in the order bodies appear.
+      const postBakeCount = new Array(bodies.length).fill(0);
+      for (let i = 0; i < postBakeTrisTotal; i++) {
+        const bi = triToBody[i];
+        if (bi >= 0) postBakeCount[bi]++;
+      }
+      let runningPostBake = 0;
+      for (let bi = 0; bi < bodies.length; bi++) {
+        bodies[bi].startTri = runningPostBake;
+        bodies[bi].triCount = postBakeCount[bi];
+        runningPostBake += postBakeCount[bi];
+		console.log(`baking body ${bi} with refineLength=${settings.refineLength}`);
+      }
+
+      // Per-body bake: only process bodies that had paint applied
+      for (let bi = 0; bi < bodies.length; bi++) {
+        const body    = bodies[bi];
+        const bodyGeo = body.geometry;
+        if (!bodyGeo || bodyGeo.attributes.position.array.length === 0) continue;
+
+        // Check if this body had any painted faces in the merged excludedFaces,
+        // using original startTri before we updated it above.
+        // We already updated startTri, so use triToBody instead.
+        let bodyWasPainted = false;
+        if (excludedFaces.size > 0 && faceParentId) {
+          // Check if any excluded (painted) merged face maps to this body
+          // via the original faceParentId → original body range.
+          // Since we've already updated startTri, we need the original ranges.
+          // Use triToBody on the excluded faces.
+          // excludedFaces contains indices into currentGeometry (pre-bake).
+          // We need to check if any pre-bake triangle belongs to this body.
+          // The original startTri was already updated, so check body index directly.
+          // Actually excludedFaces are pre-bake indices — check original body ranges.
+          // Store original ranges before the update above... we didn't.
+          // Fall back: check if any post-bake triangle maps to this body AND
+          // its pre-bake parent was in excludedFaces.
+          for (let i = 0; i < postBakeTrisTotal; i++) {
+            if (triToBody[i] === bi && faceParentId && excludedFaces.has(faceParentId[i])) {
+              bodyWasPainted = true;
+              break;
+            }
+          }
+        }
+        body.wasPainted = bodyWasPainted;
+
+        // Skip baking bodies that weren't painted
+        if (!bodyWasPainted) continue;
+
+        // Compute refineLength that keeps this body within bakeBodyBudget
+        const bodyTriCount = bodyGeo.attributes.position.count / 3;
+        const bodyPosAttr  = bodyGeo.attributes.position;
+        let totalEdge = 0;
+        const sampleCount = Math.min(bodyTriCount, 500);
+        for (let t = 0; t < sampleCount; t++) {
+          const b = t * 3;
+          const ax=bodyPosAttr.getX(b),  ay=bodyPosAttr.getY(b),  az=bodyPosAttr.getZ(b);
+          const bx=bodyPosAttr.getX(b+1),by=bodyPosAttr.getY(b+1),bz=bodyPosAttr.getZ(b+1);
+          totalEdge += Math.sqrt((bx-ax)**2+(by-ay)**2+(bz-az)**2);
+        }
+        const avgEdge = totalEdge / sampleCount;
+        const bodyRefineLength = settings.refineLength;
+
+        const origStart = body._origStartTri;
+        const origCount = body._origTriCount;
+        const bodyPaintedLocal = new Set();
+        if (excludedFaces.size > 0 && origStart != null) {
+          for (const mergedIdx of excludedFaces) {
+            const localIdx = mergedIdx - origStart;
+            if (localIdx >= 0 && localIdx < origCount) {
+              bodyPaintedLocal.add(localIdx);
+            }
+          }
+        }
+
+        // Build face weights: exclude everything NOT in the painted set.
+        // If nothing painted on this body, skip it (handled by wasPainted check).
+        const bodyExcluded = body.excludedFaces || new Set();
+        let bodyFaceWeights = null;
+        if (bodyPaintedLocal.size > 0) {
+          // Use selection mode (include only painted faces)
+          bodyFaceWeights = buildCombinedFaceWeights(bodyGeo, bodyPaintedLocal, true, {
+            ...settings, bottomAngleLimit: 0, topAngleLimit: 0,
+          });
+        } else if (bodyExcluded.size > 0) {
+          bodyFaceWeights = buildCombinedFaceWeights(bodyGeo, bodyExcluded, false, {
+            ...settings, bottomAngleLimit: 0, topAngleLimit: 0,
+          });
+        }
+		
+        let bodySubdivided = null, bodyDisplaced = null;
+        try {
+          let bodyFaceParentId;
+          ({ geometry: bodySubdivided, faceParentId: bodyFaceParentId } = await subdivide(
+            bodyGeo, bodyRefineLength, null, bodyFaceWeights
+          ));
+
+          if (settings.regularizeEnabled) {
+            const reg = regularizeMesh(
+              bodySubdivided,
+              new Int32Array(bodySubdivided.attributes.position.count / 3),
+              bodyRefineLength, _regularizeOpts()
+            );
+            bodySubdivided.dispose();
+            const exclAttr = reg.geometry.attributes.excludeWeight;
+            const { geometry: resub, faceParentId: resubParents } = await subdivide(
+              reg.geometry,
+              bodyRefineLength * settings.regularizeSecondPassMul,
+              null, exclAttr ? exclAttr.array : null, { fast: false }
+            );
+            reg.geometry.dispose();
+            const composedBody = new Int32Array(resubParents.length);
+            for (let i = 0; i < resubParents.length; i++) {
+              composedBody[i] = reg.faceParentId[resubParents[i]];
+            }
+            bodySubdivided = resub;
+            bodyFaceParentId = composedBody;
+          }
+
+          bodyDisplaced = await runAsync(() =>
+            applyDisplacement(
+              bodySubdivided,
+              exportEntry_bake.imageData,
+              exportEntry_bake.width,
+              exportEntry_bake.height,
+              settings,
+              currentBounds,
+              null
+            )
+          );
+
+          bodySubdivided.dispose(); bodySubdivided = null;
+
+          if (settings.bottomAngleLimit > 0) {
+            const bottomZ = currentBounds.min.z;
+            const pa = bodyDisplaced.attributes.position.array;
+            const na = bodyDisplaced.attributes.normal
+              ? bodyDisplaced.attributes.normal.array
+              : new Float32Array(pa.length);
+            for (let i = 0; i < pa.length; i += 9) {
+              let dirty = false;
+              if (pa[i+2]<bottomZ){pa[i+2]=bottomZ;dirty=true;}
+              if (pa[i+5]<bottomZ){pa[i+5]=bottomZ;dirty=true;}
+              if (pa[i+8]<bottomZ){pa[i+8]=bottomZ;dirty=true;}
+              if (dirty) {
+                const ux=pa[i+3]-pa[i],uy=pa[i+4]-pa[i+1],uz=pa[i+5]-pa[i+2];
+                const vx=pa[i+6]-pa[i],vy=pa[i+7]-pa[i+1],vz=pa[i+8]-pa[i+2];
+                const nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+                const len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+                na[i]=na[i+3]=na[i+6]=nx/len;
+                na[i+1]=na[i+4]=na[i+7]=ny/len;
+                na[i+2]=na[i+5]=na[i+8]=nz/len;
+              }
+            }
+            bodyDisplaced.attributes.position.needsUpdate = true;
+            if (!bodyDisplaced.attributes.normal)
+              bodyDisplaced.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
+            else
+              bodyDisplaced.attributes.normal.needsUpdate = true;
+          }
+
+          if (settings.smoothBottom) snapBottomToFlat(bodyDisplaced, currentBounds.min.z, 0.1);
+
+          if (bakeMaskChk.checked && bodyFaceParentId) {
+            const newBodyExcluded = new Set(bodyExcluded);
+            const wasBodyParentExcluded = bodyFaceWeights
+              ? (parentIdx) => bodyFaceWeights[parentIdx * 3] > 0.99
+              : () => false;
+            for (let i = 0; i < bodyFaceParentId.length; i++) {
+              if (!wasBodyParentExcluded(bodyFaceParentId[i])) {
+                newBodyExcluded.add(i);
+              }
+            }
+            body.excludedFaces = newBodyExcluded;
+          }
+
+          if (bodyDisplaced) {
+            body.geometry.dispose();
+            body.geometry = bodyDisplaced;
+            bodyDisplaced = null;
+          }
+
+        } catch (bodyErr) {
+          console.error(`Per-body bake failed for body ${bi} (${body.name}):`, bodyErr);
+        } finally {
+          if (bodySubdivided) bodySubdivided.dispose();
+          if (bodyDisplaced)  bodyDisplaced.dispose();
+        }
+
+        setBakeProgress(0.91 + (bi + 1) * perBodyFraction, t('progress.finalizing'));
+        await yieldFrame();
+      }
+    }
+    // ── end per-body bake ────────────────────────────────────────────────────
 
     adoptBakedGeometry(displaced, newBounds, { preExcludedFaces: preExcluded });
-    displaced = null; // ownership transferred to currentGeometry
+    displaced = null;
 
     succeeded = true;
     setBakeProgress(1.0, t('progress.done'));
@@ -4816,6 +5186,7 @@ async function bakeTextures() {
     bakeBtn.disabled = (activeMapEntry === null);
   }
 }
+
 
 // Replace currentGeometry with `geometry` and reset per-model state without
 // touching the user's texture/settings. Mirrors the relevant subset of
@@ -5264,13 +5635,29 @@ exportGoBtn.addEventListener('click', async () => {
     if (includeTexture) payload.activeMapName = customSource.name;
     const zipFiles = { 'settings.json': strToU8(JSON.stringify(payload, null, 2)) };
 
-    if (includeModel) {
-      zipFiles['model.stl'] = _geometryToBinarySTL(currentGeometry);
-      // Mask indices reference the base geometry's triangles, so they only make
-      // sense when shipped alongside the model that produced them.
-      const mask = _collectCurrentMask();
-      if (mask) zipFiles['mask.json'] = strToU8(JSON.stringify(mask));
-    }
+if (includeModel) {
+  const bodiesForSave = get3mfBodies();
+  if (bodiesForSave && bodiesForSave.length > 1) {
+    const modelResults = bodiesForSave.map(b => ({
+      geometry: b.wasPainted ? b.geometry : (b.origGeometry || b.geometry),
+      name: b.name,
+      matrix: b.matrix,
+    }));
+    zipFiles['model.3mf'] = _bodiesToRaw3MF(modelResults);
+    const bodyMask = {
+      selectionMode,
+      bodies: bodiesForSave.map(b => ({ 
+        wasPainted: b.wasPainted || false,
+        excludedFaces: b.excludedFaces ? [...b.excludedFaces] : null,
+      })),
+    };
+    zipFiles['bodymask.json'] = strToU8(JSON.stringify(bodyMask));
+  } else {
+    zipFiles['model.stl'] = _geometryToBinarySTL(currentGeometry);
+  }
+  const mask = _collectCurrentMask();
+  if (mask) zipFiles['mask.json'] = strToU8(JSON.stringify(mask));
+}
     if (includeTexture) {
       const blob = await new Promise(r => customSource.fullCanvas.toBlob(r, 'image/png'));
       zipFiles['texture.png'] = new Uint8Array(await blob.arrayBuffer());
@@ -5314,6 +5701,10 @@ function _geometryToBinarySTL(geo) {
   return bytes;
 }
 
+function _bodiesToRaw3MF(bodyResults) {
+  return build3MFBytes(bodyResults);
+}
+
 /**
  * Snapshot the current paint mask (selection mode + excluded face indices into
  * the *base* geometry). Returns null when there's nothing meaningful to save —
@@ -5324,6 +5715,13 @@ function _geometryToBinarySTL(geo) {
  * happens when the user disables precision (line 3193).
  */
 function _collectCurrentMask() {
+  const bodies = get3mfBodies();
+  if (bodies && bodies.length > 1) {
+    // For multi-body projects, save per-body paint state instead of
+    // merged face indices which are unstable across save/load cycles.
+    return null;
+  }
+  // ... existing single-body logic	
   let liveExcluded;
   if (precisionMaskingEnabled && precisionParentMap && precisionExcludedFaces.size > 0) {
     liveExcluded = new Set();
@@ -5403,12 +5801,37 @@ async function importProject(file) {
   // 1) Load model first — handleModelFile resets scaleU/scaleV/offsets/refineLength
   //    AND clears any existing paint mask, so applied settings + restored mask
   //    below will correctly override those resets.
-  const hasModel = !!unzipped['model.stl'];
-  if (hasModel) {
-    const stlFile = new File([unzipped['model.stl']], 'model.stl', { type: 'application/octet-stream' });
-    await handleModelFile(stlFile);
+  const hasModel3mf = !!unzipped['model.3mf'];
+  const hasModelStl = !!unzipped['model.stl'];
+  const hasModel = hasModel3mf || hasModelStl;
+  if (hasModel3mf) {
+    const f = new File([unzipped['model.3mf']], 'model.3mf', { type: 'application/octet-stream' });
+    await handleModelFile(f);
+  } else if (hasModelStl) {
+    const f = new File([unzipped['model.stl']], 'model.stl', { type: 'application/octet-stream' });
+    await handleModelFile(f);
   }
-
+  if (hasModel3mf && unzipped['bodymask.json']) {
+    try {
+      const bodyMask = JSON.parse(strFromU8(unzipped['bodymask.json']));
+      const loadedBodies = get3mfBodies();
+      if (loadedBodies && bodyMask) {
+        // Restore selection mode
+        if (bodyMask.selectionMode === true) setSelectionMode(true);
+        else if (bodyMask.selectionMode === false) setSelectionMode(false);
+        // Restore per-body paint state
+        const bodies = bodyMask.bodies || [];
+        bodies.forEach((bm, i) => {
+          if (loadedBodies[i]) {
+            loadedBodies[i].wasPainted = bm.wasPainted || false;
+            if (bm.excludedFaces) {
+              loadedBodies[i].excludedFaces = new Set(bm.excludedFaces);
+            }
+          }
+        });
+      }
+    } catch (err) { console.warn('Could not restore body mask:', err); }
+  }
   // 2) Apply settings after any model reset.
   if (data) applySettingsSnapshot(data);
 
@@ -5420,7 +5843,6 @@ async function importProject(file) {
       _restoreMask(mask);
     } catch (err) { console.warn('Could not restore paint mask:', err); }
   }
-
   // 3) Texture: custom PNG wins over named preset.
   if (unzipped['texture.png']) {
     const texName = (data && data.activeMapName) || 'imported-texture.png';
