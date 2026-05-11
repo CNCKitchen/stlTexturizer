@@ -2,10 +2,9 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-COPY server/package.json server/
-RUN cd server && npm install --production
-
 COPY . .
+
+RUN cd server && npm install --production
 
 ENV PORT=3000
 ENV DATA_DIR=/data
