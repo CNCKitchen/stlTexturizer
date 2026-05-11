@@ -6,3 +6,6 @@ package-lock.json
 debug_out/
 /*.stl
 test-*.mjs
+# Allow server package files despite the global package.json exclusion above
+!server/package.json
+!server/package-lock.json
