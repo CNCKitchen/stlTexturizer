@@ -3,26 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BumpMesh by CNC Kitchen</title>
-  <meta name="description" content="BumpMesh by CNC Kitchen is a browser-based tool for adding displacement textures to STL, OBJ, and 3MF models locally, then exporting printable textured meshes." />
-  <link rel="canonical" href="https://bumpmesh.com/" />
-  <meta property="og:locale" content="en_US" />
-  <meta property="og:type" content="website" />
-  <meta property="og:site_name" content="BumpMesh" />
-  <meta property="og:title" content="BumpMesh by CNC Kitchen" />
-  <meta property="og:description" content="Add displacement textures to STL, OBJ, and 3MF models directly in your browser. Preview, mask, bake, and export printable textured meshes locally." />
-  <meta property="og:url" content="https://bumpmesh.com/" />
-  <meta property="og:image" content="https://bumpmesh.com/assets/preview.jpg" />
-  <meta property="og:image:secure_url" content="https://bumpmesh.com/assets/preview.jpg" />
-  <meta property="og:image:type" content="image/jpeg" />
-  <meta property="og:image:width" content="2078" />
-  <meta property="og:image:height" content="1091" />
-  <meta property="og:image:alt" content="BumpMesh interface for previewing and exporting textured 3D models" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="BumpMesh by CNC Kitchen" />
-  <meta name="twitter:description" content="Add displacement textures to STL, OBJ, and 3MF models directly in your browser. Preview, mask, bake, and export printable textured meshes locally." />
-  <meta name="twitter:image" content="https://bumpmesh.com/assets/preview.jpg" />
-  <meta name="twitter:image:alt" content="BumpMesh interface for previewing and exporting textured 3D models" />
+  <title>STL Texturizer</title>
   <link rel="icon" type="image/png" href="logo.png" />
   <link rel="stylesheet" href="style.css" />
   <script>
@@ -50,8 +31,8 @@
 <body>
   <header>
     <div class="logo">
-      <img src="logo.png" alt="BumpMesh" width="24" height="24" />
-      <span>BumpMesh <small style="opacity:.6;font-weight:400">by <a href="https://www.youtube.com/@CNCKitchen" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">CNC Kitchen</a></small></span>
+      <img src="logo.png" alt="STL Texturizer" width="24" height="24" />
+      <span>STL Texturizer</span>
     </div>
     <div class="header-actions">
       <div class="project-io">
@@ -136,11 +117,6 @@
               <svg class="icon-expand" width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
             </button>
           </div>
-        </div>
-        <div id="store-cta-wrapper">
-          <span id="store-cta">
-            <span data-i18n-html="cta.store">Support this tool? Shop at <a href="https://geni.us/CNCStoreTexture" target="_blank" rel="noopener noreferrer">CNCKitchen.STORE</a> or send a tip via <a href="https://www.paypal.me/CNCKitchen" target="_blank" rel="noopener noreferrer">PayPal</a> / <a href="https://ko-fi.com/cnckitchen" target="_blank" rel="noopener noreferrer">Ko-fi</a></span><button id="store-cta-dismiss" aria-label="Dismiss">&times;</button>
-          </span>
         </div>
       </div>
       <div id="viewport-footer">
@@ -620,9 +596,7 @@
         </div>
       </section>
 
-      <button id="welcome-link" class="license-link">What&rsquo;s New</button>
       <button id="license-link" class="license-link" data-i18n="license.btn">License &amp; Terms</button>
-      <button id="imprint-link" class="license-link" data-i18n="imprint.btn">Imprint &amp; Privacy</button>
 
     </aside>
   </main>
@@ -636,95 +610,9 @@
         <li data-i18n-html="license.item1">Free to use for any purpose, including <strong>commercial work</strong> (e.g., texturing STLs for clients or products).</li>
         <li data-i18n-html="license.item2">Attribution is <strong>appreciated</strong> but <strong>not required</strong> when using this tool as-is.</li>
         <li data-i18n-html="license.item4">This tool is provided <strong>as-is</strong> with <strong>no warranty</strong> of any kind. Use at your own risk.</li>
-        <li data-i18n-html="license.item5"><strong>No support</strong> is provided. The author is under no obligation to fix bugs, answer questions, or update this tool. That said, bug reports and feature requests are always welcome at <a href="mailto:texturizer@cnckitchen.com">texturizer@cnckitchen.com</a>.</li>
         <li data-i18n-html="license.item6">The author shall not be held <strong>liable</strong> for any damages, data loss, or issues arising from the use of this tool.</li>
-        <li data-i18n-html="license.item7">Want to license or embed this tool for your own business or website? Contact us at <a href="mailto:contact@cnckitchen.com">contact@cnckitchen.com</a>.</li>
-        <li data-i18n-html="license.item3">Support this tool? Shop at <a href="https://geni.us/CNCStoreTexture" target="_blank" rel="noopener">CNCKitchen.STORE</a> or send a tip via <a href="https://www.paypal.me/CNCKitchen" target="_blank" rel="noopener">PayPal</a> / <a href="https://ko-fi.com/cnckitchen" target="_blank" rel="noopener">Ko-fi</a>.</li>
-        <li data-i18n-html="license.item8">Source code available on <a href="https://github.com/CNCKitchen/stlTexturizer" target="_blank" rel="noopener">GitHub</a>.</li>
+        <li data-i18n-html="license.item8">Source code available on <a href="https://github.com/ubergeekseven/stlTexturizer" target="_blank" rel="noopener">GitHub</a>.</li>
       </ul>
-    </div>
-  </div>
-
-  <!-- Imprint & Privacy popup -->
-  <div id="imprint-overlay" class="license-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="imprint-title">
-    <div class="license-modal imprint-modal">
-      <button id="imprint-close" class="license-close-btn" aria-label="Close">&#215;</button>
-      <h2 id="imprint-title" data-i18n="imprint.title">Imprint &amp; Privacy Policy</h2>
-
-      <h3 class="imprint-section-heading" data-i18n="imprint.sectionImprint">Imprint (Impressum)</h3>
-      <p class="imprint-text" data-i18n-html="imprint.info">CNC Kitchen<br>Stefan Hermann<br>Bahnhofstr. 2<br>88145 Hergatz<br>Germany</p>
-      <p class="imprint-text" data-i18n-html="imprint.contact">Email: <a href="mailto:contact@cnckitchen.com">contact@cnckitchen.com</a><br>Phone: +49 175 2011824<br><em>The phone number is for legal/business inquiries only &mdash; not for support.</em></p>
-      <p class="imprint-text" data-i18n-html="imprint.odr">EU Online Dispute Resolution platform: <a href="https://ec.europa.eu/consumers/odr" target="_blank" rel="noopener">https://ec.europa.eu/consumers/odr</a></p>
-
-      <h3 class="imprint-section-heading" data-i18n="imprint.sectionPrivacy">Privacy Policy (Datenschutzerkl&auml;rung)</h3>
-      <p class="imprint-text" data-i18n-html="imprint.privacyIntro"><strong>Responsible party</strong> (Verantwortlicher gem. Art. 4 Abs. 7 DSGVO): Stefan Hermann, Bahnhofstr. 2, 88145 Hergatz, Germany.</p>
-      <ul class="license-list">
-        <li data-i18n-html="imprint.privacyHosting">This website is hosted on <strong>GitHub Pages</strong> (GitHub Inc. / Microsoft Corp., 88 Colin P Kelly Jr St, San Francisco, CA 94107, USA). When you visit this site, GitHub may process your IP address in server logs. Legal basis: Art. 6(1)(f) DSGVO (legitimate interest in providing the website). See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">GitHub&rsquo;s Privacy Statement</a>.</li>
-        <li data-i18n-html="imprint.privacyLocal">This tool stores user preferences (language, theme) in your browser&rsquo;s <strong>localStorage</strong>. This data never leaves your device and is not transmitted to any server.</li>
-        <li data-i18n-html="imprint.privacyNoCookies">This website does <strong>not</strong> use cookies, analytics, or any tracking technologies.</li>
-        <li data-i18n-html="imprint.privacyExternal">This site contains links to external websites (e.g., CNCKitchen.STORE, PayPal, Ko-fi). These sites have their own privacy policies, over which we have no control.</li>
-        <li data-i18n-html="imprint.privacyRights">Under the GDPR you have the right to <strong>access, rectification, erasure, restriction of processing, data portability</strong>, and the right to <strong>lodge a complaint</strong> with a supervisory authority.</li>
-      </ul>
-    </div>
-  </div>
-
-  <!-- Sponsor popup -->
-  <div id="sponsor-overlay" class="sponsor-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="sponsor-title">
-    <div class="sponsor-modal">
-      <h2 id="sponsor-title" data-i18n="sponsor.title">Thanks for using BumpMesh by CNC Kitchen!</h2>
-      <p data-i18n-html="sponsor.body">This tool is provided <strong>completely free</strong> by CNC Kitchen.<br>
-      While your STL is being processed, why not check out the store that helps us keep making cool stuff for you?</p>
-      <a href="https://geni.us/CNCStoreTexture" target="_blank" rel="noopener noreferrer" class="sponsor-link" data-i18n="sponsor.visitStore">
-        🛒 Visit CNCKitchen.STORE
-      </a>
-      <a href="https://www.paypal.me/CNCKitchen" target="_blank" rel="noopener noreferrer" class="sponsor-link sponsor-link--paypal" data-i18n="sponsor.donate">
-        💙 Send a tip on PayPal
-      </a>
-      <a href="https://ko-fi.com/cnckitchen" target="_blank" rel="noopener noreferrer" class="sponsor-link sponsor-link--kofi" data-i18n="sponsor.donateKofi">
-        ☕ Send a tip on Ko-fi
-      </a>
-      <label class="sponsor-no-show">
-        <input type="checkbox" id="sponsor-dont-show" />
-        <span data-i18n="sponsor.dontShow">Don't show this again</span>
-      </label>
-      <button id="sponsor-close" class="sponsor-close-btn" data-i18n-html="sponsor.closeAndContinue">Close &amp; Continue</button>
-    </div>
-  </div>
-
-  <!-- Welcome / What's New popup -->
-  <div id="welcome-overlay" class="welcome-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
-    <div class="welcome-modal">
-      <button id="welcome-close" class="license-close-btn" aria-label="Close">&#215;</button>
-      <h2 id="welcome-title">Welcome to BumpMesh</h2>
-      <p class="welcome-tagline">Add a texture to any of your STLs &mdash; directly in your browser, no cloud and completely free!</p>
-
-      <h3 class="welcome-heading">Quick start</h3>
-      <ol class="welcome-steps">
-        <li>Import an STL, OBJ or 3MF.</li>
-        <li>Pick a texture from the preset library or upload your own image.</li>
-        <li>Tweak amplitude, scale, and mapping mode to taste.</li>
-        <li>Export as STL or 3MF.</li>
-      </ol>
-
-      <h3 class="welcome-heading">New in this release <span class="welcome-date">&mdash; May 2026</span></h3>
-      <ul class="welcome-changelog">
-        <li><strong>Mesh regularization</strong> &mdash; collapses sliver triangles from CAD tessellation so each output triangle samples the texture coherently. Toggle under <em>Advanced / Beta Features</em>.</li>
-        <li><strong>Bake Textures (beta)</strong> &mdash; apply the current texture and continue editing on the textured mesh. Find it under <em>Advanced / Beta Features</em>.</li>
-        <li><strong>Significantly improved cylindrical mapping workflow</strong></li>
-        <li><strong>Part rotation gizmo</strong></li>
-        <li><strong>Mesh Check</strong></li>
-        <li><strong>Undo / redo</strong> with full keyboard shortcuts.</li>
-        <li><strong>Save &amp; load projects</strong> as <code>.bumpmesh</code> files.</li>
-        <li><strong>Smooth masking borders</strong></li>
-        <li><strong>New languages:</strong> Italian, Spanish, Portuguese, Japanese, French, Korean</li>
-        <li>Lots of performance and quality-of-life improvements</li>
-      </ul>
-
-      <label class="sponsor-no-show">
-        <input type="checkbox" id="welcome-dont-show" />
-        <span>Don&rsquo;t show this again until there&rsquo;s something new</span>
-      </label>
-      <button id="welcome-got-it" class="sponsor-close-btn">Got it</button>
     </div>
   </div>
 
