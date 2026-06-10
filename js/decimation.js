@@ -452,20 +452,15 @@ function addCreaseQuadrics(quadrics, positions, faces, faceCount) {
         edgeCount++;
       } else if (edgeNum[ei] === 1) {
         edgeF1[ei] = f; edgeNum[ei] = 2;
-      } else if (edgeNum[ei] === 2) {
-        // 3rd incidence: non-manifold — drop the pair.
-        edgeNum[ei] = 3;
       } else {
-        // 4th+ incidence: replicate the legacy Map encoding exactly. The old
-        // code stored marker 0 on the 3rd incidence, and the 4th re-armed the
-        // pair state as -(0*faceCount + f + 1), i.e. the pair (face 0, f) —
-        // face 0 of the WHOLE MESH, not a face of this edge. Real displaced
-        // meshes do contain 4+-incidence edges (1,726 on the 3DBenchy bench),
-        // so this quirk feeds the crease quadrics and shifts collapse costs.
-        // Deliberately preserved for bit-identical output; fixing it (skip all
-        // 3+-incidence edges) is a separate behaviour change to evaluate on
-        // its own. Odd incidence counts end skipped, even counts end paired.
-        edgeF0[ei] = 0; edgeF1[ei] = f; edgeNum[ei] = 2;
+        // 3rd+ incidence: non-manifold edge — never feeds crease quadrics.
+        // (Until June 2026 a legacy Map-encoding quirk re-armed every EVEN
+        // incidence count as the bogus pair (face 0 of the whole mesh, latest
+        // face), injecting crease penalty planes derived from an unrelated
+        // triangle's normal into fold regions. Removing it was validated by
+        // RMS surface-distance comparison and edge-defect counts — see the
+        // commit message.)
+        edgeNum[ei] = 3;
       }
     }
   }
