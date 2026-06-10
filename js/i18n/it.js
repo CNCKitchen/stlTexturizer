@@ -127,7 +127,7 @@ export default {
   "ui.smartResBudgetCapped": "limite di memoria",
   "labels.outputTriangles": "Triangoli in uscita",
   "tooltips.outputTriangles": "La mesh viene prima suddivisa completamente, poi decimata fino a questo numero",
-  "warnings.safetyCapHit": "⚠ Limite di sicurezza di 16 milioni di triangoli raggiunto durante la suddivisione — il risultato potrebbe comunque essere più grossolano della lunghezza del bordo richiesta.",
+  "warnings.safetyCapHit": "⚠ Limite di sicurezza dei triangoli raggiunto durante la suddivisione — il risultato potrebbe comunque essere più grossolano della lunghezza del bordo richiesta.",
   "ui.exportStl": "Esporta STL",
   "ui.export3mf": "Esporta 3MF",
   "tooltips.exportStl": "Ampiamente compatibile con tutti gli slicer",

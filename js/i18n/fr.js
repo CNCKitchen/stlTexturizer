@@ -127,7 +127,7 @@ export default {
   "ui.smartResBudgetCapped": "limite mémoire",
   "labels.outputTriangles": "Triangles de sortie",
   "tooltips.outputTriangles": "Le maillage est d'abord entièrement subdivisé, puis réduit à ce nombre",
-  "warnings.safetyCapHit": "⚠ Limite de sécurité de 8 M de triangles atteinte lors de la subdivision — le résultat peut être plus grossier que la longueur d'arête demandée.",
+  "warnings.safetyCapHit": "⚠ Limite de sécurité de triangles atteinte lors de la subdivision — le résultat peut être plus grossier que la longueur d'arête demandée.",
   "ui.exportStl": "Exporter STL",
   "ui.export3mf": "Exporter 3MF",
   "tooltips.exportStl": "Largement compatible avec tous les trancheurs",

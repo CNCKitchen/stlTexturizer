@@ -127,7 +127,7 @@ export default {
   "ui.smartResBudgetCapped": "메모리 한도",
   "labels.outputTriangles": "출력 삼각형 수",
   "tooltips.outputTriangles": "메시는 먼저 완전히 세분화된 뒤 이 개수까지 디시메이션됩니다",
-  "warnings.safetyCapHit": "⚠ 세분화 중 1천6백만 삼각형 안전 제한에 도달했습니다 — 결과가 요청한 에지 길이보다 여전히 거칠 수 있습니다.",
+  "warnings.safetyCapHit": "⚠ 세분화 중 삼각형 안전 제한에 도달했습니다 — 결과가 요청한 에지 길이보다 여전히 거칠 수 있습니다.",
   "ui.exportStl": "STL 내보내기",
   "ui.export3mf": "3MF 내보내기",
   "tooltips.exportStl": "대부분의 슬라이서와 폭넓게 호환됩니다",

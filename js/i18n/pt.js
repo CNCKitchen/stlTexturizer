@@ -127,7 +127,7 @@ export default {
   "ui.smartResBudgetCapped": "limite de memória",
   "labels.outputTriangles": "Triângulos de saída",
   "tooltips.outputTriangles": "A malha é totalmente subdividida primeiro e depois reduzida a esta quantidade",
-  "warnings.safetyCapHit": "⚠ Limite de segurança de 16M de triângulos atingido durante a subdivisão — o resultado pode ser mais grosseiro que o comprimento de aresta solicitado.",
+  "warnings.safetyCapHit": "⚠ Limite de segurança de triângulos atingido durante a subdivisão — o resultado pode ser mais grosseiro que o comprimento de aresta solicitado.",
   "ui.exportStl": "Exportar STL",
   "ui.export3mf": "Exportar 3MF",
   "tooltips.exportStl": "Amplamente compatível com todos os fatiadores",

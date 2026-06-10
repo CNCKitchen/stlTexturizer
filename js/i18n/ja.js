@@ -127,7 +127,7 @@ export default {
   "ui.smartResBudgetCapped": "メモリ上限",
   "labels.outputTriangles": "出力三角形数",
   "tooltips.outputTriangles": "メッシュはまず完全に細分化され、その後この数まで削減されます",
-  "warnings.safetyCapHit": "⚠ 細分化中に1600万三角形の安全制限に達しました — 結果は要求されたエッジ長よりも粗くなる可能性があります。",
+  "warnings.safetyCapHit": "⚠ 細分化中に三角形の安全制限に達しました — 結果は要求されたエッジ長よりも粗くなる可能性があります。",
   "ui.exportStl": "STLをエクスポート",
   "ui.export3mf": "3MFをエクスポート",
   "tooltips.exportStl": "すべてのスライサーと広く互換性があります",

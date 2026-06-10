@@ -135,7 +135,7 @@ export default {
   "ui.smartResBudgetCapped": "Speicher-Limit",
   "labels.outputTriangles": "Max Dreiecke",
   "tooltips.outputTriangles": "Das Netz wird zuerst vollständig unterteilt, dann auf diese Anzahl dezimiert",
-  "warnings.safetyCapHit": "⚠ 16-Mio.-Dreiecke-Sicherheitsgrenze bei der Unterteilung erreicht — Ergebnis kann gröber als gewünschte Kantenlänge sein.",
+  "warnings.safetyCapHit": "⚠ Dreiecks-Sicherheitsgrenze bei der Unterteilung erreicht — Ergebnis kann gröber als gewünschte Kantenlänge sein.",
   "ui.exportStl": "STL exportieren",
   "ui.export3mf": "3MF exportieren",
   "tooltips.exportStl": "Mit allen Slicern kompatibel",

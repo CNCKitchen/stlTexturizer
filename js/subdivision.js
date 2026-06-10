@@ -21,13 +21,26 @@ import { QuantizedPointMap } from './meshIndex.js';
 // 1e5 still tolerates float32 round-trip noise (~1e-4 mm worst case at metre
 // scales) so well-formed inputs continue to dedup cleanly.
 const QUANTISE   = 1e5;
-// Absolute OOM guard.  Beyond this size the pipeline downstream of subdivide
-// (apply-displacement copy, QEM decimation working set, V8 Map limit at
-// ~16M edges) starts OOMing the tab.  16M is empirically the highest value
-// that still completes reliably on typical desktop browsers; the Smart
-// recommender targets a conservative ~4M, but power users dragging the
-// resolution slider manually can push subdivision up to this hard cap.
-const SAFETY_CAP = 16_000_000;
+// Absolute OOM guard for the pipeline downstream of subdivide (displacement
+// copy, QEM decimation working set).  Historically fixed at 16M, which was
+// also a hard ceiling from V8's ~16.7M hash-table entry cap in the old
+// edge-marking Set — that structure is gone (integer hash map, no entry cap),
+// so the guard is now purely about memory.
+//
+// Measured pipeline peak (3DBenchy + dots, June 2026): ~145 bytes per
+// subdivided triangle — 16M ≈ 2.9 GB, 32M ≈ 4.3 GB (29M measured at 4.25 GB,
+// completing watertight in ~2 min).  32M therefore fits comfortably on
+// ≥16 GB machines.  navigator.deviceMemory (Chrome/Edge, available on the
+// page and in workers, reports 8 for ANY machine with ≥8 GB) gates the
+// higher cap; browsers without the API (Safari, Firefox) and Node keep the
+// long-proven 16M.  Since the pipeline moved into the export worker, blowing
+// past available memory surfaces as a clean error alert instead of killing
+// the tab, so the worst case at 32M on a marginal machine is a retry at a
+// coarser setting.  The Smart recommender targets a conservative ~4M either
+// way; only manual resolution-slider drags approach these caps.
+const SAFETY_CAP = (typeof navigator !== 'undefined' && navigator.deviceMemory >= 8)
+  ? 32_000_000
+  : 16_000_000;
 
 // ── Growable typed vertex store ──────────────────────────────────────────────
 // Shared by the indexers (which build it) and the subdivision passes (which

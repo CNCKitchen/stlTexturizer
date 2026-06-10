@@ -135,7 +135,7 @@ export default {
   "ui.smartResBudgetCapped": "OOM-capped",
   "labels.outputTriangles": "Output Triangles",
   "tooltips.outputTriangles": "Mesh is fully subdivided first, then decimated down to this count",
-  "warnings.safetyCapHit": "⚠ 16M-triangle safety cap hit during subdivision — result may still be coarser than requested edge length.",
+  "warnings.safetyCapHit": "⚠ Triangle safety cap hit during subdivision — result may still be coarser than requested edge length.",
   "ui.exportStl": "Export STL",
   "ui.export3mf": "Export 3MF",
   "tooltips.exportStl": "Widely compatible with all slicers",

@@ -127,7 +127,7 @@ export default {
   "ui.smartResBudgetCapped": "límite de memoria",
   "labels.outputTriangles": "Triángulos de salida",
   "tooltips.outputTriangles": "La malla se subdivide completamente primero y luego se reduce a esta cantidad",
-  "warnings.safetyCapHit": "⚠ Se alcanzó el límite de seguridad de 16M de triángulos durante la subdivisión — el resultado puede ser más grueso que la longitud de arista solicitada.",
+  "warnings.safetyCapHit": "⚠ Se alcanzó el límite de seguridad de triángulos durante la subdivisión — el resultado puede ser más grueso que la longitud de arista solicitada.",
   "ui.exportStl": "Exportar STL",
   "ui.export3mf": "Exportar 3MF",
   "tooltips.exportStl": "Ampliamente compatible con todos los laminadores",

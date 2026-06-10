@@ -20,9 +20,11 @@ import {
   MODE_TRIPLANAR, MODE_CUBIC,
 } from './mapping.js';
 
-// Mirror of subdivision.js's SAFETY_CAP — kept as a separate constant so
-// the smart resolver doesn't import the subdivider for one number.  Update
-// both together if you change the OOM guard.
+// Conservative BASE of subdivision.js's SAFETY_CAP (which is adaptive since
+// June 2026: 32M on Chrome/Edge machines reporting deviceMemory ≥ 8, 16M
+// elsewhere).  Smart deliberately budgets against the 16M base on every
+// machine so its recommended edge is device-independent — the same project
+// must produce the same suggestion everywhere.
 const HARD_CAP_TRIANGLES = 16_000_000;
 // Smart targets a conservative slice of the OOM guard so the suggestion
 // stays well clear of pipeline peak memory (displacement copies, decimation
