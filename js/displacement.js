@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { THREE } from './threeCompat.js';
 import { computeUV, getDominantCubicAxis, getCubicBlendWeights } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
 

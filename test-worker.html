@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<!-- Browser smoke test for the export worker (js/exportWorker.js).
+     Serve the repo root over HTTP and open this page; it spins up the worker
+     exactly like main.js does (module worker, threeCompat CDN fallback since
+     workers ignore the page import map), runs a tiny cube export through the
+     full pipeline, and reports PASS/FAIL in the page body and title.
+     Headless: msedge/chrome - -headless=new - -dump-dom <url> and grep RESULT. -->
+<html>
+<head><meta charset="utf-8"><title>RUNNING</title></head>
+<body>
+<div id="result">RUNNING</div>
+<script type="module">
+const out = (s) => { document.getElementById('result').textContent = s; document.title = s; beacon(s); };
+// Report milestones to the serving HTTP server — its access log doubles as
+// the result channel for headless runs (the 404s are intentional).
+const beacon = (s) => { try { fetch('/__test__/' + encodeURIComponent(s)).catch(() => {}); } catch {} };
+
+// 10 mm cube centered at origin — 12 triangles of non-indexed soup.
+function cubeSoup(h = 5) {
+  const v = [
+    [-h,-h,-h],[ h,-h,-h],[ h, h,-h],[-h, h,-h], // bottom corners 0-3
+    [-h,-h, h],[ h,-h, h],[ h, h, h],[-h, h, h], // top corners 4-7
+  ];
+  const quads = [
+    [0,3,2,1], // bottom (z-)
+    [4,5,6,7], // top (z+)
+    [0,1,5,4], // y-
+    [2,3,7,6], // y+
+    [1,2,6,5], // x+
+    [3,0,4,7], // x-
+  ];
+  const tris = [];
+  for (const [a,b,c,d] of quads) { tris.push(a,b,c, a,c,d); }
+  const out = new Float32Array(tris.length * 3);
+  tris.forEach((vi, i) => { out[i*3] = v[vi][0]; out[i*3+1] = v[vi][1]; out[i*3+2] = v[vi][2]; });
+  return out;
+}
+
+// 4x4 checker texture (RGBA)
+function checkerImageData(n = 4) {
+  const data = new Uint8ClampedArray(n * n * 4);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const v = ((x + y) % 2) ? 255 : 0;
+    const o = (y * n + x) * 4;
+    data[o] = data[o+1] = data[o+2] = v; data[o+3] = 255;
+  }
+  return { data, width: n, height: n };
+}
+
+const settings = {
+  mappingMode: 5, scaleU: 0.5, scaleV: 0.5, amplitude: 0.5, textureHeight: 0.5,
+  invertDisplacement: false, offsetU: 0, offsetV: 0, rotation: 0,
+  refineLength: 1.0, maxTriangles: 20000, lockScale: true,
+  bottomAngleLimit: 0, topAngleLimit: 0, mappingBlend: 1, seamBandWidth: 0.5,
+  textureSmoothing: 0, blendNormalSmoothing: 4, capAngle: 20, boundaryFalloff: 0,
+  symmetricDisplacement: false, noDownwardZ: false, smoothBottom: false,
+  harvestFlatFaces: true, harvestTol: 0.005, snapSeamlessWrap: true,
+  cylinderCenterX: null, cylinderCenterY: null, cylinderRadius: null,
+  regularizeEnabled: false,
+};
+
+try {
+  const w = new Worker(new URL('./js/exportWorker.js', import.meta.url), { type: 'module' });
+  const timer = setTimeout(() => out('RESULT: FAIL (timeout — worker never finished)'), 40000);
+  let ready = false;
+  const progressStages = [];
+  beacon('worker-constructed');
+  w.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === 'ready' && !ready) {
+      ready = true;
+      beacon('worker-ready');
+      const img = checkerImageData();
+      w.postMessage({ cmd: 'run', input: {
+        positions: cubeSoup(),
+        faceWeights: null,
+        imageData: img,
+        imgWidth: img.width,
+        imgHeight: img.height,
+        settings,
+        bounds: { min: {x:-5,y:-5,z:-5}, max: {x:5,y:5,z:5}, size: {x:10,y:10,z:10}, center: {x:0,y:0,z:0} },
+        regularizeOpts: {},
+        mode: 'export',
+      }});
+    } else if (m.type === 'progress') {
+      if (!progressStages.includes(m.stage)) { progressStages.push(m.stage); beacon('stage-' + m.stage); }
+    } else if (m.type === 'done') {
+      clearTimeout(timer);
+      const tris = m.result.positions.length / 9;
+      const ok = tris > 12 && m.result.normals && m.result.normals.length === m.result.positions.length;
+      out(ok
+        ? `RESULT: PASS tris=${tris} stages=${progressStages.join('>')}`
+        : `RESULT: FAIL (bad result shape: tris=${tris})`);
+    } else if (m.type === 'error') {
+      clearTimeout(timer);
+      out('RESULT: FAIL (pipeline error: ' + m.message + ')');
+    }
+  };
+  w.onerror = (e) => out('RESULT: FAIL (worker load error: ' + ((e && e.message) || 'unknown') + ')');
+} catch (err) {
+  out('RESULT: FAIL (worker construction: ' + err.message + ')');
+}
+</script>
+</body>
+</html>

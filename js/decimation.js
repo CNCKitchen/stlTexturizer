@@ -42,7 +42,7 @@
  * @returns {THREE.BufferGeometry}
  */
 
-import * as THREE from 'three';
+import { THREE } from './threeCompat.js';
 import { QuantizedPointMap } from './meshIndex.js';
 
 // Vertex-weld quantisation for buildIndexed. 1e6 → 1 nm cells, finer than the

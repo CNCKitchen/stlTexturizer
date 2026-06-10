@@ -1,18 +1,20 @@
-// Full-pipeline benchmark: subdivide → regularize → re-subdivide → displace →
-// bottom snaps → decimate → resolveTJunctions, mirroring handleExport().
-// Prints per-stage wall time, peak RSS, and an FNV-1a fingerprint of the final
+// Full-pipeline benchmark: runs the REAL export pipeline (exportPipeline.js —
+// the exact module handleExport and the export worker execute) and prints
+// per-stage wall time, peak RSS, and an FNV-1a fingerprint of the final
 // position buffer. Run in two checkouts to compare speed AND verify the output
 // is bit-identical.
+//
+// NOTE: the reference fingerprint changed when this script switched from its
+// own hand-rolled stage sequence to exportPipeline.js — the old copy applied
+// the bottom snaps BEFORE decimation as well, which handleExport never did.
+// Reference for 3DBenchy + dots @ 0.2 / 2M with these settings: see memory /
+// commit log (old hand-rolled reference was f17f5fbc).
 //
 //   node bench-pipeline.mjs <model.stl> <texture.png> <refineLength> <maxTriangles>
 import { readFileSync } from 'fs';
 import { unzlibSync } from 'fflate';
 import * as THREE from 'three';
-import { subdivide } from './js/subdivision.js';
-import { regularizeMesh } from './js/regularize.js';
-import { applyDisplacement } from './js/displacement.js';
-import { decimate } from './js/decimation.js';
-import { resolveTJunctions } from './js/meshRepair.js';
+import { runExportPipeline } from './js/exportPipeline.js';
 import { buildFaceWeights } from './js/exclusion.js';
 
 const stlPath      = process.argv[2];
@@ -164,48 +166,33 @@ console.log(`model=${stlPath} tris=${currentGeometry.attributes.position.count/3
 stage('load');
 
 const faceWeights = buildCombinedFaceWeights(currentGeometry, new Set(), false, settings);
-let { geometry: subdivided } = await subdivide(currentGeometry, settings.refineLength, null, faceWeights);
-stage(`subdivide1 (${subdivided.attributes.position.count/3} tris)`);
 
-if (settings.regularizeEnabled) {
-  const reg = regularizeMesh(subdivided, new Int32Array(subdivided.attributes.position.count/3), settings.refineLength, _regularizeOpts());
-  subdivided.dispose();
-  stage('regularize');
-  const exclAttr = reg.geometry.attributes.excludeWeight;
-  const w2 = exclAttr ? exclAttr.array : null;
-  const { geometry: resub } = await subdivide(reg.geometry, settings.refineLength*settings.regularizeSecondPassMul, null, w2, { fast:false });
-  reg.geometry.dispose();
-  subdivided = resub;
-  stage(`resubdivide (${subdivided.attributes.position.count/3} tris)`);
-}
+// Per-stage timing via the pipeline's own progress events.
+let lastStage = null;
+const onEvent = (st, p, info) => {
+  if (st !== lastStage) {
+    if (lastStage !== null) stage(`${lastStage}${info && info.triCount ? ` (${info.triCount} tris)` : ''}`);
+    lastStage = st;
+  }
+};
 
-let displaced = applyDisplacement(subdivided, img, img.width, img.height, settings, currentBounds, null);
-subdivided.dispose();
-stage('displace');
-
-if (settings.bottomAngleLimit > 0) {
-  const bz = currentBounds.min.z, pa = displaced.attributes.position.array;
-  for (let i=0;i<pa.length;i+=9){if(pa[i+2]<bz)pa[i+2]=bz;if(pa[i+5]<bz)pa[i+5]=bz;if(pa[i+8]<bz)pa[i+8]=bz;}
-}
-if (settings.smoothBottom) snapBottomToFlat(displaced, currentBounds.min.z, 0.1);
-
-let finalGeometry = displaced;
-const dispTri = displaced.attributes.position.count/3;
-if (dispTri > settings.maxTriangles || settings.harvestFlatFaces) {
-  finalGeometry = await decimate(displaced, settings.maxTriangles, null, settings.harvestFlatFaces, settings.harvestTol);
-  stage(`decimate (${finalGeometry.attributes.position.count/3} tris)`);
-}
-if (settings.bottomAngleLimit > 0) {
-  const bz = currentBounds.min.z, pa = finalGeometry.attributes.position.array;
-  for (let i=0;i<pa.length;i+=9){if(pa[i+2]<bz)pa[i+2]=bz;if(pa[i+5]<bz)pa[i+5]=bz;if(pa[i+8]<bz)pa[i+8]=bz;}
-}
-if (settings.smoothBottom) snapBottomToFlat(finalGeometry, currentBounds.min.z, 0.1);
-
-const repaired = resolveTJunctions(finalGeometry);
-stage(`repair (${repaired.attributes.position.count/3} tris)`);
+const result = await runExportPipeline({
+  positions: currentGeometry.attributes.position.array,
+  faceWeights,
+  imageData: img,
+  imgWidth: img.width,
+  imgHeight: img.height,
+  settings,
+  bounds: currentBounds,
+  regularizeOpts: _regularizeOpts(),
+  mode: 'export',
+}, onEvent);
+stage(lastStage || 'pipeline');
 
 clearInterval(rssTimer);
 sampleRss();
 const total = (performance.now() - t0) / 1000;
+const triCount = result.positions.length / 9;
+if (result.repairStats) console.log(`repairStats: ${JSON.stringify(result.repairStats)}`);
 console.log(`TOTAL ${total.toFixed(2)}s  peakRSS ${(peakRss/1024/1024).toFixed(0)}MB`);
-console.log(`FINGERPRINT tris=${repaired.attributes.position.count/3} pos=${fnv1a(repaired.attributes.position.array)}`);
+console.log(`FINGERPRINT tris=${triCount} pos=${fnv1a(result.positions)}`);

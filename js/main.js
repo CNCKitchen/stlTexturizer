@@ -11,9 +11,7 @@ import { loadAllThumbnails, loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { regularizeMesh }     from './regularize.js';
-import { applyDisplacement }  from './displacement.js';
-import { decimate }           from './decimation.js';
-import { resolveTJunctions, countEdgeDefects, countAreaSlivers } from './meshRepair.js';
+import { runExportPipeline }  from './exportPipeline.js';
 import { exportSTL, export3MF } from './exporter.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
@@ -4417,9 +4415,6 @@ async function handleExport(format = 'stl') {
     deactivatePrecisionMasking();
   }
 
-  // Hoist intermediate geometries so the finally block can always dispose them
-  let subdivided      = null;
-  let displaced       = null;
   let finalGeometry   = null;
   let exportSucceeded = false; // set true only after exportSTL so finally can clean up on abort/error
 
@@ -4437,172 +4432,46 @@ async function handleExport(format = 'stl') {
       ? buildCombinedFaceWeights(currentGeometry, excludedFaces, selectionMode, settings)
       : null;
 
-    let safetyCapHit;
-    ({ geometry: subdivided, safetyCapHit } = await subdivide(
-      currentGeometry, settings.refineLength,
-      (p, triCount, longestEdge) => {
-        const label = triCount != null
-          ? t('progress.refining', { cur: triCount.toLocaleString(), edge: longestEdge.toFixed(2) })
-          : t('progress.subdividing');
-        setProgress(0.02 + p * 0.28, label);
-      },
-      faceWeights
-    ));
-    if (exportToken !== myToken) return;
-
-    // Regularize sub-slivers, then re-subdivide stretched edges — see preview
-    // pipeline for rationale.  Skipped entirely when the Advanced toggle is
-    // off.  Faceweight mapping isn't propagated through regularize on this
-    // branch because user-painted exclusions were already baked into the
-    // first subdivide via faceWeights → excludeWeight, which regularize then
-    // copies through and we can pass straight to the second subdivide.
-    if (settings.regularizeEnabled) {
-      setProgress(0.30, t('progress.regularizing'));
-      await yieldFrame();
-      const reg = regularizeMesh(subdivided, new Int32Array(subdivided.attributes.position.count / 3), settings.refineLength, _regularizeOpts());
-      subdivided.dispose();
-      const exclAttr = reg.geometry.attributes.excludeWeight;
-      const secondPassWeights = exclAttr ? exclAttr.array : null;
-      const { geometry: resub } = await subdivide(
-        reg.geometry, settings.refineLength * settings.regularizeSecondPassMul,
-        (p, triCount, longestEdge) => {
-          const label = triCount != null
-            ? t('progress.refining', { cur: triCount.toLocaleString(), edge: longestEdge.toFixed(2) })
-            : t('progress.subdividing');
-          setProgress(0.32 + p * 0.06, label);
-        },
-        secondPassWeights, { fast: false }
-      );
-      reg.geometry.dispose();
-      subdivided = resub;
-    }
-
-    const subTriCount = subdivided.attributes.position.count / 3;
-    setProgress(0.38, t('progress.applyingDisplacement', { n: subTriCount.toLocaleString() }));
-
+    // Run the heavy pipeline (subdivide → regularize → displace → decimate →
+    // bottom snaps → repair), preferably in the export worker so the UI stays
+    // responsive and background-tab throttling can't stall it. Falls back to
+    // running inline if the worker can't initialise. See exportPipeline.js.
     const exportEntry = getEffectiveMapEntry();
-    displaced = await runAsync(() =>
-      applyDisplacement(
-        subdivided,
-        exportEntry.imageData,
-        exportEntry.width,
-        exportEntry.height,
-        settings,
-        currentBounds,
-        (p) => setProgress(0.38 + p * 0.32, t('progress.displacingVertices'))
-      )
-    );
-    if (exportToken !== myToken) return;
+    const isStale = () => exportToken !== myToken;
+    const result = await runPipeline({
+      positions: currentGeometry.attributes.position.array,
+      faceWeights,
+      imageData: exportEntry.imageData,
+      imgWidth: exportEntry.width,
+      imgHeight: exportEntry.height,
+      settings,
+      bounds: currentBounds,
+      regularizeOpts: _regularizeOpts(),
+      mode: 'export',
+    }, _onExportPipelineEvent, isStale);
+    if (!result || isStale()) return;
 
-    // Free subdivided geometry — displacement created a separate copy
-    subdivided.dispose();
-
-    const dispTriCount = displaced.attributes.position.count / 3;
-    const needsDecimation = dispTriCount > settings.maxTriangles;
-    triLimitWarning.classList.toggle('hidden', !safetyCapHit);
+    triLimitWarning.classList.toggle('hidden', !result.safetyCapHit);
     triLimitWarning.textContent = t('warnings.safetyCapHit');
 
-    finalGeometry = displaced;
-    // Run when over the target (true decimation) OR when only flat-face
-    // harvesting is needed — harvesting collapses free flat faces even when the
-    // mesh is already under the Output-Triangles limit.
-    const runDecimation = needsDecimation || settings.harvestFlatFaces;
-    if (runDecimation) {
-      setProgress(0.71, needsDecimation
-        ? t('progress.decimatingTo', { from: dispTriCount.toLocaleString(), to: settings.maxTriangles.toLocaleString() })
-        : t('progress.harvestingFlat'));
-      finalGeometry = await runAsync(() =>
-        decimate(
-          displaced,
-          settings.maxTriangles,
-          (p) => {
-            if (needsDecimation) {
-              const cur = Math.round(dispTriCount - (dispTriCount - settings.maxTriangles) * p);
-              setProgress(
-                0.71 + p * 0.25,
-                t('progress.decimating', { cur: cur.toLocaleString(), to: settings.maxTriangles.toLocaleString() })
-              );
-            } else {
-              setProgress(0.71 + p * 0.25, t('progress.harvestingFlat'));
-            }
-          },
-          settings.harvestFlatFaces,
-          settings.harvestTol
-        )
-      );
-      // Free pre-decimation geometry — decimate created a separate copy
-      displaced.dispose();
-	  if (exportToken !== myToken) return;
-    }
+    finalGeometry = new THREE.BufferGeometry();
+    finalGeometry.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
+    if (result.normals) finalGeometry.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
 
-    // Flat-bottom clamp: when bottom faces are masked (bottomAngleLimit > 0),
-    // any vertex that ended up below the original model's bottom layer gets
-    // snapped back up to that Z. Single pass with selective normal recomputation.
-    if (settings.bottomAngleLimit > 0) {
-      const bottomZ = currentBounds.min.z;
-      const pa = finalGeometry.attributes.position.array;
-      const na = finalGeometry.attributes.normal ? finalGeometry.attributes.normal.array : new Float32Array(pa.length);
-
-      for (let i = 0; i < pa.length; i += 9) {
-        let dirty = false;
-        if (pa[i+2] < bottomZ) { pa[i+2] = bottomZ; dirty = true; }
-        if (pa[i+5] < bottomZ) { pa[i+5] = bottomZ; dirty = true; }
-        if (pa[i+8] < bottomZ) { pa[i+8] = bottomZ; dirty = true; }
-
-        if (dirty) {
-          const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
-          const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
-          const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
-          const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
-          na[i]   = na[i+3] = na[i+6] = nx/len;
-          na[i+1] = na[i+4] = na[i+7] = ny/len;
-          na[i+2] = na[i+5] = na[i+8] = nz/len;
-        }
-      }
-
-      finalGeometry.attributes.position.needsUpdate = true;
-      if (!finalGeometry.attributes.normal) finalGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
-      else finalGeometry.attributes.normal.needsUpdate = true;
-    }
-
-    // Smooth Bottom: snap any vertex within 0.1 mm of the bottom plane onto
-    // it so the bed-contact surface is perfectly flat. Catches the residual
-    // height drift on bottom slivers that the in-displacement clamp can't
-    // touch (e.g. fillet vertices a few µm above bottomZ that get tilted
-    // by texture sampling). Runs after the bottomAngleLimit clamp so the
-    // two complement each other when both are active.
-    if (settings.smoothBottom) {
-      snapBottomToFlat(finalGeometry, currentBounds.min.z, 0.1);
-    }
-
-    // Resolve T-junctions so the export is watertight & manifold. Decimation (and
-    // the bottom snaps above) can leave a long edge meeting several short ones
-    // across split seams — open edges that no weld tolerance can fix. This splits
-    // those long edges at the on-edge vertices, restoring shared topology. Only
-    // run on the decimated (sparse) mesh — welding the dense pre-decimation mesh
-    // at the export grid would instead collapse its fine detail into degenerates.
-    if (runDecimation) {
-      setProgress(0.96, t('progress.repairingMesh'));
-      await yieldFrame();
-      const beforeSlivers = countAreaSlivers(finalGeometry);
-      const repaired = resolveTJunctions(finalGeometry);
-      finalGeometry.dispose();
-      finalGeometry = repaired;
-      const after = countEdgeDefects(finalGeometry);
-      const afterSlivers = countAreaSlivers(finalGeometry);
-      // Ground-truth readout from the live browser. The decisive number is
-      // `afterSlivers`: zero-area "needle" triangles read as watertight here but
-      // every slicer (and our own importer) deletes them, punching a hole at each
-      // — that was the real cause of the open-edge warning on re-imported files.
-      // After repair both `afterSlivers` and `after.open` must be 0.
+    if (result.repairStats) {
+      const rs = result.repairStats;
+      // Ground-truth readout. The decisive number is `slivers`: zero-area
+      // "needle" triangles read as watertight here but every slicer (and our
+      // own importer) deletes them, punching a hole at each — that was the
+      // real cause of the open-edge warning on re-imported files. After
+      // repair both `slivers` and `open` must be 0.
       console.log(
-        `%c[stlTexturizer] mesh repair (build 2026-06-09c): ` +
-        `removed ${beforeSlivers.toLocaleString()} zero-area slivers; ` +
-        `final open=${after.open}, non-manifold=${after.nonManifold}, slivers=${afterSlivers} ` +
-        `(${after.tris.toLocaleString()} tris)`,
+        `%c[stlTexturizer] mesh repair (build 2026-06-10w): ` +
+        `removed ${rs.beforeSlivers.toLocaleString()} zero-area slivers; ` +
+        `final open=${rs.open}, non-manifold=${rs.nonManifold}, slivers=${rs.slivers} ` +
+        `(${rs.tris.toLocaleString()} tris)`,
         'color:#0a0;font-weight:bold'
       );
-      if (exportToken !== myToken) return;
     }
 
     const texLabel = activeMapEntry.isCustom ? 'custom' : activeMapEntry.name.replace(/\s+/g, '-');
@@ -4635,17 +4504,148 @@ async function handleExport(format = 'stl') {
       alert(t('alerts.exportFailed', { msg: err.message }));
     }
   } finally {
-    // Dispose all intermediate geometries regardless of success, failure, or abort.
-    // finalGeometry may alias displaced (no decimation) — avoid double-dispose.
-    if (subdivided) subdivided.dispose();
-    if (displaced && displaced !== subdivided) displaced.dispose();
-    if (finalGeometry && finalGeometry !== displaced && finalGeometry !== subdivided) finalGeometry.dispose();
+    // Intermediate geometries live inside the pipeline (worker or inline) and
+    // are disposed there; only the reconstructed output remains on this side.
+    if (finalGeometry) finalGeometry.dispose();
     // Hide progress immediately on error or stale abort; success hides it after 1500 ms.
     if (!exportSucceeded) exportProgress.classList.add('hidden');
     isExporting = false;
     exportBtn.classList.remove('busy');
     export3mfBtn.classList.remove('busy');
   }
+}
+
+// ── Pipeline progress mapping (worker events → progress bar) ────────────────
+// Same fractions and labels as the old inline pipeline.
+
+function _onExportPipelineEvent(stage, p, info) {
+  switch (stage) {
+    case 'subdivide1': {
+      const label = info && info.triCount != null
+        ? t('progress.refining', { cur: info.triCount.toLocaleString(), edge: info.longestEdge.toFixed(2) })
+        : t('progress.subdividing');
+      setProgress(0.02 + p * 0.28, label);
+      break;
+    }
+    case 'regularize':
+      setProgress(0.30, t('progress.regularizing'));
+      break;
+    case 'subdivide2': {
+      const label = info && info.triCount != null
+        ? t('progress.refining', { cur: info.triCount.toLocaleString(), edge: info.longestEdge.toFixed(2) })
+        : t('progress.subdividing');
+      setProgress(0.32 + p * 0.06, label);
+      break;
+    }
+    case 'displace':
+      if (p === 0) setProgress(0.38, t('progress.applyingDisplacement', { n: info.triCount.toLocaleString() }));
+      else setProgress(0.38 + p * 0.32, t('progress.displacingVertices'));
+      break;
+    case 'decimate':
+      if (info.needsDecimation) {
+        if (p === 0) {
+          setProgress(0.71, t('progress.decimatingTo', { from: info.from.toLocaleString(), to: settings.maxTriangles.toLocaleString() }));
+        } else {
+          const cur = Math.round(info.from - (info.from - settings.maxTriangles) * p);
+          setProgress(0.71 + p * 0.25, t('progress.decimating', { cur: cur.toLocaleString(), to: settings.maxTriangles.toLocaleString() }));
+        }
+      } else {
+        setProgress(0.71 + p * 0.25, t('progress.harvestingFlat'));
+      }
+      break;
+    case 'repair':
+      setProgress(0.96, t('progress.repairingMesh'));
+      break;
+  }
+}
+
+function _onBakePipelineEvent(stage, p, info) {
+  switch (stage) {
+    case 'subdivide1': {
+      const label = info && info.triCount != null
+        ? t('progress.refining', { cur: info.triCount.toLocaleString(), edge: info.longestEdge.toFixed(2) })
+        : t('progress.subdividing');
+      setBakeProgress(0.02 + p * 0.34, label);
+      break;
+    }
+    case 'regularize':
+      setBakeProgress(0.36, t('progress.regularizing'));
+      break;
+    case 'subdivide2': {
+      const label = info && info.triCount != null
+        ? t('progress.refining', { cur: info.triCount.toLocaleString(), edge: info.longestEdge.toFixed(2) })
+        : t('progress.subdividing');
+      setBakeProgress(0.38 + p * 0.09, label);
+      break;
+    }
+    case 'displace':
+      if (p === 0) setBakeProgress(0.47, t('progress.applyingDisplacement', { n: info.triCount.toLocaleString() }));
+      else setBakeProgress(0.47 + p * 0.40, t('progress.displacingVertices'));
+      break;
+  }
+}
+
+// ── Export worker management ─────────────────────────────────────────────────
+// One persistent module worker runs the export/bake pipeline off the main
+// thread. If it can't initialise (very old browser, CDN unreachable from the
+// worker) the pipeline runs inline exactly as before — same module, same code.
+
+let _pipelineWorker = null;
+let _pipelineWorkerFailed = false; // hard init failure → stop retrying
+
+function _initPipelineWorker() {
+  return new Promise((resolve, reject) => {
+    let w;
+    try {
+      w = new Worker(new URL('./exportWorker.js', import.meta.url), { type: 'module' });
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    const fail = (msg) => { try { w.terminate(); } catch {} reject(new Error(msg)); };
+    const timer = setTimeout(() => fail('worker init timeout'), 20000);
+    w.onmessage = (e) => {
+      if (e.data && e.data.type === 'ready') {
+        clearTimeout(timer);
+        w.onmessage = null;
+        w.onerror = null;
+        resolve(w);
+      }
+    };
+    w.onerror = (e) => { clearTimeout(timer); fail((e && e.message) || 'worker failed to load'); };
+  });
+}
+
+async function runPipeline(input, onEvent, isStale) {
+  // Prefer the worker. Fall back to inline ONLY on init failure — a pipeline
+  // error inside the worker (e.g. OOM) must propagate to the caller's alert,
+  // not silently re-run the same doomed job on the main thread.
+  if (!_pipelineWorkerFailed && !_pipelineWorker) {
+    try {
+      _pipelineWorker = await _initPipelineWorker();
+    } catch (err) {
+      _pipelineWorkerFailed = true;
+      console.warn('[stlTexturizer] export worker unavailable — running pipeline on the main thread:', err.message);
+    }
+  }
+  if (isStale()) return null;
+  if (!_pipelineWorker) {
+    return runExportPipeline(input, onEvent, isStale);
+  }
+  const w = _pipelineWorker;
+  return new Promise((resolve, reject) => {
+    const cleanup = () => { w.onmessage = null; w.onerror = null; };
+    const kill = () => { cleanup(); try { w.terminate(); } catch {} _pipelineWorker = null; };
+    w.onmessage = (e) => {
+      const m = e.data;
+      if (isStale()) { kill(); resolve(null); return; } // aborted → stop the worker's CPU burn
+      if (m.type === 'progress') onEvent(m.stage, m.p, m.info);
+      else if (m.type === 'done') { cleanup(); resolve(m.result); }
+      else if (m.type === 'error') { cleanup(); reject(new Error(m.message)); }
+    };
+    w.onerror = (e) => { kill(); reject(new Error((e && e.message) || 'export worker crashed')); };
+    w.postMessage({ cmd: 'run', input });
+  });
 }
 
 function setProgress(fraction, label) {
@@ -4657,50 +4657,8 @@ function setProgress(fraction, label) {
 
 // ── Smooth Bottom (advanced feature) ────────────────────────────────────────
 // Snaps every vertex within `tol` of the bottom plane onto it, so the bed-
-// contact surface comes out perfectly flat regardless of any tiny per-vertex
-// height drift introduced by sliver triangles, displacement noise, or
-// near-horizontal smooth normals tilting the bottom face during texturing.
-// Recomputes face normals on triangles whose vertices moved so slicers shade
-// the now-planar surface uniformly.
-//
-// Threshold default 0.1 mm is well above float-precision noise but below
-// any printer's resolution, so legitimate above-bottom geometry (side
-// fillets, the rest of the model) is left alone. Caller passes `bottomZ`
-// explicitly so this function works on any geometry / coordinate system.
-function snapBottomToFlat(geometry, bottomZ, tol = 0.1) {
-  const pa = geometry.attributes.position.array;
-  const na = geometry.attributes.normal
-    ? geometry.attributes.normal.array
-    : new Float32Array(pa.length);
-  let dirtyTris = 0;
-
-  for (let i = 0; i < pa.length; i += 9) {
-    let dirty = false;
-    if (Math.abs(pa[i+2] - bottomZ) <= tol) { pa[i+2] = bottomZ; dirty = true; }
-    if (Math.abs(pa[i+5] - bottomZ) <= tol) { pa[i+5] = bottomZ; dirty = true; }
-    if (Math.abs(pa[i+8] - bottomZ) <= tol) { pa[i+8] = bottomZ; dirty = true; }
-    if (dirty) {
-      dirtyTris++;
-      const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
-      const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
-      const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
-      const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
-      na[i]   = na[i+3] = na[i+6] = nx/len;
-      na[i+1] = na[i+4] = na[i+7] = ny/len;
-      na[i+2] = na[i+5] = na[i+8] = nz/len;
-    }
-  }
-
-  if (dirtyTris > 0) {
-    geometry.attributes.position.needsUpdate = true;
-    if (!geometry.attributes.normal) {
-      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
-    } else {
-      geometry.attributes.normal.needsUpdate = true;
-    }
-  }
-  return dirtyTris;
-}
+// contact surface comes out perfectly flat — implementation lives in
+// exportPipeline.js (snapBottomToFlat) so it runs inside the worker.
 
 function setBakeProgress(fraction, label) {
   const pct = Math.round(fraction * 100);
@@ -4727,7 +4685,6 @@ async function bakeTextures() {
 
   if (precisionMaskingEnabled) deactivatePrecisionMasking();
 
-  let subdivided = null;
   let displaced  = null;
   let succeeded  = false;
 
@@ -4742,101 +4699,28 @@ async function bakeTextures() {
       ? buildCombinedFaceWeights(currentGeometry, excludedFaces, selectionMode, settings)
       : null;
 
-    let faceParentId;
-    ({ geometry: subdivided, faceParentId } = await subdivide(
-      currentGeometry, settings.refineLength,
-      (p, triCount, longestEdge) => {
-        const label = triCount != null
-          ? t('progress.refining', { cur: triCount.toLocaleString(), edge: longestEdge.toFixed(2) })
-          : t('progress.subdividing');
-        setBakeProgress(0.02 + p * 0.34, label);
-      },
-      faceWeights
-    ));
-
-    // Regularize sub-slivers, then re-subdivide stretched edges — see preview
-    // pipeline for rationale.  Skipped entirely when the Advanced toggle is
-    // off.  Compose the two parent maps so faceParentId still points at
-    // original-mesh faces (used below to remap user exclusions onto baked output).
-    if (settings.regularizeEnabled) {
-      setBakeProgress(0.36, t('progress.regularizing'));
-      await yieldFrame();
-      const reg = regularizeMesh(subdivided, faceParentId, settings.refineLength, _regularizeOpts());
-      subdivided.dispose();
-      const exclAttr = reg.geometry.attributes.excludeWeight;
-      const secondPassWeights = exclAttr ? exclAttr.array : null;
-      const { geometry: resub, faceParentId: resubParents } = await subdivide(
-        reg.geometry, settings.refineLength * settings.regularizeSecondPassMul,
-        (p, triCount, longestEdge) => {
-          const label = triCount != null
-            ? t('progress.refining', { cur: triCount.toLocaleString(), edge: longestEdge.toFixed(2) })
-            : t('progress.subdividing');
-          setBakeProgress(0.38 + p * 0.09, label);
-        },
-        secondPassWeights, { fast: false }
-      );
-      reg.geometry.dispose();
-      const composed = new Int32Array(resubParents.length);
-      for (let i = 0; i < resubParents.length; i++) {
-        composed[i] = reg.faceParentId[resubParents[i]];
-      }
-      subdivided = resub;
-      faceParentId = composed;
-    }
-
-    const subTriCount = subdivided.attributes.position.count / 3;
-    setBakeProgress(0.47, t('progress.applyingDisplacement', { n: subTriCount.toLocaleString() }));
-
+    // Run the bake pipeline (subdivide → regularize → displace → bottom
+    // snaps; no decimation — it would drop the per-face parent mapping needed
+    // to remap user exclusions onto the baked output). Worker-first with
+    // inline fallback, same as handleExport.
     const exportEntry = getEffectiveMapEntry();
-    displaced = await runAsync(() =>
-      applyDisplacement(
-        subdivided,
-        exportEntry.imageData,
-        exportEntry.width,
-        exportEntry.height,
-        settings,
-        currentBounds,
-        (p) => setBakeProgress(0.47 + p * 0.40, t('progress.displacingVertices'))
-      )
-    );
+    const result = await runPipeline({
+      positions: currentGeometry.attributes.position.array,
+      faceWeights,
+      imageData: exportEntry.imageData,
+      imgWidth: exportEntry.width,
+      imgHeight: exportEntry.height,
+      settings,
+      bounds: currentBounds,
+      regularizeOpts: _regularizeOpts(),
+      mode: 'bake',
+    }, _onBakePipelineEvent, () => false);
+    if (!result) throw new Error('bake pipeline aborted');
 
-    // Free pre-displacement subdivision — applyDisplacement returns a separate copy.
-    subdivided.dispose();
-    subdivided = null;
-
-    // Mirror the export-side flat-bottom clamp.
-    if (settings.bottomAngleLimit > 0) {
-      const bottomZ = currentBounds.min.z;
-      const pa = displaced.attributes.position.array;
-      const na = displaced.attributes.normal ? displaced.attributes.normal.array : new Float32Array(pa.length);
-
-      for (let i = 0; i < pa.length; i += 9) {
-        let dirty = false;
-        if (pa[i+2] < bottomZ) { pa[i+2] = bottomZ; dirty = true; }
-        if (pa[i+5] < bottomZ) { pa[i+5] = bottomZ; dirty = true; }
-        if (pa[i+8] < bottomZ) { pa[i+8] = bottomZ; dirty = true; }
-
-        if (dirty) {
-          const ux = pa[i+3]-pa[i],   uy = pa[i+4]-pa[i+1], uz = pa[i+5]-pa[i+2];
-          const vx = pa[i+6]-pa[i],   vy = pa[i+7]-pa[i+1], vz = pa[i+8]-pa[i+2];
-          const nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
-          const len = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1;
-          na[i]   = na[i+3] = na[i+6] = nx/len;
-          na[i+1] = na[i+4] = na[i+7] = ny/len;
-          na[i+2] = na[i+5] = na[i+8] = nz/len;
-        }
-      }
-
-      displaced.attributes.position.needsUpdate = true;
-      if (!displaced.attributes.normal) displaced.setAttribute('normal', new THREE.Float32BufferAttribute(na, 3));
-      else displaced.attributes.normal.needsUpdate = true;
-    }
-
-    // Smooth Bottom — same post-process as the export pipeline so a baked
-    // model and an exported one have an identical bed-contact surface.
-    if (settings.smoothBottom) {
-      snapBottomToFlat(displaced, currentBounds.min.z, 0.1);
-    }
+    const faceParentId = result.faceParentId;
+    displaced = new THREE.BufferGeometry();
+    displaced.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
+    if (result.normals) displaced.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
 
     setBakeProgress(0.90, t('progress.finalizing'));
     await yieldFrame();
@@ -4884,8 +4768,7 @@ async function bakeTextures() {
       alert(t('alerts.bakeFailed', { msg: err.message }));
     }
   } finally {
-    if (subdivided) subdivided.dispose();
-    if (displaced)  displaced.dispose();
+    if (displaced) displaced.dispose();
     if (!succeeded) bakeProgress.classList.add('hidden');
     isBaking = false;
     bakeBtn.classList.remove('busy');
@@ -5017,19 +4900,6 @@ function adoptBakedGeometry(geometry, bounds, opts = {}) {
   // Bake is a destructive transform — undo history references the pre-bake
   // triangle set, so it's no longer meaningful.
   _clearUndoStacks();
-}
-
-/**
- * Yield to the browser event loop, then run fn.
- * Uses setTimeout instead of rAF so it fires even in background tabs.
- */
-function runAsync(fn) {
-  return new Promise((resolve, reject) => {
-    setTimeout(() => {
-      try { resolve(fn()); }
-      catch (e) { reject(e); }
-    }, 0);
-  });
 }
 
 /** Yield to the browser event loop (for progress bar paints etc.). */

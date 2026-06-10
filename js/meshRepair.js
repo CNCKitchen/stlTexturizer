@@ -26,7 +26,7 @@
  * @param {number} [opts.maxIters=16]    cascade-split iteration cap
  * @returns {THREE.BufferGeometry}  repaired non-indexed geometry
  */
-import * as THREE from 'three';
+import { THREE } from './threeCompat.js';
 import { QuantizedPointMap } from './meshIndex.js';
 
 /**

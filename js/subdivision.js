@@ -12,7 +12,7 @@
  * @returns {{ geometry: THREE.BufferGeometry, safetyCapHit: boolean }}
  */
 
-import * as THREE from 'three';
+import { THREE } from './threeCompat.js';
 import { QuantizedPointMap } from './meshIndex.js';
 
 // 10 µm vertex-dedup cells. Below 1e5 (= 100 µm) small-fillet meshes have

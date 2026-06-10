@@ -44,7 +44,7 @@
  * @returns {{ geometry, faceParentId, collapseCount }}
  */
 
-import * as THREE from 'three';
+import { THREE } from './threeCompat.js';
 import { QuantizedPointMap } from './meshIndex.js';
 
 const QUANTISE = 1e5;
