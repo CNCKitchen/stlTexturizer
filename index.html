@@ -715,6 +715,10 @@
 
       <h3 class="welcome-heading">New in this release <span class="welcome-date">&mdash; June 2026</span></h3>
       <ul class="welcome-changelog">
+        <li><strong>Massive performance boost</strong> &mdash; the whole export pipeline was rebuilt: exports now run about <strong>3&times; faster</strong> and use <strong>70% less memory</strong>, so much larger models fit in your browser.</li>
+        <li><strong>Exports run in the background</strong> &mdash; the app stays fully responsive while exporting, processing starts the instant you click Export, and switching tabs no longer slows it down.</li>
+        <li><strong>Higher resolution ceiling</strong> &mdash; the subdivision safety cap doubles to 32M triangles on machines with 8&nbsp;GB+ RAM.</li>
+        <li><strong>Cleaner meshes</strong> &mdash; fixed a bug where &ldquo;Snap near-bottom vertices&rdquo; could fold geometry into the bottom plane (non-manifold edges / phantom shells), plus fewer mesh defects from decimation overall.</li>
         <li><strong>Optimized decimation</strong> &mdash; smarter triangle reduction that harvests flat faces for lighter meshes while keeping exports watertight.</li>
         <li><strong>More intuitive resolution slider</strong> &mdash; reworked to make dialing in the output detail clearer and easier.</li>
       </ul>
