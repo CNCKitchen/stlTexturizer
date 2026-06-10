@@ -20,6 +20,7 @@ import { buildAdjacency, bucketFill,
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
+import { QuantizedPointMap } from './meshIndex.js';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -3393,15 +3394,19 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
     faceMask[t] = angleMask;
   }
 
-  // Build per-unique-position map and identify boundary positions.
+  // Weld vertices to unique-position ids and accumulate per-id areas.
+  // Arrays are pre-sized to posCount (upper bound on unique count); extra
+  // tail slots stay unused — same pattern as displacement.js.
   const QUANT = 1e4;
-  const posKey = (x, y, z) =>
-    `${Math.round(x * QUANT)}_${Math.round(y * QUANT)}_${Math.round(z * QUANT)}`;
-
-  const posFromKey = new Map();  // posKey → [x, y, z]
-  // Per-position: [maskedArea, totalArea] to find boundary vertices
-  const maskFracMap = new Map();
-  const userMaskAreaMap = new Map(); // posKey → area of user-masked faces
+  const weldMap = new QuantizedPointMap(QUANT, Math.min(posCount, 1 << 22));
+  let nUnique = 0;
+  const vertId = new Uint32Array(posCount);
+  const idPosX = new Float64Array(posCount);  // first-occurrence position per id
+  const idPosY = new Float64Array(posCount);
+  const idPosZ = new Float64Array(posCount);
+  const maskedArea   = new Float64Array(posCount);
+  const totalArea    = new Float64Array(posCount);
+  const userMaskArea = new Float64Array(posCount);
   const tmpV = new THREE.Vector3();
   const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
   const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), fn = new THREE.Vector3();
@@ -3418,32 +3423,26 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
 
     for (let v = 0; v < 3; v++) {
       tmpV.fromBufferAttribute(posAttr, t * 3 + v);
-      const k = posKey(tmpV.x, tmpV.y, tmpV.z);
-      if (!posFromKey.has(k)) posFromKey.set(k, [tmpV.x, tmpV.y, tmpV.z]);
-      const mf = maskFracMap.get(k);
-      if (mf) {
-        if (masked) mf[0] += area;
-        mf[1] += area;
-      } else {
-        maskFracMap.set(k, [masked ? area : 0, area]);
+      const id = weldMap.getOrSet(tmpV.x, tmpV.y, tmpV.z, nUnique);
+      if (weldMap.inserted) {
+        nUnique++;
+        idPosX[id] = tmpV.x; idPosY[id] = tmpV.y; idPosZ[id] = tmpV.z;
       }
+      vertId[t * 3 + v] = id;
+      if (masked) maskedArea[id] += area;
+      totalArea[id] += area;
       // Track user-mask area per position to classify boundary type
-      if (isUserMasked[t]) {
-        const prev = userMaskAreaMap.get(k) || 0;
-        userMaskAreaMap.set(k, prev + area);
-      }
+      if (isUserMasked[t]) userMaskArea[id] += area;
     }
   }
 
   // Boundary positions: shared between masked and non-masked faces.
   // Each entry: [x, y, z, maskType] where maskType 0 = user, 1 = angle.
   const boundaryPositions = [];
-  for (const [k, pos] of posFromKey) {
-    const mf = maskFracMap.get(k);
-    const frac = mf[1] > 0 ? mf[0] / mf[1] : 0;
+  for (let id = 0; id < nUnique; id++) {
+    const frac = totalArea[id] > 0 ? maskedArea[id] / totalArea[id] : 0;
     if (frac > 0 && frac < 1) {
-      const userArea = userMaskAreaMap.get(k) || 0;
-      boundaryPositions.push([pos[0], pos[1], pos[2], userArea > 0 ? 0 : 1]);
+      boundaryPositions.push([idPosX[id], idPosY[id], idPosZ[id], userMaskArea[id] > 0 ? 0 : 1]);
     }
   }
 
@@ -3487,23 +3486,22 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
   const searchY = Math.ceil(falloff / gDy);
   const searchZ = Math.ceil(falloff / gDz);
 
-  // Compute per-unique-position falloff factor and mask type
-  const falloffCache = new Map(); // posKey → factor [0,1]
-  const maskTypeCache = new Map(); // posKey → 0 (user mask) or 1 (angle mask)
-  for (const [k, pos] of posFromKey) {
-    const mf = maskFracMap.get(k);
-    const frac = mf[1] > 0 ? mf[0] / mf[1] : 0;
+  // Compute per-unique-position falloff factor and mask type.
+  // -1 = unset (keep the 1.0 default written into the attribute arrays).
+  const falloffById  = new Float32Array(nUnique).fill(-1);
+  const maskTypeById = new Float32Array(nUnique).fill(-1);
+  for (let id = 0; id < nUnique; id++) {
+    const frac = totalArea[id] > 0 ? maskedArea[id] / totalArea[id] : 0;
     if (frac >= 1) continue; // fully masked vertex — keep 1.0 (mask zeroes it anyway)
     // Boundary vertices (shared between masked and unmasked faces) are AT
     // the boundary → distance 0 → falloff factor 0.
     if (frac > 0) {
-      falloffCache.set(k, 0);
-      const userArea = userMaskAreaMap.get(k) || 0;
-      maskTypeCache.set(k, userArea > 0 ? 0 : 1);
+      falloffById[id] = 0;
+      maskTypeById[id] = userMaskArea[id] > 0 ? 0 : 1;
       continue;
     }
 
-    const px = pos[0], py = pos[1], pz = pos[2];
+    const px = idPosX[id], py = idPosY[id], pz = idPosZ[id];
     const cix = Math.max(0, Math.min(gRes - 1, Math.floor((px - gMinX) / gDx)));
     const ciy = Math.max(0, Math.min(gRes - 1, Math.floor((py - gMinY) / gDy)));
     const ciz = Math.max(0, Math.min(gRes - 1, Math.floor((pz - gMinZ) / gDz)));
@@ -3532,17 +3530,16 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
     const dist = Math.sqrt(minDist2);
     const factor = Math.min(1, dist / falloff);
     if (factor < 1) {
-      falloffCache.set(k, factor);
-      maskTypeCache.set(k, nearestType);
+      falloffById[id] = factor;
+      maskTypeById[id] = nearestType;
     }
   }
 
-  // Write per-vertex attributes
+  // Write per-vertex attributes via the welded id (no re-keying pass)
   for (let i = 0; i < posCount; i++) {
-    tmpV.fromBufferAttribute(posAttr, i);
-    const k = posKey(tmpV.x, tmpV.y, tmpV.z);
-    if (falloffCache.has(k)) falloffArr[i] = falloffCache.get(k);
-    if (maskTypeCache.has(k)) maskTypeArr[i] = maskTypeCache.get(k);
+    const id = vertId[i];
+    if (falloffById[id] >= 0) falloffArr[i] = falloffById[id];
+    if (maskTypeById[id] >= 0) maskTypeArr[i] = maskTypeById[id];
   }
 
   if (reuseFalloff) existingFalloff.needsUpdate = true;
@@ -3588,28 +3585,34 @@ function computeBoundaryEdges(geometry, userMaskArr) {
   }
 
   const QUANT = 1e4;
-  const pk = (x, y, z) =>
-    `${Math.round(x * QUANT)}_${Math.round(y * QUANT)}_${Math.round(z * QUANT)}`;
-  const ek = (k1, k2) => k1 < k2 ? k1 + '|' + k2 : k2 + '|' + k1;
+  const weldMap = new QuantizedPointMap(QUANT, Math.min(posCount, 1 << 22));
+  let nUnique = 0;
   const tmpV = new THREE.Vector3();
 
-  const edgeFaces = new Map();
-  const edgePos   = new Map();
+  const edgeFaces = new Map();   // numeric edge key → [face, ...]
+  const edgePos   = new Map();   // numeric edge key → [[x,y,z], [x,y,z]]
+  // ids < posCount, so a*posCount+b is collision-free below ~94M vertices
+  // (same bound as exclusion.js numEdgeKey).
+  const EKM = posCount;
+  const ids = new Uint32Array(3);
+  const ptx = new Float64Array(3), pty = new Float64Array(3), ptz = new Float64Array(3);
 
   for (let t = 0; t < triCount; t++) {
-    const keys = [], pts = [];
     for (let v = 0; v < 3; v++) {
       tmpV.fromBufferAttribute(posAttr, t * 3 + v);
-      keys.push(pk(tmpV.x, tmpV.y, tmpV.z));
-      pts.push([tmpV.x, tmpV.y, tmpV.z]);
+      const id = weldMap.getOrSet(tmpV.x, tmpV.y, tmpV.z, nUnique);
+      if (weldMap.inserted) nUnique++;
+      ids[v] = id; ptx[v] = tmpV.x; pty[v] = tmpV.y; ptz[v] = tmpV.z;
     }
     for (let e = 0; e < 3; e++) {
-      const edgeKey = ek(keys[e], keys[(e + 1) % 3]);
+      const e2 = (e + 1) % 3;
+      const a = ids[e], b = ids[e2];
+      const edgeKey = a < b ? a * EKM + b : b * EKM + a;
       const list = edgeFaces.get(edgeKey);
       if (list) list.push(t);
       else {
         edgeFaces.set(edgeKey, [t]);
-        edgePos.set(edgeKey, [pts[e], pts[(e + 1) % 3]]);
+        edgePos.set(edgeKey, [[ptx[e], pty[e], ptz[e]], [ptx[e2], pty[e2], ptz[e2]]]);
       }
     }
   }
@@ -3939,13 +3942,12 @@ function addSmoothNormals(geometry) {
 
   // Vertex-dedup pass: assign a numeric ID to each unique quantised position.
   const QUANT = 1e4;
-  const dedupMap = new Map();
+  const dedupMap = new QuantizedPointMap(QUANT, Math.min(count, 1 << 22));
   let nextId = 0;
   const vertId = new Uint32Array(count);
   for (let i = 0; i < count; i++) {
-    const key = `${Math.round(pos[i*3]*QUANT)}_${Math.round(pos[i*3+1]*QUANT)}_${Math.round(pos[i*3+2]*QUANT)}`;
-    let id = dedupMap.get(key);
-    if (id === undefined) { id = nextId++; dedupMap.set(key, id); }
+    const id = dedupMap.getOrSet(pos[i*3], pos[i*3+1], pos[i*3+2], nextId);
+    if (dedupMap.inserted) nextId++;
     vertId[i] = id;
   }
 

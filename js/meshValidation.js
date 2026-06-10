@@ -5,6 +5,8 @@
  * Expensive checks (intersections, overlaps) are triggered on demand.
  */
 
+import { QuantizedPointMap } from './meshIndex.js';
+
 const yieldFrame = () => new Promise(r => setTimeout(r, 0));
 
 // ── Fast diagnostics ─────────────────────────────────────────────────────────
@@ -75,16 +77,15 @@ async function findIntersectingTriangles(geometry, token) {
   // Two triangles that share any vertex are topological neighbors and must be
   // skipped — they touch at that vertex and SAT would flag them otherwise.
   const QUANT = 1e4;
-  const posToId = new Map();
+  const posToId = new QuantizedPointMap(QUANT, Math.min(triCount * 3, 1 << 22));
   let nextVId = 0;
   const triVerts = new Uint32Array(triCount * 3);
   for (let t = 0; t < triCount; t++) {
     const b = t * 9;
     for (let v = 0; v < 3; v++) {
       const off = b + v * 3;
-      const key = `${Math.round(pos[off] * QUANT)}_${Math.round(pos[off+1] * QUANT)}_${Math.round(pos[off+2] * QUANT)}`;
-      let id = posToId.get(key);
-      if (id === undefined) { id = nextVId++; posToId.set(key, id); }
+      const id = posToId.getOrSet(pos[off], pos[off+1], pos[off+2], nextVId);
+      if (posToId.inserted) nextVId++;
       triVerts[t * 3 + v] = id;
     }
   }
@@ -410,14 +411,12 @@ export function getEdgePositions(geometry) {
   const QUANT = 1e4;
 
   // Vertex dedup (same approach as buildAdjacency)
-  const posToId = new Map();
+  const posToId = new QuantizedPointMap(QUANT, Math.min(triCount * 3, 1 << 22));
   let nextId = 0;
   const vertId = new Uint32Array(triCount * 3);
   for (let i = 0; i < triCount * 3; i++) {
-    const x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
-    const key = `${Math.round(x * QUANT)}_${Math.round(y * QUANT)}_${Math.round(z * QUANT)}`;
-    let id = posToId.get(key);
-    if (id === undefined) { id = nextId++; posToId.set(key, id); }
+    const id = posToId.getOrSet(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i), nextId);
+    if (posToId.inserted) nextId++;
     vertId[i] = id;
   }
 

@@ -13,6 +13,7 @@
  */
 
 import * as THREE from 'three';
+import { QuantizedPointMap } from './meshIndex.js';
 
 // 10 µm vertex-dedup cells. Below 1e5 (= 100 µm) small-fillet meshes have
 // distinct fillet vertices that round to the same key and merge incorrectly,
@@ -346,13 +347,7 @@ function getMidpoint(positions, normals, weights, cache, a, b, canonIdx, posCano
 
   // Maintain canonIdx when in accurate (export) mode.
   if (canonIdx) {
-    const pk = `${Math.round(mx * QUANTISE)}_${Math.round(my * QUANTISE)}_${Math.round(mz * QUANTISE)}`;
-    let cid = posCanonMap.get(pk);
-    if (cid === undefined) {
-      cid = idx;
-      posCanonMap.set(pk, cid);
-    }
-    canonIdx.push(cid);
+    canonIdx.push(posCanonMap.getOrSet(mx, my, mz, idx));
   }
 
   cache.set(key, idx);
@@ -371,9 +366,9 @@ function toIndexedFast(geometry, nonIndexedWeights = null) {
   const normalSums = [];
   const weights    = nonIndexedWeights ? [] : null;
   const indices    = [];
-  const vertMap    = new Map();
-
   const n = posAttr.count;
+  const vertMap    = new QuantizedPointMap(QUANTISE, Math.min(n, 1 << 22));
+
   for (let i = 0; i < n; i++) {
     const px = posAttr.getX(i);
     const py = posAttr.getY(i);
@@ -382,15 +377,12 @@ function toIndexedFast(geometry, nonIndexedWeights = null) {
     const ny_ = nrmAttr ? nrmAttr.getY(i) : 0;
     const nz_ = nrmAttr ? nrmAttr.getZ(i) : 1;
 
-    const key = `${Math.round(px * QUANTISE)}_${Math.round(py * QUANTISE)}_${Math.round(pz * QUANTISE)}`;
-    let idx = vertMap.get(key);
-    if (idx === undefined) {
-      idx = positions.length / 3;
+    const idx = vertMap.getOrSet(px, py, pz, positions.length / 3);
+    if (vertMap.inserted) {
       positions.push(px, py, pz);
       normals.push(nx_, ny_, nz_);
       normalSums.push(nx_, ny_, nz_);
       if (weights) weights.push(nonIndexedWeights[i]);
-      vertMap.set(key, idx);
     } else {
       normalSums[idx * 3]     += nx_;
       normalSums[idx * 3 + 1] += ny_;
@@ -463,8 +455,10 @@ function toIndexed(geometry, nonIndexedWeights = null) {
   const weights    = nonIndexedWeights ? [] : null;
   const indices    = [];
   const canonIdx   = [];            // vertex idx → canonical position ID
-  const posCanonMap = new Map();    // posKey → first vertex idx at that position
-  const vertMap    = new Map();     // posKey → [{idx, fnU: [x,y,z]}]
+  // position → first vertex idx at that position (canonical ID)
+  const posCanonMap = new QuantizedPointMap(QUANTISE, Math.min(n, 1 << 22));
+  // canonical ID → [{idx, fnU: [x,y,z]}] smooth-group clusters at that position
+  const clustersByCanon = new Map();
 
   for (let i = 0; i < n; i++) {
     const px = posAttr.getX(i);
@@ -473,9 +467,9 @@ function toIndexed(geometry, nonIndexedWeights = null) {
     const fnUx = faceNrmUnit[i*3], fnUy = faceNrmUnit[i*3+1], fnUz = faceNrmUnit[i*3+2];
     const fnRx = faceNrmRaw[i*3],  fnRy = faceNrmRaw[i*3+1],  fnRz = faceNrmRaw[i*3+2];
 
-    const key = `${Math.round(px * QUANTISE)}_${Math.round(py * QUANTISE)}_${Math.round(pz * QUANTISE)}`;
-    let canonId = posCanonMap.get(key);
-    const clusters = vertMap.get(key);
+    // The first vertex at a new position becomes its canonical ID.
+    const canonId = posCanonMap.getOrSet(px, py, pz, positions.length / 3);
+    const clusters = posCanonMap.inserted ? undefined : clustersByCanon.get(canonId);
     if (clusters) {
       let matched = false;
       for (const cl of clusters) {
@@ -515,15 +509,13 @@ function toIndexed(geometry, nonIndexedWeights = null) {
         indices.push(idx);
       }
     } else {
-      const idx = positions.length / 3;
+      const idx = positions.length / 3;   // === canonId (just inserted above)
       positions.push(px, py, pz);
       normals.push(fnRx, fnRy, fnRz);
       normalSums.push(fnRx, fnRy, fnRz);
       if (weights) weights.push(nonIndexedWeights[i]);
-      canonId = idx;                  // first vertex at this position is canonical
-      posCanonMap.set(key, canonId);
       canonIdx.push(canonId);
-      vertMap.set(key, [{idx, fnU: [fnUx, fnUy, fnUz]}]);
+      clustersByCanon.set(canonId, [{idx, fnU: [fnUx, fnUy, fnUz]}]);
       indices.push(idx);
     }
   }

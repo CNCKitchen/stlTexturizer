@@ -1,4 +1,5 @@
 import { zipSync, strToU8 } from 'fflate';
+import { QuantizedPointMap } from './meshIndex.js';
 
 /**
  * Trigger a browser download for a binary buffer.
@@ -97,10 +98,13 @@ export function export3MF(geometry, filename = 'textured.3mf') {
   const triCount = (posArr.length / 9) | 0;
 
   // ── Deduplicate vertices ─────────────────────────────────────────────────
-  // Key on fixed-precision position strings. 4 decimals = 0.0001 mm, safely
-  // below the resolution of any FDM/SLA printer and far tighter than float32
-  // rounding noise from the displacement pipeline.
-  const indexMap  = new Map();
+  // Weld on the 1e4 grid (0.0001 mm cells), matching the 4-decimal precision
+  // the coordinates are written with below — safely below the resolution of
+  // any FDM/SLA printer and far tighter than float32 rounding noise from the
+  // displacement pipeline. The pipeline snaps coordinates onto this exact
+  // grid in resolveTJunctions before export, so welding here only merges
+  // bit-identical (or grid-identical) points.
+  const indexMap  = new QuantizedPointMap(1e4, Math.min(triCount * 3, 1 << 22));
   const uniqueXYZ = [];   // flat [x,y,z,x,y,z,...]
   const triIdx    = new Uint32Array(triCount * 3);
 
@@ -110,13 +114,8 @@ export function export3MF(geometry, filename = 'textured.3mf') {
       const x = posArr[b];
       const y = posArr[b + 1];
       const z = posArr[b + 2];
-      const key = x.toFixed(4) + ',' + y.toFixed(4) + ',' + z.toFixed(4);
-      let idx = indexMap.get(key);
-      if (idx === undefined) {
-        idx = uniqueXYZ.length / 3;
-        uniqueXYZ.push(x, y, z);
-        indexMap.set(key, idx);
-      }
+      const idx = indexMap.getOrSet(x, y, z, uniqueXYZ.length / 3);
+      if (indexMap.inserted) uniqueXYZ.push(x, y, z);
       triIdx[i * 3 + j] = idx;
     }
   }

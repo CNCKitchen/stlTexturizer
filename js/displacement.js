@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { computeUV, getDominantCubicAxis, getCubicBlendWeights } from './mapping.js';
+import { QuantizedPointMap } from './meshIndex.js';
 
 /**
  * Apply displacement to every vertex of a non-indexed BufferGeometry.
@@ -66,12 +67,12 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   // underlying geometry is still faceted (the subdivision didn't change it),
   // so printed edges remain sharp.
 
-  // ── Vertex dedup pass: position → numeric ID via one-time string-map pass ─
+  // ── Vertex dedup pass: position → numeric ID (allocation-free hash table) ─
   // idPos{X,Y,Z} are only populated when boundary falloff is enabled, since
   // they're only consumed by the falloff distance field. Pre-sized to `count`
   // (upper bound on uniqueCount); read by ID, so extra tail slots stay unused.
   const needIdPositions = (settings.boundaryFalloff ?? 0) > 0;
-  const _dedupMap = new Map();
+  const _dedupMap = new QuantizedPointMap(QUANT, Math.min(count, 1 << 22));
   let _nextId = 0;
   const vertexId = new Uint32Array(count);
   const idPosX = needIdPositions ? new Float64Array(count) : null;
@@ -79,11 +80,9 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   const idPosZ = needIdPositions ? new Float64Array(count) : null;
   for (let i = 0; i < count; i++) {
     const x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
-    const key = `${Math.round(x * QUANT)}_${Math.round(y * QUANT)}_${Math.round(z * QUANT)}`;
-    let id = _dedupMap.get(key);
-    if (id === undefined) {
-      id = _nextId++;
-      _dedupMap.set(key, id);
+    const id = _dedupMap.getOrSet(x, y, z, _nextId);
+    if (_dedupMap.inserted) {
+      _nextId++;
       if (needIdPositions) {
         idPosX[id] = x; idPosY[id] = y; idPosZ[id] = z;
       }

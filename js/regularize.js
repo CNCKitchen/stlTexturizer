@@ -45,6 +45,7 @@
  */
 
 import * as THREE from 'three';
+import { QuantizedPointMap } from './meshIndex.js';
 
 const QUANTISE = 1e5;
 
@@ -98,15 +99,14 @@ export function regularizeMesh(geometry, faceParentId, maxEdgeLength, opts = {})
   const pa = geometry.attributes.position.array;
   const triCount = pa.length / 9;
 
-  const posMap = new Map();
+  const posMap = new QuantizedPointMap(QUANTISE, Math.min(triCount * 3, 1 << 22));
   const vertX = [], vertY = [], vertZ = [];
   let nextVid = 0;
   const corners = new Int32Array(triCount * 3);
   for (let i = 0; i < triCount * 3; i++) {
     const x = pa[i*3], y = pa[i*3+1], z = pa[i*3+2];
-    const key = `${Math.round(x*QUANTISE)}_${Math.round(y*QUANTISE)}_${Math.round(z*QUANTISE)}`;
-    let id = posMap.get(key);
-    if (id === undefined) { id = nextVid++; posMap.set(key, id); vertX.push(x); vertY.push(y); vertZ.push(z); }
+    const id = posMap.getOrSet(x, y, z, nextVid);
+    if (posMap.inserted) { nextVid++; vertX.push(x); vertY.push(y); vertZ.push(z); }
     corners[i] = id;
   }
 

@@ -27,6 +27,7 @@
  * @returns {THREE.BufferGeometry}  repaired non-indexed geometry
  */
 import * as THREE from 'three';
+import { QuantizedPointMap } from './meshIndex.js';
 
 /**
  * Count open (1-face) and non-manifold (3+-face) edges of a non-indexed geometry,
@@ -36,10 +37,9 @@ import * as THREE from 'three';
  */
 export function countEdgeDefects(geometry, Q = 1e4) {
   const p = geometry.attributes.position.array, n = p.length / 9;
-  const vmap = new Map(), id = new Int32Array(n * 3);
+  const vmap = new QuantizedPointMap(Q, Math.min(n * 3, 1 << 22)), id = new Int32Array(n * 3);
   for (let i = 0; i < n * 3; i++) {
-    const k = `${Math.round(p[i*3]*Q)},${Math.round(p[i*3+1]*Q)},${Math.round(p[i*3+2]*Q)}`;
-    let v = vmap.get(k); if (v === undefined) { v = vmap.size; vmap.set(k, v); } id[i] = v;
+    id[i] = vmap.getOrSet(p[i*3], p[i*3+1], p[i*3+2], vmap.size);
   }
   const ec = new Map();
   for (let t = 0; t < n; t++) {
@@ -93,14 +93,15 @@ export function resolveTJunctions(geometry, opts = {}) {
   // its vertices onto the grid — becoming a zero-area triangle the importer/slicer
   // then deletes, punching a hole. Snapping here makes our check see precisely
   // what the export will write, and makes the export's rounding a no-op.
-  const vmap = new Map();
+  const vmap = new QuantizedPointMap(Q, Math.min(nTri * 3, 1 << 22));
   const vx = [], vy = [], vz = [];
   const vid = new Int32Array(nTri * 3);
   for (let i = 0; i < nTri * 3; i++) {
-    const ix = Math.round(pos[i*3]*Q), iy = Math.round(pos[i*3+1]*Q), iz = Math.round(pos[i*3+2]*Q);
-    const k = `${ix},${iy},${iz}`;
-    let id = vmap.get(k);
-    if (id === undefined) { id = vx.length; vmap.set(k, id); vx.push(ix/Q); vy.push(iy/Q); vz.push(iz/Q); }
+    const x = pos[i*3], y = pos[i*3+1], z = pos[i*3+2];
+    const id = vmap.getOrSet(x, y, z, vx.length);
+    if (vmap.inserted) {
+      vx.push(Math.round(x*Q)/Q); vy.push(Math.round(y*Q)/Q); vz.push(Math.round(z*Q)/Q);
+    }
     vid[i] = id;
   }
   // Faces as index triples, dropping degenerates. Two kinds are dropped here:

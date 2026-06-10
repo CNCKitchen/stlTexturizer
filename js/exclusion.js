@@ -11,10 +11,9 @@
  */
 
 import * as THREE from 'three';
+import { QuantizedPointMap } from './meshIndex.js';
 
 const QUANT = 1e4;
-const quantKey = (x, y, z) =>
-  `${Math.round(x * QUANT)}_${Math.round(y * QUANT)}_${Math.round(z * QUANT)}`;
 
 // ── Adjacency & centroids ─────────────────────────────────────────────────────
 
@@ -74,14 +73,12 @@ export function buildAdjacency(geometry) {
   // Build edge → triangle list (two triangles share an edge iff they share two
   // vertex positions after quantization-based deduplication).
   // Vertex-dedup pass: assign a numeric ID to each unique quantised position.
-  const posToId = new Map();
+  const posToId = new QuantizedPointMap(QUANT, Math.min(triCount * 3, 1 << 22));
   let nextId = 0;
   const vertId = new Uint32Array(triCount * 3);
   for (let i = 0; i < triCount * 3; i++) {
-    const x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
-    const key = `${Math.round(x*QUANT)}_${Math.round(y*QUANT)}_${Math.round(z*QUANT)}`;
-    let id = posToId.get(key);
-    if (id === undefined) { id = nextId++; posToId.set(key, id); }
+    const id = posToId.getOrSet(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i), nextId);
+    if (posToId.inserted) nextId++;
     vertId[i] = id;
   }
   // nextId^2 < MAX_SAFE_INTEGER → safe up to ~94M unique vertices
