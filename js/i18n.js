@@ -11,6 +11,7 @@ export const TRANSLATIONS = {
   tr: { 'lang.name': 'Türkçe' },
   ja: { 'lang.name': '日本語' },
   ko: { 'lang.name': '한국어' },
+  ro: { 'lang.name': 'Română'}
 };
 
 // ── Module state ──────────────────────────────────────────────────────────────
