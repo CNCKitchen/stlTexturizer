@@ -8,6 +8,7 @@ export const TRANSLATIONS = {
   es: { 'lang.name': 'Español' },
   pt: { 'lang.name': 'Português' },
   fr: { 'lang.name': 'Français' },
+  tr: { 'lang.name': 'Türkçe' },
   ja: { 'lang.name': '日本語' },
   ko: { 'lang.name': '한국어' },
 };
