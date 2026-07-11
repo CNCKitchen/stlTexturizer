@@ -12,6 +12,7 @@ export const TRANSLATIONS = {
   ja: { 'lang.name': '日本語' },
   ko: { 'lang.name': '한국어' },
   uk: { 'lang.name': 'Українська' },
+  ru: { 'lang.name': 'Русский' }
 };
 
 // ── Module state ──────────────────────────────────────────────────────────────
