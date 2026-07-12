@@ -24,6 +24,13 @@
   <meta name="twitter:image" content="https://bumpmesh.com/assets/preview.jpg" />
   <meta name="twitter:image:alt" content="BumpMesh interface for previewing and exporting textured 3D models" />
   <link rel="icon" type="image/png" href="logo.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#111114" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="BumpMesh" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="style.css" />
   <script>
     // Apply saved theme before first paint to avoid flash
@@ -732,5 +739,12 @@
   </div>
 
   <script type="module" src="js/main.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>
