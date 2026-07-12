@@ -33,13 +33,21 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="style.css" />
   <script>
-    // Apply saved theme before first paint to avoid flash
+    // Apply saved theme before first paint to avoid flash.
+    // PWA chrome (theme-color, iOS status bar) follows the *site* theme, not OS.
     (function() {
       const t = localStorage.getItem('stlt-theme');
-      // If user never picked a theme, respect their OS preference
+      // If user never picked a theme, respect their OS preference once for initial pick
       const prefersDark = t ? t === 'dark'
                             : window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (!prefersDark) document.documentElement.setAttribute('data-theme', 'light');
+      const isLight = !prefersDark;
+      if (isLight) document.documentElement.setAttribute('data-theme', 'light');
+
+      var themeColor = document.querySelector('meta[name="theme-color"]');
+      var statusBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+      if (themeColor) themeColor.setAttribute('content', isLight ? '#f0f0f5' : '#111114');
+      // default = light bar / dark text; black-translucent = dark translucent bar
+      if (statusBar) statusBar.setAttribute('content', isLight ? 'default' : 'black-translucent');
     })();
   </script>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>

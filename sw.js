@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'bumpmesh-v1';
+const CACHE_VERSION = 'bumpmesh-v2';
 
 const PRECACHE = [
   './',
