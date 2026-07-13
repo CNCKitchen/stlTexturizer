@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 /**
  * CPU-side UV mapping — exact JavaScript mirror of the GLSL in previewMaterial.js.
  * All functions take Three.js Vector3 objects for position/normal and

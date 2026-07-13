@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Faithful full-pipeline reproduction using the REAL app modules.
 // Mirrors handleExport() exactly: subdivide → regularize → re-subdivide →
 // displace → bottom-clamp → smoothBottom → decimate(harvest) → resolveTJunctions.

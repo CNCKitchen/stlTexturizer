@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Diagnostic: histogram of edge-instance counts on the decimate INPUT mesh
 // (pipeline up to displacement + bottom snaps), welded at the 1e6 grid.
 // Purpose: check whether edges with >=4 incident face-instances exist — those

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Locate a triangle by index in an exported 3MF and report where it sits
 // relative to the triplanar texture-tile lines of a centered cube.
 //   node diag-locate-tri.mjs <file.3mf> <triIndex> [scaleU]

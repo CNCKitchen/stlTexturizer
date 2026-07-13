@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Full-pipeline benchmark: runs the REAL export pipeline (exportPipeline.js —
 // the exact module handleExport and the export worker execute) and prints
 // per-stage wall time, peak RSS, and an FNV-1a fingerprint of the final

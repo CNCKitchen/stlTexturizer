@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Diagnose the "Snap near-bottom vertices" (smoothBottom) defects: run the
 // REAL export pipeline on a model with smoothBottom on/off, simulate the
 // export→import round-trip (toFixed(4)+fround → weld 1e4 → drop slivers),

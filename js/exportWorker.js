@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 /**
  * exportWorker.js — dedicated module-worker entry for the export/bake mesh
  * pipeline. Keeps the multi-second subdivide/displace/decimate work off the

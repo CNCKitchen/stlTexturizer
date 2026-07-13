@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 /**
  * exportPipeline.js — the heavy mesh pipeline behind Export and Bake,
  * extracted from main.js so it can run EITHER on the main thread (fallback)

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Generate 80×80 WebP thumbnails for preset textures (cover-crop, center)."""
 from pathlib import Path
 from PIL import Image

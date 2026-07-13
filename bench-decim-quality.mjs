@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Empirical validation of the Smart-button "minimum-quality-loss" maxTriangles
 // formula: target_edge_decim = 3 × PPE × pixMm × √(0.5/max(amp, 0.1)).
 //

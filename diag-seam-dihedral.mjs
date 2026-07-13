@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Hunt residual tile-seam artifacts in the FINAL exported geometry.
 //
 // Runs the real export pipeline on a flat plate (planar-XY mapping, bubble

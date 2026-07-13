@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 /**
  * threeCompat.js — single resolution point for the three.js dependency of the
  * mesh-processing pipeline modules (subdivision, regularize, displacement,
