@@ -891,8 +891,12 @@ let PRESETS = [];
 
 initViewer(canvas);
 
-// Apply saved theme to 3D viewport on startup
-setViewerTheme(document.documentElement.getAttribute('data-theme') === 'light');
+// Apply saved theme to 3D viewport + PWA chrome on startup
+{
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  setViewerTheme(isLight);
+  applyPwaThemeChrome(isLight);
+}
 
 // Populate the language selector
 function populateLanguageSelector() {
@@ -971,12 +975,26 @@ populateLanguageSelector();
   }
 })();
 
+// Keep PWA browser chrome in sync with the *site* theme (not OS prefers-color-scheme).
+function applyPwaThemeChrome(isLight) {
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  const statusBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+  if (themeColor) {
+    themeColor.setAttribute('content', isLight ? '#f0f0f5' : '#111114');
+  }
+  // Apple: "default" = light status bar; "black-translucent" for dark UI
+  if (statusBar) {
+    statusBar.setAttribute('content', isLight ? 'default' : 'black-translucent');
+  }
+}
+
 // Theme toggle
 document.getElementById('theme-toggle').addEventListener('click', () => {
   const isLight = document.documentElement.getAttribute('data-theme') !== 'light';
   document.documentElement.setAttribute('data-theme', isLight ? 'light' : 'dark');
   localStorage.setItem('stlt-theme', isLight ? 'light' : 'dark');
   setViewerTheme(isLight);
+  applyPwaThemeChrome(isLight);
 });
 
 wireEvents();

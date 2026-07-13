@@ -154,6 +154,8 @@ Open http://localhost:8000 in your browser and you're ready to go.
 
 > **Tip:** Any static server will work — the app has no server-side dependencies.
 
+> **PWA changes:** Read [PWA.md](PWA.md) before you commit and push.
+
 ## Dependencies
 
 Loaded via CDN ([jsDelivr](https://www.jsdelivr.com/)) — no build step or npm install needed:
