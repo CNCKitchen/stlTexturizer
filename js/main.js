@@ -988,9 +988,13 @@ populateLanguageSelector();
 function applyPwaThemeChrome(isLight) {
   const themeColor = document.querySelector('meta[name="theme-color"]');
   const statusBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-  if (themeColor) themeColor.setAttribute('content', isLight ? '#f0f0f5' : '#111114');
+  if (themeColor) {
+    themeColor.setAttribute('content', isLight ? '#f0f0f5' : '#111114');
+  }
   // Apple: "default" = light status bar; "black-translucent" for dark UI
-  if (statusBar) statusBar.setAttribute('content', isLight ? 'default' : 'black-translucent');
+  if (statusBar) {
+    statusBar.setAttribute('content', isLight ? 'default' : 'black-translucent');
+  }
 }
 
 // Theme toggle

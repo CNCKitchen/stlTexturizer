@@ -41,13 +41,19 @@
       const prefersDark = t ? t === 'dark'
                             : window.matchMedia('(prefers-color-scheme: dark)').matches;
       const isLight = !prefersDark;
-      if (isLight) document.documentElement.setAttribute('data-theme', 'light');
+      if (isLight) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
 
       var themeColor = document.querySelector('meta[name="theme-color"]');
       var statusBar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
-      if (themeColor) themeColor.setAttribute('content', isLight ? '#f0f0f5' : '#111114');
+      if (themeColor) {
+        themeColor.setAttribute('content', isLight ? '#f0f0f5' : '#111114');
+      }
       // default = light bar / dark text; black-translucent = dark translucent bar
-      if (statusBar) statusBar.setAttribute('content', isLight ? 'default' : 'black-translucent');
+      if (statusBar) {
+        statusBar.setAttribute('content', isLight ? 'default' : 'black-translucent');
+      }
     })();
   </script>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
