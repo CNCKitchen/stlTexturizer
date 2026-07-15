@@ -305,17 +305,18 @@ function parse3MF(data) {
         vertices[i * 3 + 1] = parseFloat(vertEls[i].getAttribute('y'));
         vertices[i * 3 + 2] = parseFloat(vertEls[i].getAttribute('z'));
       }
-      const triangles = new Uint32Array(triEls.length * 3);
+      // Validate raw attrs before storing — Uint32Array coerces on write
+      // (NaN→0, negatives wrap), so post-hoc checks can't catch bad input.
+      const vertCount  = vertEls.length;
+      const triangles  = new Uint32Array(triEls.length * 3);
       for (let i = 0; i < triEls.length; i++) {
-        triangles[i * 3]     = parseInt(triEls[i].getAttribute('v1'), 10);
-        triangles[i * 3 + 1] = parseInt(triEls[i].getAttribute('v2'), 10);
-        triangles[i * 3 + 2] = parseInt(triEls[i].getAttribute('v3'), 10);
-      }
-
-      const vertCount = vertEls.length;
-      for (let i = 0; i < triangles.length; i++) {
-        if (triangles[i] < 0 || triangles[i] >= vertCount || isNaN(triangles[i])) {
-          throw new Error('Invalid triangle index in 3MF file');
+        for (let j = 0; j < 3; j++) {
+          const raw = triEls[i].getAttribute('v' + (j + 1));
+          const idx = (raw !== null && /^[0-9]+$/.test(raw.trim())) ? Number(raw) : NaN;
+          if (!Number.isInteger(idx) || idx >= vertCount) {
+            throw new Error('Invalid triangle index in 3MF file');
+          }
+          triangles[i * 3 + j] = idx;
         }
       }
 
