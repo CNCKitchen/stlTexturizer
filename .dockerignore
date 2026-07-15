@@ -1,0 +1,9 @@
+.git
+.claude
+node_modules
+debug_out
+package.json
+package-lock.json
+*.stl
+*.3mf
+test-*.mjs

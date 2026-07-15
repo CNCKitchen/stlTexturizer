@@ -1,0 +1,9 @@
+services:
+  bumpmesh:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bumpmesh:latest
+    restart: unless-stopped
+    ports:
+      - "${BUMP_MESH_PORT:-8080}:80"
