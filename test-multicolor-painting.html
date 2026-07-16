@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<!-- Browser smoke test for multicolor 3MF painting.
+     Serve the repo root over HTTP and open this page. It verifies that
+     displacement-threshold geometry is split into painted regions, then
+     intercepts the 3MF download and checks both Prusa/Orca and Bambu/Orca
+     face-paint attributes in 3D/3dmodel.model.
+     Headless: chrome --headless --dump-dom <url> and grep RESULT. -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RUNNING</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "fflate": "https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js"
+    }
+  }
+  </script>
+</head>
+<body>
+<pre id="result">RUNNING</pre>
+<script type="module">
+import * as THREE from 'three';
+import { unzipSync, strFromU8 } from 'fflate';
+import { buildMulticolorPaintedGeometry } from './js/multicolorPainting.js';
+import { export3MFPainted } from './js/exporter.js';
+
+const out = (s) => { document.getElementById('result').textContent = s; document.title = s; beacon(s); };
+const beacon = (s) => { try { fetch('/__test__/' + encodeURIComponent(s)).catch(() => {}); } catch {} };
+
+function makeThresholdTriangle() {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    0, 0, 0,
+    1, 0, 0,
+    0, 1, 0,
+  ]), 3));
+  geometry.setAttribute('signedDisplacement', new THREE.BufferAttribute(new Float32Array([
+    0,
+    1,
+    0.25,
+  ]), 1));
+  return geometry;
+}
+
+function captureDownload(fn) {
+  let blob = null;
+  const createObjectURL = URL.createObjectURL;
+  const revokeObjectURL = URL.revokeObjectURL;
+  const appendChild = document.body.appendChild.bind(document.body);
+  URL.createObjectURL = (b) => { blob = b; return 'blob:captured'; };
+  URL.revokeObjectURL = () => {};
+  document.body.appendChild = (node) => {
+    if (node && node.tagName === 'A') node.click = () => {};
+    return appendChild(node);
+  };
+  try {
+    fn();
+  } finally {
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    document.body.appendChild = appendChild;
+  }
+  return blob;
+}
+
+try {
+  const settings = {
+    invertDisplacement: false,
+    symmetricDisplacement: false,
+    multicolorOutwardThreshold: 0.5,
+    multicolorInwardThreshold: -2,
+  };
+  const painted = buildMulticolorPaintedGeometry(makeThresholdTriangle(), settings);
+  const triCount = painted.geometry.attributes.position.count / 3;
+  const materialList = Array.from(painted.materialIndices).join(',');
+  if (triCount !== 3 || materialList !== '0,0,1') {
+    throw new Error(`unexpected painted geometry tris=${triCount} materials=${materialList}`);
+  }
+
+  const exportGeometry = new THREE.BufferGeometry();
+  exportGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    0, 0, 0,  1, 0, 0,  0, 1, 0,
+    1, 0, 0,  1, 1, 0,  0, 1, 0,
+    0, 0, 1,  1, 0, 1,  0, 1, 1,
+  ]), 3));
+  const blob = captureDownload(() => export3MFPainted({
+    geometry: exportGeometry,
+    materialIndices: new Uint8Array([0, 1, 2]),
+    materials: painted.materials,
+  }, 'painted-smoke.3mf'));
+  if (!blob) throw new Error('no export blob captured');
+
+  const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
+  const xml = strFromU8(files['3D/3dmodel.model']);
+  const checks = [
+    ['slic3rpe:mmu_segmentation="8"', xml.includes('slic3rpe:mmu_segmentation="8"')],
+    ['slic3rpe:mmu_segmentation="0C"', xml.includes('slic3rpe:mmu_segmentation="0C"')],
+    ['paint_color="8"', xml.includes('paint_color="8"')],
+    ['paint_color="0C"', xml.includes('paint_color="0C"')],
+    ['BambuStudio:MmPaintingVersion', xml.includes('BambuStudio:MmPaintingVersion')],
+    ['no malformed quote', !xml.includes('""/>')],
+  ];
+  const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
+  if (failed.length) throw new Error('missing: ' + failed.join(', '));
+
+  out(`RESULT: PASS tris=${triCount} materials=${materialList}`);
+} catch (err) {
+  out('RESULT: FAIL (' + ((err && err.message) || String(err)) + ')');
+}
+</script>
+</body>
+</html>

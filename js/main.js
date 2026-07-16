@@ -12,8 +12,8 @@ import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { regularizeMesh }     from './regularize.js';
 import { runExportPipeline }  from './exportPipeline.js';
-import { exportSTL, export3MF, export3MFParts } from './exporter.js';
-import { buildMulticolorPartGeometries, getMulticolorConfig } from './multicolorParts.js';
+import { exportSTL, export3MF, export3MFPainted } from './exporter.js';
+import { buildMulticolorPaintedGeometry, getMulticolorConfig } from './multicolorPainting.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
@@ -1403,7 +1403,7 @@ function wireEvents() {
   invertDisplacementCheckbox.addEventListener('change', () => {
     settings.invertDisplacement = invertDisplacementCheckbox.checked;
     settings.amplitude = (settings.invertDisplacement ? -1 : 1) * settings.textureHeight;
-    updateMulticolorPartRows();
+    updateMulticolorPaintingRows();
     updatePreview();
   });
   linkSlider(boundaryFalloffSlider, boundaryFalloffVal, v => { settings.boundaryFalloff = v; _falloffDirty = true; return v.toFixed(1); });
@@ -1426,7 +1426,7 @@ function wireEvents() {
   linkSlider(capAngleSlider,          capAngleVal,          v => { settings.capAngle         = v; return Math.round(v); });
   symmetricDispToggle.addEventListener('change', () => {
     settings.symmetricDisplacement = symmetricDispToggle.checked;
-    updateMulticolorPartRows();
+    updateMulticolorPaintingRows();
     updatePreview();
   });
   noDownwardZChk.addEventListener('change', () => {
@@ -1459,7 +1459,7 @@ function wireEvents() {
     settings.multicolorInwardThreshold = v;
     return v.toFixed(2);
   });
-  updateMulticolorPartRows();
+  updateMulticolorPaintingRows();
 
   dispPreviewToggle.addEventListener('change', () => {
     toggleDisplacementPreview(dispPreviewToggle.checked);
@@ -3038,7 +3038,7 @@ function checkAmplitudeWarning() {
   amplitudeVal.classList.toggle('amp-danger', danger);
 }
 
-function updateMulticolorPartRows() {
+function updateMulticolorPaintingRows() {
   const cfg = getMulticolorConfig(settings);
   if (multicolorOutwardRow) multicolorOutwardRow.classList.toggle('hidden', !cfg.outwardRelevant);
   if (multicolorInwardRow) multicolorInwardRow.classList.toggle('hidden', !cfg.inwardRelevant);
@@ -4476,7 +4476,7 @@ async function handleExport(format = 'stl') {
   }
 
   let finalGeometry   = null;
-  let multicolorParts = null;
+  let multicolorPainted = null;
   let exportSucceeded = false; // set true only after exportSTL so finally can clean up on abort/error
 
   try {
@@ -4500,8 +4500,8 @@ async function handleExport(format = 'stl') {
     const exportEntry = getEffectiveMapEntry();
     const isStale = () => exportToken !== myToken;
     const multicolorConfig = getMulticolorConfig(settings);
-    const useMulticolorParts = format === '3mf' && multicolorConfig.active;
-    const pipelineSettings = useMulticolorParts
+    const useMulticolorPainting = format === '3mf' && multicolorConfig.active;
+    const pipelineSettings = useMulticolorPainting
       ? { ...settings, includeDisplacementMetadata: true }
       : settings;
     const result = await runPipeline({
@@ -4559,9 +4559,9 @@ async function handleExport(format = 'stl') {
       setProgress(0.97, t('progress.writing3mf'));
       await yieldFrame();
       if (exportToken !== myToken) return;
-      if (useMulticolorParts) {
-        multicolorParts = buildMulticolorPartGeometries(finalGeometry, settings);
-        export3MFParts(multicolorParts, `${baseName}_parts.3mf`);
+      if (useMulticolorPainting) {
+        multicolorPainted = buildMulticolorPaintedGeometry(finalGeometry, settings);
+        export3MFPainted(multicolorPainted, `${baseName}_painted.3mf`);
       } else {
         export3MF(finalGeometry, `${baseName}.3mf`);
       }
@@ -4589,10 +4589,8 @@ async function handleExport(format = 'stl') {
     // Intermediate geometries live inside the pipeline (worker or inline) and
     // are disposed there; only the reconstructed output remains on this side.
     if (finalGeometry) finalGeometry.dispose();
-    if (multicolorParts) {
-      for (const part of multicolorParts) {
-        if (part.geometry && part.geometry !== finalGeometry) part.geometry.dispose();
-      }
+    if (multicolorPainted && multicolorPainted.geometry && multicolorPainted.geometry !== finalGeometry) {
+      multicolorPainted.geometry.dispose();
     }
     // Hide progress immediately on error or stale abort; success hides it after 1500 ms.
     if (!exportSucceeded) exportProgress.classList.add('hidden');
@@ -5146,7 +5144,7 @@ function applySettingsSnapshot(snap) {
     harvestTolInput.value = snap.harvestTol;
     harvestTolInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
-  updateMulticolorPartRows();
+  updateMulticolorPaintingRows();
 
   // Cylindrical-mode state. cylinderCenterX/Y/radius pass through unchanged
   // (null is meaningful — falls back to AABB defaults during projection).

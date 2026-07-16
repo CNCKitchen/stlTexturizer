@@ -489,15 +489,15 @@
         <div class="advanced-content" id="advanced-content">
           <p class="advanced-blurb" data-i18n="ui.advancedBlurb">Experimental tools. Behavior may change between releases.</p>
 
-          <h3 class="panel-subsection-heading" data-i18n="ui.multicolorPartsHeading">Multicolor Parts (3MF)</h3>
-          <p class="advanced-blurb" data-i18n="ui.multicolorPartsDesc">Export raised or inset texture regions as separate 3MF parts for slicer filament assignment. A slider at its maximum extent is disabled: +2 mm means no raised region can exceed it, and −2 mm means no inset region can exceed it.</p>
+          <h3 class="panel-subsection-heading" data-i18n="ui.multicolorPaintingHeading">Multicolor Painting (3MF)</h3>
+          <p class="advanced-blurb" data-i18n="ui.multicolorPaintingDesc">Export raised or inset texture regions as painted 3MF material regions for slicer filament assignment. A slider at its maximum extent is disabled: +2 mm means no raised region can exceed it, and −2 mm means no inset region can exceed it.</p>
           <div class="form-row slider-row" id="multicolor-outward-row">
-            <label for="multicolor-outward-threshold" data-i18n="ui.multicolorOutward">Raised part threshold (mm)</label>
+            <label for="multicolor-outward-threshold" data-i18n="ui.multicolorOutward">Raised paint threshold (mm)</label>
             <input type="range" id="multicolor-outward-threshold" min="-2" max="2" step="0.01" value="2" />
             <input type="number" class="val" id="multicolor-outward-threshold-val" value="2" min="-2" max="2" step="0.01" data-wheel-decimals="2" />
           </div>
           <div class="form-row slider-row hidden" id="multicolor-inward-row">
-            <label for="multicolor-inward-threshold" data-i18n="ui.multicolorInward">Inset part threshold (mm)</label>
+            <label for="multicolor-inward-threshold" data-i18n="ui.multicolorInward">Inset paint threshold (mm)</label>
             <input type="range" id="multicolor-inward-threshold" min="-2" max="2" step="0.01" value="-2" />
             <input type="number" class="val" id="multicolor-inward-threshold-val" value="-2" min="-2" max="2" step="0.01" data-wheel-decimals="2" />
           </div>

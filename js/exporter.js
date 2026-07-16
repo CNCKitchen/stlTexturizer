@@ -231,19 +231,28 @@ export function export3MF(geometry, filename = 'textured.3mf') {
 }
 
 /**
- * Multipart 3MF exporter for slicer-visible color/filament assignment.
+ * Painted 3MF exporter for slicer-visible color/filament assignment.
  *
- * Each part is written as a separate build object and also tagged with a core
- * base material display color. The file does not try to encode printer,
- * filament, or toolhead profiles; slicers remain responsible for mapping parts
- * to actual filaments.
+ * Writes one non-overlapping mesh object and assigns a base material index per
+ * triangle. Generic 3MF material properties are retained for viewers, while
+ * Prusa/Orca `slic3rpe:mmu_segmentation` and Bambu/Orca `paint_color`
+ * attributes are emitted for slicers that ignore core 3MF materials.
  *
- * @param {Array<{name:string,color:string,geometry:THREE.BufferGeometry}>} parts
+ * @param {{
+ *   geometry: THREE.BufferGeometry,
+ *   materialIndices: Uint8Array,
+ *   materials: Array<{name:string,color:string}>
+ * }} painted
  * @param {string} [filename]
  */
-export function export3MFParts(parts, filename = 'textured-parts.3mf') {
-  const validParts = parts.filter(p => p && p.geometry && p.geometry.attributes.position && p.geometry.attributes.position.count >= 3);
-  if (validParts.length === 0) throw new Error('No geometry available for multipart 3MF export');
+export function export3MFPainted(painted, filename = 'textured-painted.3mf') {
+  if (!painted || !painted.geometry || !painted.geometry.attributes.position) {
+    throw new Error('No geometry available for painted 3MF export');
+  }
+  const triCount = painted.geometry.attributes.position.count / 3;
+  if (!painted.materialIndices || painted.materialIndices.length !== triCount) {
+    throw new Error('Painted 3MF material indices do not match the mesh triangle count');
+  }
 
   const enc = new TextEncoder();
   const byteChunks = [];
@@ -266,24 +275,29 @@ export function export3MFParts(parts, filename = 'textured-parts.3mf') {
   emit(
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<model unit="millimeter" xml:lang="en-US" ' +
-    'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n' +
+    'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" ' +
+    'xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06">\n' +
+    '<metadata name="slic3rpe:Version3mf">1</metadata>\n' +
+    '<metadata name="slic3rpe:MmPaintingVersion">1</metadata>\n' +
+    '<metadata name="BambuStudio:3mfVersion">1</metadata>\n' +
+    '<metadata name="BambuStudio:MmPaintingVersion">0</metadata>\n' +
+    // Bambu/Orca only read `paint_color` through their Bambu-project import
+    // path, which is gated by the generator metadata. Keep the real producer in
+    // a namespaced metadata key below rather than losing it completely.
+    '<metadata name="Application">BambuStudio-1.10.0</metadata>\n' +
+    '<metadata name="STLTexturizer:Application">STL Texturizer</metadata>\n' +
     '<resources>\n' +
     '<basematerials id="1">\n'
   );
-  for (const part of validParts) {
-    emit('<base name="' + xmlAttr(part.name) + '" displaycolor="' + xmlAttr(part.color || '#cccccc') + '"/>\n');
+  for (const mat of painted.materials) {
+    emit('<base name="' + xmlAttr(mat.name) + '" displaycolor="' + xmlAttr(mat.color || '#cccccc') + '"/>\n');
   }
   emit('</basematerials>\n');
 
-  const objectIds = [];
-  for (let p = 0; p < validParts.length; p++) {
-    const objectId = p + 2;
-    objectIds.push(objectId);
-    emitPartObject(emit, validParts[p].geometry, objectId, 1, p);
-  }
+  emitPaintedObject(emit, painted.geometry, painted.materialIndices, 2, 1);
 
   emit('</resources>\n<build>\n');
-  for (const objectId of objectIds) emit('<item objectid="' + objectId + '"/>\n');
+  emit('<item objectid="2" printable="1"/>\n');
   emit('</build>\n</model>\n');
   flush();
 
@@ -320,7 +334,7 @@ export function export3MFParts(parts, filename = 'textured-parts.3mf') {
   );
 }
 
-function emitPartObject(emit, geometry, objectId, materialPid, materialIndex) {
+function emitPaintedObject(emit, geometry, materialIndices, objectId, materialPid) {
   const posArr = geometry.attributes.position.array;
   const triCount = (posArr.length / 9) | 0;
   const indexMap  = new QuantizedPointMap(1e4, Math.min(triCount * 3, 1 << 22));
@@ -339,7 +353,7 @@ function emitPartObject(emit, geometry, objectId, materialPid, materialIndex) {
     }
   }
 
-  emit('<object id="' + objectId + '" type="model" name="part-' + objectId + '">\n<mesh>\n<vertices>\n');
+  emit('<object id="' + objectId + '" type="model" name="Painted Texture" pid="' + materialPid + '" pindex="0">\n<mesh>\n<vertices>\n');
   const fmt = (n) => {
     let s = n.toFixed(4);
     if (s.indexOf('.') !== -1) s = s.replace(/0+$/, '').replace(/\.$/, '');
@@ -356,16 +370,39 @@ function emitPartObject(emit, geometry, objectId, materialPid, materialIndex) {
   emit('</vertices>\n<triangles>\n');
   for (let i = 0; i < triCount; i++) {
     const b = i * 3;
+    const mi = materialIndices[i] || 0;
+    const mmuSegmentation = orcaMmuSegmentationForMaterial(mi);
+    const bambuPaintColor = bambuPaintColorForMaterial(mi);
     emit(
       '<triangle v1="' + triIdx[b] +
       '" v2="'         + triIdx[b + 1] +
       '" v3="'         + triIdx[b + 2] +
       '" pid="'        + materialPid +
-      '" p1="'         + materialIndex +
-      '"/>\n'
+      '" p1="'         + mi +
+      '" p2="'         + mi +
+      '" p3="'         + mi + '"' +
+      (mmuSegmentation ? ' slic3rpe:mmu_segmentation="' + mmuSegmentation + '"' : '') +
+      (bambuPaintColor ? ' paint_color="' + bambuPaintColor + '"' : '') +
+      '/>\n'
     );
   }
   emit('</triangles>\n</mesh>\n</object>\n');
+}
+
+function orcaMmuSegmentationForMaterial(materialIndex) {
+  return filamentPaintingCode(materialIndex);
+}
+
+function bambuPaintColorForMaterial(materialIndex) {
+  return filamentPaintingCode(materialIndex);
+}
+
+function filamentPaintingCode(materialIndex) {
+  // Orca/Bambu TriangleSelector whole-face state encoding:
+  // state 2 => extruder 2 => "8"; state 3 => extruder 3 => "0C".
+  if (materialIndex === 1) return '8';
+  if (materialIndex === 2) return '0C';
+  return '';
 }
 
 function xmlAttr(value) {
