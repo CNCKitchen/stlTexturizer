@@ -12,7 +12,8 @@ import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { regularizeMesh }     from './regularize.js';
 import { runExportPipeline }  from './exportPipeline.js';
-import { exportSTL, export3MF } from './exporter.js';
+import { exportSTL, export3MF, export3MFParts } from './exporter.js';
+import { buildMulticolorPartGeometries, getMulticolorConfig } from './multicolorParts.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
@@ -103,6 +104,8 @@ const settings = {
   smoothBottom: true,
   harvestFlatFaces: true,
   harvestTol: 0.005,
+  multicolorOutwardThreshold: 2.0,
+  multicolorInwardThreshold: -2.0,
   useDisplacement: false,
   // Cylindrical-mode controls.
   // null/undefined → derive from bounds (preserves legacy / non-cylindrical behavior).
@@ -329,6 +332,12 @@ const smoothBottomChk        = document.getElementById('smooth-bottom-chk');
 const harvestFlatChk         = document.getElementById('harvest-flat-chk');
 const harvestTolInput        = document.getElementById('harvest-tol');
 const harvestTolRow          = document.getElementById('harvest-tol-row');
+const multicolorOutwardRow      = document.getElementById('multicolor-outward-row');
+const multicolorInwardRow       = document.getElementById('multicolor-inward-row');
+const multicolorOutwardSlider   = document.getElementById('multicolor-outward-threshold');
+const multicolorInwardSlider    = document.getElementById('multicolor-inward-threshold');
+const multicolorOutwardVal      = document.getElementById('multicolor-outward-threshold-val');
+const multicolorInwardVal       = document.getElementById('multicolor-inward-threshold-val');
 
 // ── Exclusion panel DOM refs ──────────────────────────────────────────────────
 const exclBrushBtn        = document.getElementById('excl-brush-btn');
@@ -1394,6 +1403,7 @@ function wireEvents() {
   invertDisplacementCheckbox.addEventListener('change', () => {
     settings.invertDisplacement = invertDisplacementCheckbox.checked;
     settings.amplitude = (settings.invertDisplacement ? -1 : 1) * settings.textureHeight;
+    updateMulticolorPartRows();
     updatePreview();
   });
   linkSlider(boundaryFalloffSlider, boundaryFalloffVal, v => { settings.boundaryFalloff = v; _falloffDirty = true; return v.toFixed(1); });
@@ -1416,6 +1426,7 @@ function wireEvents() {
   linkSlider(capAngleSlider,          capAngleVal,          v => { settings.capAngle         = v; return Math.round(v); });
   symmetricDispToggle.addEventListener('change', () => {
     settings.symmetricDisplacement = symmetricDispToggle.checked;
+    updateMulticolorPartRows();
     updatePreview();
   });
   noDownwardZChk.addEventListener('change', () => {
@@ -1440,6 +1451,15 @@ function wireEvents() {
     if (Number.isFinite(v) && v >= 0) settings.harvestTol = v;
     // No preview rebuild needed — harvesting only affects the final decimation.
   });
+  linkSlider(multicolorOutwardSlider, multicolorOutwardVal, v => {
+    settings.multicolorOutwardThreshold = v;
+    return v.toFixed(2);
+  });
+  linkSlider(multicolorInwardSlider, multicolorInwardVal, v => {
+    settings.multicolorInwardThreshold = v;
+    return v.toFixed(2);
+  });
+  updateMulticolorPartRows();
 
   dispPreviewToggle.addEventListener('change', () => {
     toggleDisplacementPreview(dispPreviewToggle.checked);
@@ -3018,6 +3038,12 @@ function checkAmplitudeWarning() {
   amplitudeVal.classList.toggle('amp-danger', danger);
 }
 
+function updateMulticolorPartRows() {
+  const cfg = getMulticolorConfig(settings);
+  if (multicolorOutwardRow) multicolorOutwardRow.classList.toggle('hidden', !cfg.outwardRelevant);
+  if (multicolorInwardRow) multicolorInwardRow.classList.toggle('hidden', !cfg.inwardRelevant);
+}
+
 // Shell colours — evenly spaced hues, high saturation
 const SHELL_COLORS = [0xe6194b, 0x3cb44b, 0x4363d8, 0xf58231, 0x911eb4, 0x42d4f4, 0xf032e6, 0xbfef45, 0xfabed4, 0xdcbeff, 0x9a6324, 0x800000, 0xaaffc3, 0x808000, 0x000075, 0xa9a9a9];
 
@@ -4450,6 +4476,7 @@ async function handleExport(format = 'stl') {
   }
 
   let finalGeometry   = null;
+  let multicolorParts = null;
   let exportSucceeded = false; // set true only after exportSTL so finally can clean up on abort/error
 
   try {
@@ -4472,13 +4499,18 @@ async function handleExport(format = 'stl') {
     // running inline if the worker can't initialise. See exportPipeline.js.
     const exportEntry = getEffectiveMapEntry();
     const isStale = () => exportToken !== myToken;
+    const multicolorConfig = getMulticolorConfig(settings);
+    const useMulticolorParts = format === '3mf' && multicolorConfig.active;
+    const pipelineSettings = useMulticolorParts
+      ? { ...settings, includeDisplacementMetadata: true }
+      : settings;
     const result = await runPipeline({
       positions: currentGeometry.attributes.position.array,
       faceWeights,
       imageData: exportEntry.imageData,
       imgWidth: exportEntry.width,
       imgHeight: exportEntry.height,
-      settings,
+      settings: pipelineSettings,
       bounds: currentBounds,
       regularizeOpts: _regularizeOpts(),
       mode: 'export',
@@ -4494,10 +4526,14 @@ async function handleExport(format = 'stl') {
     // must stay after runPipeline — and outside of it, keeping the
     // bench-pipeline fingerprint valid. result arrays are fresh; mutating is safe.
     _restoreOriginalPose(result.positions, result.normals);
+    if (result.originalPositions) _restoreOriginalPose(result.originalPositions, result.displacementNormals);
 
     finalGeometry = new THREE.BufferGeometry();
     finalGeometry.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
     if (result.normals) finalGeometry.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
+    if (result.originalPositions) finalGeometry.setAttribute('originalPosition', new THREE.BufferAttribute(result.originalPositions, 3));
+    if (result.displacementNormals) finalGeometry.setAttribute('displacementNormal', new THREE.BufferAttribute(result.displacementNormals, 3));
+    if (result.signedDisplacements) finalGeometry.setAttribute('signedDisplacement', new THREE.BufferAttribute(result.signedDisplacements, 1));
 
     if (result.repairStats) {
       const rs = result.repairStats;
@@ -4523,7 +4559,12 @@ async function handleExport(format = 'stl') {
       setProgress(0.97, t('progress.writing3mf'));
       await yieldFrame();
       if (exportToken !== myToken) return;
-      export3MF(finalGeometry, `${baseName}.3mf`);
+      if (useMulticolorParts) {
+        multicolorParts = buildMulticolorPartGeometries(finalGeometry, settings);
+        export3MFParts(multicolorParts, `${baseName}_parts.3mf`);
+      } else {
+        export3MF(finalGeometry, `${baseName}.3mf`);
+      }
     } else {
       setProgress(0.97, t('progress.writingStl'));
       await yieldFrame();
@@ -4548,6 +4589,11 @@ async function handleExport(format = 'stl') {
     // Intermediate geometries live inside the pipeline (worker or inline) and
     // are disposed there; only the reconstructed output remains on this side.
     if (finalGeometry) finalGeometry.dispose();
+    if (multicolorParts) {
+      for (const part of multicolorParts) {
+        if (part.geometry && part.geometry !== finalGeometry) part.geometry.dispose();
+      }
+    }
     // Hide progress immediately on error or stale abort; success hides it after 1500 ms.
     if (!exportSucceeded) exportProgress.classList.add('hidden');
     isExporting = false;
@@ -4991,6 +5037,7 @@ const PERSISTED_KEYS = [
   'offsetU', 'offsetV', 'rotation',
   'amplitude', 'textureHeight', 'invertDisplacement',
   'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'harvestFlatFaces', 'harvestTol', 'textureSmoothing',
+  'multicolorOutwardThreshold', 'multicolorInwardThreshold',
   'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff',
   'bottomAngleLimit', 'topAngleLimit',
   'refineLength', 'maxTriangles',
@@ -5059,6 +5106,8 @@ function applySettingsSnapshot(snap) {
   setLinkedVal(seamBandWidthVal,    snap.seamBandWidth);
   setLinkedVal(capAngleVal,         snap.capAngle);
   setLinkedVal(boundaryFalloffVal,  snap.boundaryFalloff);
+  setLinkedVal(multicolorOutwardVal, snap.multicolorOutwardThreshold);
+  setLinkedVal(multicolorInwardVal,  snap.multicolorInwardThreshold);
   setLinkedVal(bottomAngleLimitVal, snap.bottomAngleLimit);
   setLinkedVal(topAngleLimitVal,    snap.topAngleLimit);
   setLinkedVal(refineLenVal,        snap.refineLength);
@@ -5097,6 +5146,7 @@ function applySettingsSnapshot(snap) {
     harvestTolInput.value = snap.harvestTol;
     harvestTolInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
+  updateMulticolorPartRows();
 
   // Cylindrical-mode state. cylinderCenterX/Y/radius pass through unchanged
   // (null is meaningful — falls back to AABB defaults during projection).
@@ -5177,6 +5227,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   offsetU: 0, offsetV: 0, rotation: 0,
   amplitude: 0.5, textureHeight: 0.5, invertDisplacement: false,
   symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, harvestFlatFaces: true, harvestTol: 0.005, textureSmoothing: 0,
+  multicolorOutwardThreshold: 2, multicolorInwardThreshold: -2,
   mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
   bottomAngleLimit: 5, topAngleLimit: 0,
   refineLength: 1, maxTriangles: 750000,

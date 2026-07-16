@@ -263,13 +263,15 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     subdivided = null;
 
     const dispTriCount = displaced.attributes.position.count / 3;
+    const keepDisplacementMetadata = !!settings.includeDisplacementMetadata;
     const needsDecimation = dispTriCount > settings.maxTriangles;
     finalGeometry = displaced;
 
     // Decimation runs only in export mode (bake keeps the parent-face map,
     // which decimate drops): when over the target OR when flat-face harvesting
-    // alone is wanted.
-    const runDecimation = mode === 'export' && (needsDecimation || settings.harvestFlatFaces);
+    // alone is wanted. Multicolor export also skips decimation because the
+    // current decimator does not preserve displacement-threshold metadata.
+    const runDecimation = mode === 'export' && !keepDisplacementMetadata && (needsDecimation || settings.harvestFlatFaces);
     if (runDecimation) {
       onEvent('decimate', 0, { from: dispTriCount, needsDecimation });
       await yieldFrame();
@@ -319,6 +321,9 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     return {
       positions: finalGeometry.attributes.position.array,
       normals: finalGeometry.attributes.normal ? finalGeometry.attributes.normal.array : null,
+      originalPositions: finalGeometry.attributes.originalPosition ? finalGeometry.attributes.originalPosition.array : null,
+      displacementNormals: finalGeometry.attributes.displacementNormal ? finalGeometry.attributes.displacementNormal.array : null,
+      signedDisplacements: finalGeometry.attributes.signedDisplacement ? finalGeometry.attributes.signedDisplacement.array : null,
       safetyCapHit,
       runDecimation,
       needsDecimation,

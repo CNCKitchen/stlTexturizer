@@ -27,6 +27,10 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
 
   const newPos = new Float32Array(count * 3);
   const newNrm = new Float32Array(count * 3);
+  const needDisplacementMetadata = !!settings.includeDisplacementMetadata;
+  const originalPos = needDisplacementMetadata ? new Float32Array(count * 3) : null;
+  const dispNormal  = needDisplacementMetadata ? new Float32Array(count * 3) : null;
+  const signedDisp  = needDisplacementMetadata ? new Float32Array(count) : null;
 
   const tmpPos  = new THREE.Vector3();
   const tmpNrm  = new THREE.Vector3();
@@ -556,6 +560,20 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
       newZ = tmpPos.z;
     }
 
+    if (needDisplacementMetadata) {
+      const bi = i * 3;
+      originalPos[bi]     = tmpPos.x;
+      originalPos[bi + 1] = tmpPos.y;
+      originalPos[bi + 2] = tmpPos.z;
+      dispNormal[bi]      = smoothNrmX[vid];
+      dispNormal[bi + 1]  = smoothNrmY[vid];
+      dispNormal[bi + 2]  = smoothNrmZ[vid];
+      signedDisp[i] =
+        (newX - tmpPos.x) * smoothNrmX[vid] +
+        (newY - tmpPos.y) * smoothNrmY[vid] +
+        (newZ - tmpPos.z) * smoothNrmZ[vid];
+    }
+
     newPos[i*3]   = newX;
     newPos[i*3+1] = newY;
     newPos[i*3+2] = newZ;
@@ -592,6 +610,11 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.BufferAttribute(newPos, 3));
   out.setAttribute('normal',   new THREE.BufferAttribute(newNrm, 3));
+  if (needDisplacementMetadata) {
+    out.setAttribute('originalPosition', new THREE.BufferAttribute(originalPos, 3));
+    out.setAttribute('displacementNormal', new THREE.BufferAttribute(dispNormal, 3));
+    out.setAttribute('signedDisplacement', new THREE.BufferAttribute(signedDisp, 1));
+  }
   return out;
 }
 
