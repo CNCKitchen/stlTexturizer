@@ -17,7 +17,7 @@ import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
-import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
+import { t, tHtml, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
 import { QuantizedPointMap } from './meshIndex.js';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 
@@ -3138,7 +3138,7 @@ function renderFastDiag(diag) {
       meshDiagFast.appendChild(makeDiagLine(t('diag.multipleShells', { n: diag.shellCount }), 'shells'));
     const tip = document.createElement('div');
     tip.style.cssText = 'margin-top:4px;opacity:0.8;font-size:10px';
-    tip.innerHTML = t('diag.recommendFix');
+    tip.innerHTML = tHtml('diag.recommendFix');
     meshDiagFast.appendChild(tip);
   }
   applyDiagSeverity();
@@ -3156,7 +3156,7 @@ function renderAdvancedDiag(results) {
       meshDiagAdvanced.appendChild(makeDiagLine(t('diag.overlappingTris', { n: results.overlappingPairs }), 'overlaps'));
     const tip = document.createElement('div');
     tip.style.cssText = 'margin-top:4px;opacity:0.8;font-size:10px';
-    tip.innerHTML = t('diag.recommendFix');
+    tip.innerHTML = tHtml('diag.recommendFix');
     meshDiagAdvanced.appendChild(tip);
   }
   applyDiagSeverity();
@@ -3225,7 +3225,7 @@ function applySmartResolution() {
   const clampedNote = d.budgetClamped
     ? ` <span class="clamped">[${t('ui.smartResBudgetCapped')}]</span>`
     : '';
-  smartResInfo.innerHTML = t('ui.smartResInfo', {
+  smartResInfo.innerHTML = tHtml('ui.smartResInfo', {
     edge: result.edge.toFixed(2),
     ppe:  d.pixelsPerEdge.toFixed(1),
     pix:  d.pixMm.toFixed(3),
