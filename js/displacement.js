@@ -4,7 +4,7 @@
  */
 
 import { THREE } from './threeCompat.js';
-import { computeUV, getDominantCubicAxis, getCubicBlendWeights } from './mapping.js';
+import { computeUV, getDominantCubicAxis, getCubicBlendWeights, getReferenceExtent } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
 
 /**
@@ -439,7 +439,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     // 0.5 is loose enough that a 90° cube edge (≈0.71) still uses the smooth
     // path, but a near-180° fold falls back to face-area zones.
     if (settings.mappingMode === 6 /* MODE_CUBIC */) {
-      const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z, 1e-6);
+      const md = getReferenceExtent(settings, bounds);
       const rotRad = (settings.rotation ?? 0) * Math.PI / 180;
       const cubicBlend = settings.mappingBlend ?? 0;
       const cubicBandWidth = settings.seamBandWidth ?? 0.35;
