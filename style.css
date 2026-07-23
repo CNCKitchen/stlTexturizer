@@ -1727,6 +1727,83 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   color: var(--text);
 }
 
+/* ── STEP import dialog ─────────────────────────────────────────────────── */
+.step-modal { max-width: 360px; gap: 12px; }
+
+.step-model-size {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+  min-height: 15px;
+}
+
+.step-preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.step-preset-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.step-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.step-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.step-field-row input[type="number"] {
+  width: 84px;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.step-field-row input[type="number"]:disabled { opacity: 0.55; }
+
+.step-dialog-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.step-dialog-actions .export-go-btn { margin-top: 0; padding: 7px 18px; }
+
+.step-cancel-btn {
+  padding: 7px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.step-cancel-btn:hover { border-color: var(--accent); }
+
 /* ── Project save/load (header) ──────────────────────────────────────────── */
 .project-io {
   position: relative;

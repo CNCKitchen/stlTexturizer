@@ -115,8 +115,8 @@
             <path d="M2 17L12 22L22 17" stroke="#555" stroke-width="1.2" stroke-linejoin="round"/>
             <path d="M2 12L12 17L22 12" stroke="#555" stroke-width="1.2" stroke-linejoin="round"/>
           </svg>
-          <p data-i18n-html="dropHint.text">Drop an <strong>.stl</strong>, <strong>.obj</strong> or <strong>.3mf</strong> file here<br/>or <label for="stl-file-input" class="link-label">click to browse</label></p>
-          <input type="file" id="stl-file-input" accept=".stl,.obj,.3mf" hidden />
+          <p data-i18n-html="dropHint.text">Drop an <strong>.stl</strong>, <strong>.obj</strong>, <strong>.3mf</strong> or <strong>.step</strong> file here<br/>or <label for="stl-file-input" class="link-label">click to browse</label></p>
+          <input type="file" id="stl-file-input" accept=".stl,.obj,.3mf,.step,.stp" hidden />
         </div>
         <canvas id="viewport" role="img" aria-label="3D model preview"></canvas>
         <div id="brush-cursor"></div>
@@ -186,6 +186,13 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 0 1 14.5-4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 12a8 8 0 0 1-14.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.5 3v4.5H14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 21v-4.5H10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span data-i18n="ui.rotate">Rotate</span>
           </button>
+        </div>
+        <div id="import-progress" class="export-progress hidden" style="margin-top:10px;margin-bottom:0;">
+          <div class="export-progress-track">
+            <div id="import-progress-bar" class="export-progress-bar"></div>
+            <span id="import-progress-pct" class="export-progress-pct"></span>
+          </div>
+          <span id="import-progress-label" data-i18n="progress.stepTessellate">Tessellating STEP model…</span>
         </div>
         <div id="rotate-controls" class="rotate-controls hidden">
           <div class="rotate-inputs-row">
@@ -270,7 +277,7 @@
         <div class="form-row" id="cylinder-snap-row" style="display:none">
           <label class="checkbox-label" for="cylinder-snap-toggle"
             data-i18n-title="tooltips.snapSeamless"
-            title="Snap U scale to integer wrap counts so the texture seamlessly wraps around the cylinder.">
+            title="Snap U scale to integer wrap counts so the texture seamlessly wraps around the cylinder or sphere.">
             <input type="checkbox" id="cylinder-snap-toggle" checked />
             <span data-i18n="labels.snapSeamless">Snap to seamless wrap â“˜</span>
           </label>
@@ -373,13 +380,6 @@
       <section class="panel-section">
         <h2 data-i18n="sections.masking">Masking</h2>
 
-        <!-- Boundary Falloff (applies to both angle and surface masking) -->
-        <div class="form-row slider-row">
-          <label for="boundary-falloff" data-i18n="labels.boundaryFalloff" data-i18n-title="tooltips.boundaryFalloff" title="Gradually reduces displacement to zero near masked boundaries, preventing triangle overlap where textured and non-textured regions meet.">Smooth Mask â“˜</label>
-          <input type="range" id="boundary-falloff" min="0" max="10" step="0.1" value="0" />
-          <input type="number" class="val" id="boundary-falloff-val" value="0" min="0" max="10" step="0.1" data-wheel-decimals="2" />
-        </div>
-
         <!-- By Angle -->
         <h3 class="panel-subsection-heading" data-i18n="sections.maskAngles" data-i18n-title="tooltips.maskAngles" title="0Â° = no masking. Surfaces within this angle of horizontal will not be textured.">By Angle â“˜</h3>
         <div class="form-row slider-row">
@@ -400,7 +400,7 @@
         <!-- Mode toggle: Exclude / Include Only -->
         <div class="excl-mode-row">
           <div class="excl-seg">
-            <button id="excl-mode-exclude" class="excl-seg-btn active" aria-pressed="true"
+            <button id="excl-mode-exclude" class="excl-seg-btn" aria-pressed="false"
               data-i18n="excl.modeExclude" data-i18n-title="excl.modeExcludeTitle"
               title="Exclude mode: painted surfaces will not receive texture displacement">Exclude</button>
             <button id="excl-mode-include" class="excl-seg-btn" aria-pressed="false"
@@ -477,8 +477,24 @@
           <button id="excl-clear-btn" class="excl-clear-btn" data-i18n="ui.clearAll">Clear All</button>
         </div>
 
-        <!-- Debug: stats for last picked triangle (sliver/edge-length investigation) -->
-        <pre id="masking-tri-debug" class="masking-tri-debug" hidden></pre>
+        <!-- Boundary Falloff (applies to both angle and surface masking) -->
+        <h3 class="panel-subsection-heading" data-i18n="sections.smoothMask" data-i18n-title="tooltips.boundaryFalloff" title="Gradually reduces displacement to zero near masked boundaries, preventing triangle overlap where textured and non-textured regions meet.">Smooth Mask</h3>
+        <div class="form-row slider-row">
+          <label for="boundary-falloff" data-i18n="labels.falloffDistance" data-i18n-title="tooltips.falloffDistance" title="Width of the falloff band in millimetres. 0 = off.">Distance</label>
+          <input type="range" id="boundary-falloff" min="0" max="10" step="0.1" value="0" />
+          <input type="number" class="val" id="boundary-falloff-val" value="0" min="0" max="10" step="0.1" data-wheel-decimals="2" />
+        </div>
+
+        <!-- Falloff transition curve -->
+        <div class="form-row">
+          <span id="falloff-curve-label" class="form-row-label" data-i18n="labels.falloffCurve" data-i18n-title="tooltips.falloffCurve" title="Shape of the fade from zero to full texture height across the Smooth Mask distance.">Transition</span>
+          <div class="excl-seg" role="group" aria-labelledby="falloff-curve-label">
+            <button id="falloff-curve-linear" class="excl-seg-btn" aria-pressed="false" data-i18n="falloffCurve.linear" data-i18n-title="falloffCurve.linearTitle" title="Constant slope from the mask edge to full texture height.">Linear</button>
+            <button id="falloff-curve-scurve" class="excl-seg-btn" aria-pressed="false" data-i18n="falloffCurve.scurve" data-i18n-title="falloffCurve.scurveTitle" title="Eases in and out - no visible crease at either end of the transition.">S-Curve</button>
+            <button id="falloff-curve-ease" class="excl-seg-btn active" aria-pressed="true" data-i18n="falloffCurve.ease" data-i18n-title="falloffCurve.easeTitle" title="Starts very gently at the mask edge, then rises more steeply to full height.">Ease-In</button>
+          </div>
+        </div>
+
       </section>
 
       <!-- Advanced / Beta Features (collapsible) -->
@@ -524,6 +540,15 @@
             <input type="number" id="harvest-tol" class="val" min="0" max="1" step="0.005" value="0.005" />
           </div>
 
+          <h3 class="panel-subsection-heading" data-i18n="ui.preserveUntexturedHeading">Preserve Untextured Surfaces</h3>
+          <p class="advanced-blurb" data-i18n="ui.preserveUntexturedDesc">Keep surfaces that receive no texture (painted mask, angle masks) exactly as they are in the source model: mesh regularization and decimation will not move or remove any of their vertices, so fillets and fine details stay intact. If the untextured surfaces alone exceed the triangle limit, the export exceeds the limit instead of degrading the texture.</p>
+          <div class="form-row">
+            <label class="checkbox-label" for="preserve-untextured-chk">
+              <input type="checkbox" id="preserve-untextured-chk" checked />
+              <span data-i18n="ui.preserveUntextured">Don't modify untextured surfaces</span>
+            </label>
+          </div>
+
           <h3 class="panel-subsection-heading" data-i18n="ui.bakeTexturesHeading">Bake Textures</h3>
           <p class="advanced-blurb" data-i18n="ui.bakeTexturesDesc">Apply the current texture to the mesh and reload the result as the working model so you can keep editing.</p>
           <div class="form-row bake-mask-row">
@@ -545,6 +570,9 @@
                     data-i18n-title="tooltips.bakeTextures"
                     title="Apply the current texture to the mesh and reload the result as the working model.">Bake Textures</button>
           </div>
+
+          <!-- Debug: stats for last picked triangle (sliver/edge-length investigation) -->
+          <pre id="masking-tri-debug" class="masking-tri-debug" hidden></pre>
         </div>
       </section>
 
@@ -600,6 +628,39 @@
   </main>
 
   <!-- License popup -->
+  <!-- STEP import settings popup -->
+  <div id="step-overlay" class="license-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="step-dialog-title">
+    <div class="license-modal step-modal">
+      <button id="step-dialog-close" class="license-close-btn" aria-label="Close">&#215;</button>
+      <h2 id="step-dialog-title" data-i18n="step.dialogTitle">STEP Import</h2>
+      <p id="step-model-size" class="step-model-size"></p>
+      <div class="step-preset-list" role="radiogroup" aria-labelledby="step-dialog-title">
+        <label><input type="radio" name="step-preset" value="coarse" /> <span data-i18n="step.coarse">Coarse</span></label>
+        <label><input type="radio" name="step-preset" value="standard" checked /> <span data-i18n="step.standard">Standard</span></label>
+        <label><input type="radio" name="step-preset" value="fine" /> <span data-i18n="step.fine">Fine</span></label>
+        <label><input type="radio" name="step-preset" value="custom" /> <span data-i18n="step.custom">Custom</span></label>
+      </div>
+      <div class="step-field-list">
+        <div class="step-field-row">
+          <label for="step-surface-dev" data-i18n="step.surfaceDeviation">Surface deviation (mm)</label>
+          <input type="number" id="step-surface-dev" min="0.0001" step="any" disabled />
+        </div>
+        <div class="step-field-row">
+          <label for="step-normal-dev" data-i18n="step.normalDeviation">Normal deviation (°)</label>
+          <input type="number" id="step-normal-dev" min="1" max="90" step="any" disabled />
+        </div>
+        <div class="step-field-row">
+          <label for="step-max-edge" data-i18n="step.maxEdge">Max edge length (mm)</label>
+          <input type="number" id="step-max-edge" min="0.001" step="any" disabled />
+        </div>
+      </div>
+      <div class="step-dialog-actions">
+        <button id="step-import-cancel" class="step-cancel-btn" data-i18n="step.cancel">Cancel</button>
+        <button id="step-import-go" class="export-go-btn" data-i18n="step.import">Import</button>
+      </div>
+    </div>
+  </div>
+
   <div id="license-overlay" class="license-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="license-title">
     <div class="license-modal">
       <button id="license-close" class="license-close-btn" aria-label="Close">&#215;</button>
@@ -672,20 +733,16 @@
 
       <h3 class="welcome-heading">Quick start</h3>
       <ol class="welcome-steps">
-        <li>Import an STL, OBJ or 3MF.</li>
+        <li>Import an STL, OBJ, 3MF or STEP.</li>
         <li>Pick a texture from the preset library or upload your own image.</li>
         <li>Tweak amplitude, scale, and mapping mode to taste.</li>
         <li>Export as STL or 3MF.</li>
       </ol>
 
-      <h3 class="welcome-heading">New in this release <span class="welcome-date">&mdash; June 2026</span></h3>
+      <h3 class="welcome-heading">New in this release <span class="welcome-date">&mdash; July 2026</span></h3>
       <ul class="welcome-changelog">
-        <li><strong>Massive performance boost</strong> &mdash; the whole export pipeline was rebuilt: exports now run about <strong>3&times; faster</strong> and use <strong>70% less memory</strong>, so much larger models fit in your browser.</li>
-        <li><strong>Exports run in the background</strong> &mdash; the app stays fully responsive while exporting, processing starts the instant you click Export, and switching tabs no longer slows it down.</li>
-        <li><strong>Higher resolution ceiling</strong> &mdash; the subdivision safety cap doubles to 32M triangles on machines with 8&nbsp;GB+ RAM.</li>
-        <li><strong>Cleaner meshes</strong> &mdash; fixed a bug where &ldquo;Snap near-bottom vertices&rdquo; could fold geometry into the bottom plane (non-manifold edges / phantom shells), plus fewer mesh defects from decimation overall.</li>
-        <li><strong>Optimized decimation</strong> &mdash; smarter triangle reduction that harvests flat faces for lighter meshes while keeping exports watertight.</li>
-        <li><strong>More intuitive resolution slider</strong> &mdash; reworked to make dialing in the output detail clearer and easier.</li>
+        <li><strong>STEP import</strong> &mdash; load CAD files (.step / .stp) directly: they&rsquo;re converted to a mesh right in your browser by our new open-source <a href="https://github.com/CNCKitchen/meshStep" target="_blank" rel="noopener">meshStep</a> library, with coarse / standard / fine quality presets.</li>
+        <li><strong>Smooth Mask transitions</strong> &mdash; choose how the texture fades out at masked boundaries: Linear, S-Curve, or the new default Ease-In for a gentler blend at the mask edge.</li>
       </ul>
 
       <label class="sponsor-no-show">

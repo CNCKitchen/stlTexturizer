@@ -114,7 +114,7 @@ function validateAndCleanGeometry(geometry) {
  * export so files keep their original world coordinates and stay aligned with
  * sibling parts (issue #82).
  */
-function setupGeometry(geometry) {
+export function setupGeometry(geometry) {
   const { nanCount, degenerateCount } = validateAndCleanGeometry(geometry);
   geometry.computeBoundingBox();
   const box = geometry.boundingBox;
@@ -472,11 +472,17 @@ function parse3MF(data) {
 
 /**
  * Unified loader: dispatches to the right parser based on file extension.
+ * `opts` is only meaningful for STEP files ({ quality, onProgress }); the
+ * STEP loader is imported lazily so its worker code stays off the critical
+ * path for the common STL case.
  */
-export function loadModelFile(file) {
+export function loadModelFile(file, opts) {
   const ext = file.name.split('.').pop().toLowerCase();
   if (ext === 'obj') return loadOBJFile(file);
   if (ext === '3mf') return load3MFFile(file);
+  if (ext === 'step' || ext === 'stp') {
+    return import('./stepLoader.js').then((m) => m.loadSTEPFile(file, opts));
+  }
   return loadSTLFile(file);
 }
 

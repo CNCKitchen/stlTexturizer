@@ -32,6 +32,12 @@ let _needsRender = true;
 let _diagEdges = null;       // LineSegments2 for open/non-manifold edges
 let _diagFaces = [];         // Array of THREE.Mesh overlays for face highlights
 
+// Turntable pitch clamp: keep the view direction at least this far (radians)
+// away from ±world Z. At the pole itself the up direction is ambiguous and
+// lookAt() flips, which is what used to make the view jump — stopping just
+// short of it makes the pole unreachable, so no flip can ever occur.
+const _POLAR_EPS = 0.01;
+
 // Build a labelled coordinate axes indicator scaled to `size`.
 // X = red, Y = green, Z = blue (up).
 function buildAxesIndicator(size) {
@@ -219,6 +225,10 @@ export function initViewer(canvas) {
   controls.dampingFactor = 0.08;
   controls.screenSpacePanning = true;
   controls.enableZoom = false; // we handle zoom ourselves for cursor-centric behaviour
+  // Same pole clamp for OrbitControls' own rotation (fallback before a model
+  // is loaded) as for the custom pivot orbit below.
+  controls.minPolarAngle = _POLAR_EPS;
+  controls.maxPolarAngle = Math.PI - _POLAR_EPS;
 
   // Raycast-based orbit pivot: when left-drag starts on the model, orbit
   // around the surface point under the cursor instead of the default target.
@@ -279,13 +289,21 @@ export function initViewer(canvas) {
     const rotSpeed = 0.005;
 
     // Build a pure quaternion rotation: horizontal around world Z,
-    // vertical around camera's right axis.  No polar clamping — the
-    // camera can orbit freely over the poles.
+    // vertical around camera's right axis (clamped turntable).
     camera.updateMatrixWorld();
     _tmpV2.setFromMatrixColumn(camera.matrixWorld, 0).normalize(); // camera right
 
-    _tmpQ1.setFromAxisAngle(_tmpV1.set(0, 0, 1), -dx * rotSpeed);   // yaw
-    _tmpQ2.setFromAxisAngle(_tmpV2, -dy * rotSpeed);                  // pitch
+    // Clamp the pitch so the view direction stops just short of ±world Z.
+    // Pitching by `a` around the (horizontal) right axis changes the view
+    // direction's angle from +Z from alpha to alpha - a, so limit `a` to
+    // whatever keeps that angle inside [eps, PI - eps].
+    camera.getWorldDirection(_tmpV1);
+    const alpha = Math.acos(THREE.MathUtils.clamp(_tmpV1.z, -1, 1));
+    const pitch = alpha - THREE.MathUtils.clamp(
+      alpha + dy * rotSpeed, _POLAR_EPS, Math.PI - _POLAR_EPS);
+
+    _tmpQ1.setFromAxisAngle(_tmpV1.set(0, 0, 1), -dx * rotSpeed); // yaw
+    _tmpQ2.setFromAxisAngle(_tmpV2, pitch);                       // pitch
     _tmpQ1.premultiply(_tmpQ2);
 
     // Rotate camera position around the pivot
@@ -298,7 +316,8 @@ export function initViewer(canvas) {
     _tmpV4.applyQuaternion(_tmpQ1);
     controls.target.copy(_customPivot).add(_tmpV4);
 
-    // Rotate camera orientation directly — avoids lookAt pole singularity
+    // Rotate camera orientation directly — with the pitch clamped away from
+    // the poles this stays consistent with lookAt(target) in controls.update()
     camera.quaternion.premultiply(_tmpQ1);
     camera.updateMatrixWorld();
     _needsRender = true;
@@ -309,7 +328,8 @@ export function initViewer(canvas) {
       _customPivot  = null;
       _lastPointer  = null;
       controls.enableRotate = true;
-      // Re-sync up vector for OrbitControls
+      // Re-orthonormalize against float drift; a no-op visually since the
+      // pitch clamp guarantees we are never at/over a pole.
       camera.up.set(0, 0, 1);
       camera.lookAt(controls.target);
       _pivotMarker.visible = false;

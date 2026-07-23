@@ -44,6 +44,11 @@
  *   collapse the remaining near-zero-cost (flat) edges (default true)
  * @param {number}               [harvestTol]    absolute per-collapse surface-
  *   deviation tolerance in mm for harvesting; harvestCeil = harvestTol²
+ * @param {Uint8Array|null}      [lockedFaces]   per-face lock flags in the input's
+ *   face order (preserve-untextured beta); locked faces and every vertex they
+ *   touch are left completely untouched. If locked faces alone reach the
+ *   triangle target the run degrades to harvest-only and the returned
+ *   geometry carries userData.lockedOverBudget = true.
  * @returns {THREE.BufferGeometry}
  */
 
@@ -108,12 +113,43 @@ function _yieldFrame() {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL) {
+export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL, lockedFaces = null) {
   const { positions, faces, vertCount, faceCount } = buildIndexed(geometry);
 
   // Already at/under the target: nothing to decimate. But if harvesting is on we
   // still run — there may be flat faces collapsible for free even below the limit.
   if (faceCount <= targetTriangles && !harvestFlat) return buildOutput(positions, faces, faceCount);
+
+  // Preserve-untextured (beta): a vertex touching any locked (untextured) face
+  // may neither move nor be removed, so edges with a locked endpoint are never
+  // pushed onto the heap. This also pins the textured/untextured boundary ring,
+  // so no T-junctions can open against the locked region. lockedFaces uses the
+  // same face order as the non-indexed input geometry.
+  let lockedVert = null;
+  let lockedFaceCount = 0;
+  if (lockedFaces) {
+    lockedVert = new Uint8Array(vertCount);
+    for (let f = 0; f < faceCount; f++) {
+      if (!lockedFaces[f]) continue;
+      lockedFaceCount++;
+      lockedVert[faces[f * 3]]     = 1;
+      lockedVert[faces[f * 3 + 1]] = 1;
+      lockedVert[faces[f * 3 + 2]] = 1;
+    }
+  }
+  // When the locked faces alone meet or exceed the triangle target, the target
+  // is unreachable without touching untextured geometry. Chasing it anyway
+  // would grind the textured region down to its guard limit, so instead drop
+  // straight to error-bounded harvesting (or bail entirely when harvesting is
+  // off) and flag the overrun so the caller can warn the user.
+  const lockedOverBudget = lockedVert !== null && faceCount > targetTriangles
+    && lockedFaceCount >= targetTriangles;
+  if (lockedOverBudget && !harvestFlat) {
+    if (onProgress) onProgress(1);
+    const out = buildOutput(positions, faces, faceCount);
+    out.userData.lockedOverBudget = true;
+    return out;
+  }
 
   // Per-vertex error quadrics (10 doubles = upper triangle of symmetric 4×4)
   const quadrics = new Float64Array(vertCount * 10);
@@ -147,6 +183,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
     for (let e = 0; e < 3; e++) {
       const va = faces[f * 3 + e];
       const vb = faces[f * 3 + ((e + 1) % 3)];
+      if (lockedVert && (lockedVert[va] || lockedVert[vb])) continue;
       const lo = va < vb ? va : vb, hi = va < vb ? vb : va;
       seedSeen.getOrSet(lo, hi, 0, 1);
       if (seedSeen.inserted) pushEdge(heap, quadrics, positions, version, va, vb);
@@ -164,7 +201,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
   // Flat-face harvesting: once the target is reached, keep collapsing while each
   // collapse's QEM error stays below the absolute tolerance (harvestTol²).
   const harvestCeil   = harvestTol * harvestTol;
-  let   reachedTarget = false;
+  let   reachedTarget = lockedOverBudget; // over-budget lock → harvest-only from the start
 
   while (heap.size() > 0) {
     // Termination / harvest gate. On reaching the target we either stop (feature
@@ -256,7 +293,8 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
         const nb = faces[f*3+k];
         if (nb !== v1 && nbStamp[nb] !== epoch) {
           nbStamp[nb] = epoch;
-          if (active[nb]) pushEdge(heap, quadrics, positions, version, v1, nb);
+          // v1 is never locked (locked edges are never pushed), so only nb needs checking.
+          if (active[nb] && !(lockedVert && lockedVert[nb])) pushEdge(heap, quadrics, positions, version, v1, nb);
         }
       }
     }
@@ -265,7 +303,9 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
   }
 
   if (onProgress) onProgress(1);
-  return buildOutput(positions, faces, faceCount);
+  const out = buildOutput(positions, faces, faceCount);
+  if (lockedOverBudget) out.userData.lockedOverBudget = true;
+  return out;
 }
 
 // ── Linked-list vertex-face incidence ────────────────────────────────────────

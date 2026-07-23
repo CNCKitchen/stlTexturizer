@@ -30,6 +30,7 @@
  * @returns {Promise<null | {
  *   positions: Float32Array, normals: Float32Array|null,
  *   safetyCapHit: boolean, runDecimation: boolean, needsDecimation: boolean,
+ *   lockedOverBudget: boolean,  // preserve-untextured beta: locked faces ≥ triangle target
  *   faceParentId: Int32Array|null,   // bake mode only
  *   repairStats: object|null,        // export mode, when repair ran
  * }>}
@@ -263,6 +264,22 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     );
     if (shouldAbort()) return null;
 
+    // Preserve-untextured (beta): capture the per-face exclusion mask before
+    // the subdivided mesh is freed. Displacement keeps triangle count and
+    // order, so the mask indexes the displaced mesh 1:1 and lets decimation
+    // lock those faces in place.
+    let lockedFaces = null;
+    if (settings.preserveUntextured) {
+      const ew = subdivided.attributes.excludeWeight;
+      if (ew) {
+        const triN = subdivided.attributes.position.count / 3;
+        lockedFaces = new Uint8Array(triN);
+        for (let t = 0; t < triN; t++) {
+          if (ew.array[t * 3] > 0.99) lockedFaces[t] = 1;
+        }
+      }
+    }
+
     // Free subdivided geometry — displacement created a separate copy.
     subdivided.dispose();
     subdivided = null;
@@ -275,6 +292,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     // which decimate drops): when over the target OR when flat-face harvesting
     // alone is wanted.
     const runDecimation = mode === 'export' && (needsDecimation || settings.harvestFlatFaces);
+    let lockedOverBudget = false;
     if (runDecimation) {
       onEvent('decimate', 0, { from: dispTriCount, needsDecimation });
       await yieldFrame();
@@ -283,8 +301,11 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
         settings.maxTriangles,
         (p) => onEvent('decimate', p, { from: dispTriCount, needsDecimation }),
         settings.harvestFlatFaces,
-        settings.harvestTol
+        settings.harvestTol,
+        lockedFaces
       );
+      // Capture before repair replaces the geometry (userData isn't carried over).
+      lockedOverBudget = !!finalGeometry.userData.lockedOverBudget;
       // Free pre-decimation geometry — decimate created a separate copy.
       displaced.dispose();
       displaced = null;
@@ -325,6 +346,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       positions: finalGeometry.attributes.position.array,
       normals: finalGeometry.attributes.normal ? finalGeometry.attributes.normal.array : null,
       safetyCapHit,
+      lockedOverBudget,
       runDecimation,
       needsDecimation,
       faceParentId: mode === 'bake' ? faceParentId : null,

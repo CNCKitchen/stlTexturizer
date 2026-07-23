@@ -6,15 +6,16 @@
 
 A browser-based tool for applying surface displacement textures to 3D meshes — no installation required.
 
-Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a new displaced STL ready for slicing.
+Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and export a new displaced STL ready for slicing.
 
 ## Recent Updates
 
+- STEP import (`.step` / `.stp`) via [meshStep](https://github.com/CNCKitchen/meshStep)
 - Save / load project files (`.bumpmesh`)
 - Undo / redo history
 - Part rotation gizmo
 - Mesh diagnostics
-- Smooth masking borders
+- Smooth masking borders with selectable transition curves (linear, S-curve, ease-in)
 - New languages: Italian, Spanish, Portuguese, Japanese, French
 - 2–3× speed improvement
 - 3MF export
@@ -74,6 +75,7 @@ Load an STL, OBJ, or 3MF file, pick a texture, tune the parameters, and export a
 - **.STL** — binary and ASCII
 - **.OBJ** — via Three.js OBJLoader
 - **.3MF** — ZIP-based format (via fflate decompression)
+- **.STEP / .STP** — CAD B-rep files, tessellated in-browser by [meshStep](https://github.com/CNCKitchen/meshStep) with coarse / standard / fine quality presets
 
 ### Export
 - Downloads a **binary STL** with displacement baked in

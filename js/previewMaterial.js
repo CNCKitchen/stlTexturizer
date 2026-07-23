@@ -282,6 +282,7 @@ const fragmentShader = /* glsl */`
   uniform int       boundaryEdgeCount;
   uniform float     boundaryEdgeTexWidth;
   uniform float     boundaryFalloffDist;
+  uniform int       boundaryFalloffCurve; // 0 = linear, 1 = s-curve, 2 = ease-in
 
   varying vec3  vModelPos;
   varying vec3  vModelNormal;
@@ -335,7 +336,12 @@ const fragmentShader = /* glsl */`
         float d = length(vModelPos - (ea + t * ab));
         if (d < minDist) { minDist = d; if (d < 1e-4) break; }
       }
-      maskBlend *= clamp(minDist / boundaryFalloffDist, 0.0, 1.0);
+      float bf = clamp(minDist / boundaryFalloffDist, 0.0, 1.0);
+      // Transition curve — must match applyFalloffCurve in main.js and the
+      // export ramp in displacement.js.
+      if      (boundaryFalloffCurve == 1) bf = bf * bf * (3.0 - 2.0 * bf);
+      else if (boundaryFalloffCurve == 2) bf = bf * bf;
+      maskBlend *= bf;
     }
 
     h *= maskBlend;
@@ -466,6 +472,7 @@ export function updateMaterial(material, displacementTexture, settings) {
   u.useDisplacement.value         = settings.useDisplacement         ? 1 : 0;
   u.textureAspect.value.set(settings.textureAspectU ?? 1, settings.textureAspectV ?? 1);
   u.boundaryFalloffDist.value       = settings.boundaryFalloff           ?? 0.0;
+  u.boundaryFalloffCurve.value      = FALLOFF_CURVE_INDEX[settings.boundaryFalloffCurve] ?? 0;
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
@@ -505,8 +512,12 @@ function buildUniforms(tex, settings) {
     boundaryEdgeCount:        { value: 0 },
     boundaryEdgeTexWidth:     { value: 1.0 },
     boundaryFalloffDist:        { value: settings.boundaryFalloff ?? 0.0 },
+    boundaryFalloffCurve:       { value: FALLOFF_CURVE_INDEX[settings.boundaryFalloffCurve] ?? 0 },
   };
 }
+
+// Maps settings.boundaryFalloffCurve to the shader's integer uniform.
+const FALLOFF_CURVE_INDEX = { linear: 0, scurve: 1, ease: 2 };
 
 function createFallbackTexture() {
   const canvas = document.createElement('canvas');

@@ -371,6 +371,9 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
       const searchZ = Math.ceil(boundaryFalloff * invDz);
       const maxDist2 = boundaryFalloff * boundaryFalloff;
       const invFalloff = 1 / boundaryFalloff;
+      // Transition curve shaping the 0→1 ramp — must match applyFalloffCurve
+      // in main.js and the fragment shader in previewMaterial.js.
+      const falloffCurve = settings.boundaryFalloffCurve ?? 'linear';
 
       falloffArr = new Float64Array(uniqueCount);
       falloffArr.fill(1); // default: full displacement
@@ -408,7 +411,10 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
           }
         }
         if (minDist2 < maxDist2) {
-          falloffArr[id] = Math.sqrt(minDist2) * invFalloff;
+          const t = Math.sqrt(minDist2) * invFalloff;
+          falloffArr[id] = falloffCurve === 'scurve' ? t * t * (3 - 2 * t)
+                         : falloffCurve === 'ease'   ? t * t
+                         : t;
         }
       }
     }

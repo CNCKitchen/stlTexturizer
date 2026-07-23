@@ -46,6 +46,8 @@
  * @param {number}              [opts.maxNormalDeltaCos=cos(15°)]       – min dot of new vs old face normal (base)
  * @param {number}              [opts.aggressiveNormalDeltaCos=cos(25°)] – min dot when BOTH wings are extreme slivers
  * @param {number}              [opts.maxRounds=8]       – iterate until stable, capped at this
+ * @param {boolean}             [opts.preserveExcluded=false] – freeze all vertices of
+ *   excludeWeight-marked faces so untextured surfaces are never modified (beta)
  * @returns {{ geometry, faceParentId, collapseCount }}
  */
 
@@ -220,6 +222,24 @@ export function regularizeMesh(geometry, faceParentId, maxEdgeLength, opts = {})
         if (triThin2[t] > extremeAspect2 || triThin2[other] > extremeAspect2) continue;
         const dot = triNrmX[t]*triNrmX[other] + triNrmY[t]*triNrmY[other] + triNrmZ[t]*triNrmZ[other];
         if (dot < sharpEdgeCos) { frozenVert[u] = 1; frozenVert[v] = 1; }
+      }
+    }
+  }
+
+  // Preserve-untextured (beta): freeze every vertex of an excluded face so
+  // collapses can neither move nor remove untextured geometry (fillets, fine
+  // CAD detail). excludeWeight is constant across a face's three vertices
+  // (see subdivision.js toNonIndexed), so testing the first corner suffices.
+  // Rejections land in rejectStats.frozen like sharp-edge freezes.
+  if (opts.preserveExcluded) {
+    const ew = geometry.attributes.excludeWeight;
+    if (ew) {
+      for (let t = 0; t < triCount; t++) {
+        if (ew.getX(t * 3) > 0.99) {
+          frozenVert[corners[t * 3]]     = 1;
+          frozenVert[corners[t * 3 + 1]] = 1;
+          frozenVert[corners[t * 3 + 2]] = 1;
+        }
       }
     }
   }
