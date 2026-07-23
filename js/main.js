@@ -398,27 +398,39 @@ const welcomeDontShow = document.getElementById('welcome-dont-show');
 const languageSelector = document.querySelector('.lang-seg');
 
 // ── Scale slider log helpers ──────────────────────────────────────────────────
-// Slider stores 0–1000; the texture size spans 0.1–1000 mm on a log axis.
-// The numeric input accepts values beyond the slider range (clamped in
-// _applyScaleU/V); the slider just pins to its end.
-const SCALE_MM_SLIDER_MIN = 0.1;
-const SCALE_MM_SLIDER_MAX = 1000;
-const SCALE_MM_INPUT_MIN  = 0.01;
-const SCALE_MM_INPUT_MAX  = 10000;
+// The slider stores 0–1000 and sweeps 0.05×–10× of the current model's
+// largest bbox edge on a log axis — the exact travel and default position of
+// the legacy relative slider — but the value it reads/writes is the absolute
+// tile size in mm. The numeric input accepts values beyond the slider range
+// (clamped in _applyScaleU/V); the slider just pins to its end.
+const SCALE_REL_SLIDER_MIN = 0.05;
+const SCALE_REL_SLIDER_MAX = 10;
+const SCALE_MM_INPUT_MIN   = 0.01;
+const SCALE_MM_INPUT_MAX   = 10000;
 // Fraction of the model's largest bbox edge used to pre-calculate a
-// nice-looking initial tile size when a model loads (legacy relative 0.5).
+// nice-looking initial tile size when a model loads (legacy relative 0.5 —
+// lands at slider position 435, same as always).
 const DEFAULT_TILE_FRACTION = 0.5;
-const _LOG_MIN = Math.log(SCALE_MM_SLIDER_MIN);
-const _LOG_MAX = Math.log(SCALE_MM_SLIDER_MAX);
-const scaleToPos = v => Math.round(Math.max(0, Math.min(1000, (Math.log(Math.max(SCALE_MM_SLIDER_MIN, Math.min(SCALE_MM_SLIDER_MAX, v))) - _LOG_MIN) / (_LOG_MAX - _LOG_MIN) * 1000)));
-const posToScale = p => parseFloat(Math.exp(_LOG_MIN + (p / 1000) * (_LOG_MAX - _LOG_MIN)).toPrecision(3));
+const _LOG_MIN = Math.log(SCALE_REL_SLIDER_MIN);
+const _LOG_MAX = Math.log(SCALE_REL_SLIDER_MAX);
+
+/** Largest bbox edge of the loaded model — the slider's per-model anchor. */
+function _scaleAnchorMm() {
+  return currentBounds
+    ? Math.max(currentBounds.size.x, currentBounds.size.y, currentBounds.size.z)
+    : 50;
+}
+
+const scaleToPos = mm => {
+  const rel = Math.max(SCALE_REL_SLIDER_MIN, Math.min(SCALE_REL_SLIDER_MAX, mm / _scaleAnchorMm()));
+  return Math.round((Math.log(rel) - _LOG_MIN) / (_LOG_MAX - _LOG_MIN) * 1000);
+};
+const posToScale = p => parseFloat(
+  (_scaleAnchorMm() * Math.exp(_LOG_MIN + (p / 1000) * (_LOG_MAX - _LOG_MIN))).toPrecision(3));
 
 /** Tile size (mm) that visually matches the legacy relative default on this model. */
 function _defaultTileMm(relFraction = DEFAULT_TILE_FRACTION) {
-  const md = currentBounds
-    ? Math.max(currentBounds.size.x, currentBounds.size.y, currentBounds.size.z)
-    : 50;
-  return parseFloat((relFraction * md).toPrecision(3));
+  return parseFloat((relFraction * _scaleAnchorMm()).toPrecision(3));
 }
 
 // Compute the active U texture-aspect factor (mirrors updatePreview's logic so
