@@ -2594,12 +2594,16 @@ function updateBrushCursor(e) {
     brushCursorEl.style.display = 'none';
     return;
   }
+  // Hide the OS cursor only while the circle overlay is drawn on the model;
+  // off-model the default cursor returns, so the pointer never vanishes and
+  // painting vs. orbiting stays visually distinct (#52).
   const mesh = getCurrentMesh();
-  if (!mesh) { brushCursorEl.style.display = 'none'; return; }
+  if (!mesh) { brushCursorEl.style.display = 'none'; canvas.style.cursor = ''; return; }
   _raycaster.setFromCamera(_canvasNDC(e), getCamera());
   const hits = _raycaster.intersectObject(mesh);
   const frontHit = getFrontFaceHit(hits, mesh);
-  if (!frontHit) { brushCursorEl.style.display = 'none'; return; }
+  if (!frontHit) { brushCursorEl.style.display = 'none'; canvas.style.cursor = ''; return; }
+  canvas.style.cursor = 'none';
 
   const hitPt = frontHit.point;
   const cam   = getCamera();
