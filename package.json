@@ -1,0 +1,13 @@
+{
+  "name": "stltexturizer",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "mcp"
+  ],
+  "description": "BumpMesh / stlTexturizer. Root manifest exists so the shared js/*.js mesh-processing modules (which import 'three' and 'fflate') resolve those deps from the root node_modules when run headlessly by Node — the MCP server (mcp/) and the bench-*.mjs / diag-*.mjs scripts. The browser app itself uses the CDN import map in index.html and needs no build step.",
+  "dependencies": {
+    "three": "0.170.0",
+    "fflate": "^0.8.2"
+  }
+}

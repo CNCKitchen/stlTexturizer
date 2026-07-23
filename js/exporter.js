@@ -26,7 +26,8 @@ function triggerDownload(buffer, filename, mime = 'application/octet-stream') {
 }
 
 /**
- * Fast binary STL exporter — writes directly from BufferGeometry arrays.
+ * Fast binary STL byte-builder — writes directly from BufferGeometry arrays.
+ * Pure: no DOM, no download. Returns the raw binary STL bytes.
  *
  * Eliminates Three.js STLExporter overhead:
  * - No Mesh/Material creation
@@ -35,9 +36,9 @@ function triggerDownload(buffer, filename, mime = 'application/octet-stream') {
  * - Bulk Uint8Array.set() instead of per-float DataView calls
  *
  * @param {THREE.BufferGeometry} geometry  – non-indexed with position + normal
- * @param {string} [filename]
+ * @returns {Uint8Array}
  */
-export function exportSTL(geometry, filename = 'textured.stl') {
+export function buildSTLBytes(geometry) {
   const posArr = geometry.attributes.position.array;
   const norArr = geometry.attributes.normal
     ? geometry.attributes.normal.array
@@ -84,21 +85,32 @@ export function exportSTL(geometry, filename = 'textured.stl') {
     // Attribute byte count: 0 (already zero-filled)
   }
 
-  triggerDownload(buffer, filename);
+  return bytes;
 }
 
 /**
- * 3MF exporter — builds a ZIP-packaged XML mesh in the Microsoft 3D
- * Manufacturing core format (2015/02).
+ * Fast binary STL exporter — builds the bytes then triggers a browser download.
+ *
+ * @param {THREE.BufferGeometry} geometry  – non-indexed with position + normal
+ * @param {string} [filename]
+ */
+export function exportSTL(geometry, filename = 'textured.stl') {
+  const bytes = buildSTLBytes(geometry);
+  triggerDownload(bytes.buffer, filename);
+}
+
+/**
+ * 3MF byte-builder — builds a ZIP-packaged XML mesh in the Microsoft 3D
+ * Manufacturing core format (2015/02). Pure: no DOM, no download.
  *
  * Vertices are deduplicated (positions quantized to 4 decimals, i.e. 0.0001 mm
  * tolerance) so the output is both smaller than binary STL and round-trippable
  * by this project's own 3MF loader.
  *
  * @param {THREE.BufferGeometry} geometry  – non-indexed with position attribute
- * @param {string} [filename]
+ * @returns {Uint8Array}
  */
-export function export3MF(geometry, filename = 'textured.3mf') {
+export function build3MFBytes(geometry) {
   const posArr = geometry.attributes.position.array;
   const triCount = (posArr.length / 9) | 0;
 
@@ -221,13 +233,24 @@ export function export3MF(geometry, filename = 'textured.3mf') {
     'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n' +
     '</Relationships>\n';
 
-  // ── Zip and download ─────────────────────────────────────────────────────
+  // ── Zip ───────────────────────────────────────────────────────────────────
   const zipped = zipSync({
     '[Content_Types].xml': strToU8(contentTypesXml),
     '_rels/.rels':         strToU8(relsXml),
     '3D/3dmodel.model':    modelBytes,
   }, { level: 6 });
 
+  return zipped;
+}
+
+/**
+ * 3MF exporter — builds the zip bytes then triggers a browser download.
+ *
+ * @param {THREE.BufferGeometry} geometry  – non-indexed with position attribute
+ * @param {string} [filename]
+ */
+export function export3MF(geometry, filename = 'textured.3mf') {
+  const zipped = build3MFBytes(geometry);
   triggerDownload(
     zipped,
     filename,

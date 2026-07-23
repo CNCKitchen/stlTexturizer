@@ -1,0 +1,24 @@
+{
+  "name": "bumpmesh-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server exposing BumpMesh's headless mesh-texturizing pipeline (subdivide, regularize, displace, decimate) as tools for an AI agent.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@xmldom/xmldom": "^0.9.6",
+    "three": "0.170.0",
+    "fflate": "^0.8.2",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0",
+    "zod": "^3.24.1"
+  }
+}

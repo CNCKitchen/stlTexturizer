@@ -14,6 +14,33 @@ const stlLoader = new STLLoader();
 const objLoader = new OBJLoader();
 
 /**
+ * Parse an already-read model buffer into { geometry, bounds, nanCount,
+ * degenerateCount, originOffset }. Pure — no File/FileReader/DOM dependency,
+ * so it runs headlessly (Node, workers) as well as in the browser.
+ *
+ * @param {ArrayBuffer} arrayBuffer  raw file bytes
+ * @param {string} ext               lowercase extension without dot: 'stl' | 'obj' | '3mf'
+ *                                    (anything else falls back to STL, matching loadModelFile)
+ * @returns {{ geometry: THREE.BufferGeometry, bounds: object, nanCount: number,
+ *             degenerateCount: number, originOffset: THREE.Vector3 }}
+ */
+export function parseModelBuffer(arrayBuffer, ext) {
+  let geometry;
+  if (ext === 'obj') {
+    const text = new TextDecoder().decode(arrayBuffer);
+    const group = objLoader.parse(text);
+    geometry = mergeGroupGeometries(group);
+  } else if (ext === '3mf') {
+    geometry = parse3MF(new Uint8Array(arrayBuffer));
+  } else {
+    geometry = stlLoader.parse(arrayBuffer);
+  }
+  const { nanCount, degenerateCount, originOffset } = setupGeometry(geometry);
+  const bounds = computeBounds(geometry);
+  return { geometry, bounds, nanCount, degenerateCount, originOffset };
+}
+
+/**
  * Load an STL from a File object.
  * Returns { geometry, bounds } where bounds = { min, max, center, size } (THREE.Vector3).
  * The geometry is translated so its bounding-box centre is at the world origin.
@@ -28,10 +55,7 @@ export function loadSTLFile(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const geometry = stlLoader.parse(e.target.result);
-        const { nanCount, degenerateCount, originOffset } = setupGeometry(geometry);
-        const bounds = computeBounds(geometry);
-        resolve({ geometry, bounds, nanCount, degenerateCount, originOffset });
+        resolve(parseModelBuffer(e.target.result, 'stl'));
       } catch (err) {
         reject(err);
       }
@@ -206,17 +230,13 @@ export function loadOBJFile(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const group = objLoader.parse(e.target.result);
-        const geometry = mergeGroupGeometries(group);
-        const { nanCount, degenerateCount, originOffset } = setupGeometry(geometry);
-        const bounds = computeBounds(geometry);
-        resolve({ geometry, bounds, nanCount, degenerateCount, originOffset });
+        resolve(parseModelBuffer(e.target.result, 'obj'));
       } catch (err) {
         reject(err);
       }
     };
     reader.onerror = () => reject(new Error('Could not read file'));
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   });
 }
 
@@ -237,10 +257,7 @@ export function load3MFFile(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const geometry = parse3MF(new Uint8Array(e.target.result));
-        const { nanCount, degenerateCount, originOffset } = setupGeometry(geometry);
-        const bounds = computeBounds(geometry);
-        resolve({ geometry, bounds, nanCount, degenerateCount, originOffset });
+        resolve(parseModelBuffer(e.target.result, '3mf'));
       } catch (err) {
         reject(err);
       }
