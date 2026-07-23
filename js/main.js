@@ -23,6 +23,7 @@ import { buildAdjacency, bucketFill,
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
 import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
+import { getScaleReferenceLengths } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 
@@ -80,8 +81,12 @@ let _effectiveMapCacheKey = null;
 
 const settings = {
   mappingMode:   5,     // Triplanar default
-  scaleU:        0.5,
-  scaleV:        0.5,
+  // Texture tile size in ABSOLUTE millimetres (one full repeat along U/V).
+  // Initialized per model on load: DEFAULT_TILE_FRACTION × largest bbox edge
+  // (the default 50 mm cube → 25 mm). Consumers convert to relative factors
+  // via mapping.js scaleMmToRelative.
+  scaleU:        25,
+  scaleV:        25,
   amplitude:     0.5,
   textureHeight: 0.5,
   invertDisplacement: false,
@@ -129,10 +134,6 @@ const settings = {
   regularizeNormalDeg:       15,
   regularizeAggressiveNormalDeg: 25,
   regularizeSecondPassMul:   1.1,
-  /** When true, UV normalization uses referenceExtentMm instead of each mesh's largest bbox edge. */
-  fixedWorldTextureScale: false,
-  /** Millimetres: one normalized UV span along an axis (before Scale U/V). */
-  referenceExtentMm: 200,
 };
 
 // ── Canvas filter support (Safari / iOS WebView don't support ctx.filter) ────
@@ -338,15 +339,6 @@ const smoothBottomChk        = document.getElementById('smooth-bottom-chk');
 const harvestFlatChk         = document.getElementById('harvest-flat-chk');
 const harvestTolInput        = document.getElementById('harvest-tol');
 const harvestTolRow          = document.getElementById('harvest-tol-row');
-const fixedWorldTextureToggle = document.getElementById('fixed-world-texture');
-const referenceExtentRow      = document.getElementById('reference-extent-row');
-const referenceExtentMmVal    = document.getElementById('reference-extent-mm');
-
-function refreshReferenceExtentUi() {
-  if (referenceExtentRow) {
-    referenceExtentRow.style.display = settings.fixedWorldTextureScale ? '' : 'none';
-  }
-}
 
 // ── Exclusion panel DOM refs ──────────────────────────────────────────────────
 const exclBrushBtn        = document.getElementById('excl-brush-btn');
@@ -406,12 +398,28 @@ const welcomeDontShow = document.getElementById('welcome-dont-show');
 const languageSelector = document.querySelector('.lang-seg');
 
 // ── Scale slider log helpers ──────────────────────────────────────────────────
-// Slider stores 0–1000; actual scale spans 0.05–10 on a log axis.
-// Middle position 500 → scale ~0.71 (log midpoint between 0.05 and 10).
-const _LOG_MIN = Math.log(0.05);
-const _LOG_MAX = Math.log(10);
-const scaleToPos = v => Math.round(Math.max(0, Math.min(1000, (Math.log(Math.max(0.01, Math.min(10, v))) - _LOG_MIN) / (_LOG_MAX - _LOG_MIN) * 1000)));
-const posToScale = p => parseFloat(Math.exp(_LOG_MIN + (p / 1000) * (_LOG_MAX - _LOG_MIN)).toFixed(2));
+// Slider stores 0–1000; the texture size spans 0.1–1000 mm on a log axis.
+// The numeric input accepts values beyond the slider range (clamped in
+// _applyScaleU/V); the slider just pins to its end.
+const SCALE_MM_SLIDER_MIN = 0.1;
+const SCALE_MM_SLIDER_MAX = 1000;
+const SCALE_MM_INPUT_MIN  = 0.01;
+const SCALE_MM_INPUT_MAX  = 10000;
+// Fraction of the model's largest bbox edge used to pre-calculate a
+// nice-looking initial tile size when a model loads (legacy relative 0.5).
+const DEFAULT_TILE_FRACTION = 0.5;
+const _LOG_MIN = Math.log(SCALE_MM_SLIDER_MIN);
+const _LOG_MAX = Math.log(SCALE_MM_SLIDER_MAX);
+const scaleToPos = v => Math.round(Math.max(0, Math.min(1000, (Math.log(Math.max(SCALE_MM_SLIDER_MIN, Math.min(SCALE_MM_SLIDER_MAX, v))) - _LOG_MIN) / (_LOG_MAX - _LOG_MIN) * 1000)));
+const posToScale = p => parseFloat(Math.exp(_LOG_MIN + (p / 1000) * (_LOG_MAX - _LOG_MIN)).toPrecision(3));
+
+/** Tile size (mm) that visually matches the legacy relative default on this model. */
+function _defaultTileMm(relFraction = DEFAULT_TILE_FRACTION) {
+  const md = currentBounds
+    ? Math.max(currentBounds.size.x, currentBounds.size.y, currentBounds.size.z)
+    : 50;
+  return parseFloat((relFraction * md).toPrecision(3));
+}
 
 // Compute the active U texture-aspect factor (mirrors updatePreview's logic so
 // the snap math agrees with what computeUV actually does).
@@ -421,20 +429,23 @@ function _currentTextureAspectU() {
   return tmax / Math.max(tw, 1);
 }
 
-// Round a U scale to the nearest seamless-wrap value:
-//   tiles around circumference = aspectU / scaleU  →  must be a positive integer.
-// Returns the snapped scale, clamped to [aspectU/MAX_TILES, aspectU].
-function _snapScaleUForSeamlessWrap(scaleU) {
+// Round a U texture size (mm) to the nearest seamless-wrap value:
+//   tiles around circumference = aspectU × C / scaleU_mm  →  must be a
+//   positive integer, where C is the projection cylinder's circumference.
+function _snapScaleUForSeamlessWrap(scaleUMm) {
   const aU = _currentTextureAspectU();
-  const MAX_TILES = 20;
-  let n = Math.round(aU / Math.max(scaleU, 1e-6));
+  const size = currentBounds ? currentBounds.size : { x: 50, y: 50, z: 50 };
+  const r = Math.max(settings.cylinderRadius ?? Math.max(size.x, size.y) * 0.5, 1e-6);
+  const C = 2 * Math.PI * r;
+  const MAX_TILES = 200;
+  let n = Math.round((aU * C) / Math.max(scaleUMm, 1e-6));
   if (!Number.isFinite(n) || n < 1) n = 1;
   if (n > MAX_TILES) n = MAX_TILES;
-  return parseFloat((aU / n).toFixed(4));
+  return parseFloat(((aU * C) / n).toFixed(4));
 }
 
 function _applyScaleU(v) {
-  v = Math.max(0.01, Math.min(10, v));
+  v = Math.max(SCALE_MM_INPUT_MIN, Math.min(SCALE_MM_INPUT_MAX, v));
   if (settings.snapSeamlessWrap && settings.mappingMode === 3 /* MODE_CYLINDRICAL */) {
     v = _snapScaleUForSeamlessWrap(v);
   }
@@ -757,6 +768,11 @@ function _scheduleCylinderPreviewUpdate() {
   if (_cylPreviewThrottle) return;
   _cylPreviewThrottle = setTimeout(() => {
     _cylPreviewThrottle = null;
+    // Texture size is absolute mm, so a radius change alters the tile count
+    // around the circumference — re-snap to keep the wrap seamless.
+    if (settings.snapSeamlessWrap && settings.mappingMode === 3 /* MODE_CYLINDRICAL */) {
+      _applyScaleU(settings.scaleU);
+    }
     updatePreview();
     // updatePreview() mutates uniforms in place; the 3D viewport's render
     // loop only re-draws when _needsRender flips, so push it explicitly.
@@ -999,7 +1015,6 @@ document.getElementById('theme-toggle').addEventListener('click', () => {
 
 wireEvents();
 showWelcomeIfNeeded();
-refreshReferenceExtentUi();
 // Sync scale number inputs with the slider's initial position
 scaleUVal.value = posToScale(parseFloat(scaleUSlider.value));
 scaleVVal.value = posToScale(parseFloat(scaleVSlider.value));
@@ -1092,7 +1107,9 @@ async function selectPreset(idx, swatchEl, applyDefaults = true) {
   activeMapName.textContent = entry.name;
   if (applyDefaults) {
     resetTextureSmoothing();
-    if (entry.defaultScale != null) _applyScaleU(entry.defaultScale);
+    // defaultScale is a legacy fraction of the model's largest bbox edge —
+    // convert to the absolute mm tile size that looks the same on this model.
+    if (entry.defaultScale != null) _applyScaleU(_defaultTileMm(entry.defaultScale));
   }
 
   // If full texture is already loaded, use it directly
@@ -1369,13 +1386,13 @@ function wireEvents() {
   // Scale U — when lock is on, mirror to V
   const applyScaleU = (v) => _applyScaleU(v);
   scaleUSlider.addEventListener('input', () => applyScaleU(posToScale(parseFloat(scaleUSlider.value))));
-  scaleUSlider.addEventListener('dblclick', () => applyScaleU(posToScale(parseFloat(scaleUSlider.defaultValue))));
+  scaleUSlider.addEventListener('dblclick', () => applyScaleU(_defaultTileMm()));
   scaleUVal.addEventListener('change', () => applyScaleU(parseFloat(scaleUVal.value)));
   addFineWheelSupport(scaleUVal, applyScaleU);
 
   // Scale V — when lock is on, mirror to U
   const applyScaleV = (v) => {
-    v = Math.max(0.01, Math.min(10, v));
+    v = Math.max(SCALE_MM_INPUT_MIN, Math.min(SCALE_MM_INPUT_MAX, v));
     settings.scaleV = v;
     scaleVSlider.value = scaleToPos(v);
     scaleVVal.value = v;
@@ -1383,7 +1400,7 @@ function wireEvents() {
     clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
   };
   scaleVSlider.addEventListener('input', () => applyScaleV(posToScale(parseFloat(scaleVSlider.value))));
-  scaleVSlider.addEventListener('dblclick', () => applyScaleV(posToScale(parseFloat(scaleVSlider.defaultValue))));
+  scaleVSlider.addEventListener('dblclick', () => applyScaleV(_defaultTileMm()));
   scaleVVal.addEventListener('change', () => applyScaleV(parseFloat(scaleVVal.value)));
   addFineWheelSupport(scaleVVal, applyScaleV);
 
@@ -1399,31 +1416,6 @@ function wireEvents() {
       updatePreview();
     }
   });
-
-  if (fixedWorldTextureToggle) {
-    fixedWorldTextureToggle.addEventListener('change', () => {
-      settings.fixedWorldTextureScale = fixedWorldTextureToggle.checked;
-      refreshReferenceExtentUi();
-      clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
-    });
-  }
-
-  function applyReferenceExtentFromInput() {
-    if (!referenceExtentMmVal) return;
-    let v = parseFloat(referenceExtentMmVal.value);
-    if (!Number.isFinite(v)) v = settings.referenceExtentMm;
-    v = Math.max(0.1, Math.min(10000, v));
-    settings.referenceExtentMm = v;
-    referenceExtentMmVal.value = v;
-    clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
-  }
-  if (referenceExtentMmVal) {
-    referenceExtentMmVal.addEventListener('change', applyReferenceExtentFromInput);
-    addFineWheelSupport(referenceExtentMmVal, (v) => {
-      referenceExtentMmVal.value = v;
-      applyReferenceExtentFromInput();
-    });
-  }
 
   linkSlider(offsetUSlider,   offsetUVal,   v => { settings.offsetU   = v; return v.toFixed(2); });
   linkSlider(offsetVSlider,   offsetVVal,   v => { settings.offsetV   = v; return v.toFixed(2); });
@@ -2874,8 +2866,11 @@ function loadDefaultCube() {
   triangleCentroids = adjData.centroids;
   triangleFaceNormals = adjData.faceNormals;
 
-  settings.scaleU  = 0.5; scaleUSlider.value = scaleToPos(0.5); scaleUVal.value = 0.5;
-  settings.scaleV  = 0.5; scaleVSlider.value = scaleToPos(0.5); scaleVVal.value = 0.5;
+  // Pre-calculate an initial tile size that looks nice on this model; from
+  // here on the value is absolute (mm) and independent of the model bounds.
+  const tileMm = _defaultTileMm();
+  settings.scaleU  = tileMm; scaleUSlider.value = scaleToPos(tileMm); scaleUVal.value = tileMm;
+  settings.scaleV  = tileMm; scaleVSlider.value = scaleToPos(tileMm); scaleVVal.value = tileMm;
   settings.offsetU = 0; offsetUSlider.value = 0; offsetUVal.value = 0;
   settings.offsetV = 0; offsetVSlider.value = 0; offsetVVal.value = 0;
   triLimitWarning.classList.add('hidden');
@@ -5053,12 +5048,14 @@ const PERSISTED_KEYS = [
   // null means "fall back to AABB defaults", which is what fresh loads get.
   'snapSeamlessWrap', 'cylinderCenterX', 'cylinderCenterY', 'cylinderRadius',
   'cylinderPanelMinimized',
-  'fixedWorldTextureScale', 'referenceExtentMm',
 ];
 
 function getSettingsSnapshot() {
   const snap = {};
   for (const k of PERSISTED_KEYS) snap[k] = settings[k];
+  // scaleU/scaleV are absolute mm since July 2026; older snapshots without
+  // this marker carry legacy relative fractions and are converted on apply.
+  snap.scaleUnit = 'mm';
   if (activeMapEntry) {
     snap.activeMapName = activeMapEntry.name;
   } else {
@@ -5073,12 +5070,41 @@ function getSettingsSnapshot() {
 }
 
 /**
+ * Convert a legacy snapshot (scaleU/scaleV as fractions of the mode's
+ * reference length) to absolute mm. New snapshots carry scaleUnit:'mm' and
+ * pass through untouched. Uses the currently-loaded model's bounds — for
+ * project files the bundled model is loaded before settings are applied, so
+ * the conversion reproduces the file's original appearance exactly.
+ */
+function _migrateSnapshotScaleToMm(snap) {
+  if (!snap || snap.scaleUnit === 'mm') return snap;
+  if (snap.scaleU == null && snap.scaleV == null) return snap;
+  const out = { ...snap, scaleUnit: 'mm' };
+  const b = currentBounds || { size: { x: 50, y: 50, z: 50 } };
+  const mode = out.mappingMode ?? settings.mappingMode;
+  const { refU, refV } = getScaleReferenceLengths(mode, { cylinderRadius: out.cylinderRadius ?? null }, b);
+  // Short-lived fixed-reference feature (July 2026): its reference overrode
+  // the bbox extent for planar/triplanar/cubic modes.
+  const isAngular = mode === 3 /* CYLINDRICAL */ || mode === 4 /* SPHERICAL */;
+  const legacyRef = !isAngular && out.fixedWorldTextureScale && Number(out.referenceExtentMm) > 0
+    ? Number(out.referenceExtentMm) : null;
+  const rU = legacyRef ?? refU;
+  const rV = legacyRef ?? refV;
+  if (out.scaleU != null) out.scaleU = parseFloat((out.scaleU * rU).toPrecision(4));
+  if (out.scaleV != null) out.scaleV = parseFloat((out.scaleV * rV).toPrecision(4));
+  delete out.fixedWorldTextureScale;
+  delete out.referenceExtentMm;
+  return out;
+}
+
+/**
  * Apply a settings snapshot to the live UI. Drives each control through the
  * same event it fires on user input (via dispatchEvent), so linkSlider's
  * clamp/display/preview flow runs unchanged.
  */
 function applySettingsSnapshot(snap) {
   if (!snap) return;
+  snap = _migrateSnapshotScaleToMm(snap);
 
   // Mapping mode first — changes cap-angle row visibility and triggers preview.
   if (snap.mappingMode != null) {
@@ -5152,14 +5178,6 @@ function applySettingsSnapshot(snap) {
   if (snap.harvestTol != null) {
     harvestTolInput.value = snap.harvestTol;
     harvestTolInput.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-  if (snap.fixedWorldTextureScale != null && fixedWorldTextureToggle) {
-    fixedWorldTextureToggle.checked = !!snap.fixedWorldTextureScale;
-    fixedWorldTextureToggle.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-  if (snap.referenceExtentMm != null && referenceExtentMmVal) {
-    referenceExtentMmVal.value = snap.referenceExtentMm;
-    referenceExtentMmVal.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   // Cylindrical-mode state. cylinderCenterX/Y/radius pass through unchanged
@@ -5236,6 +5254,9 @@ lockScaleBtn.addEventListener('click', _autoSaveSettings);
 // Frozen snapshot of the initial `settings` object plus the default preset
 // name, so the reset button restores exactly what a fresh session starts with.
 
+// NOTE: no scaleUnit marker — scaleU/scaleV are deliberately legacy fractions
+// so applySettingsSnapshot's migration turns them into "0.5 × largest bbox
+// edge" mm for whatever model is currently loaded (the per-model default).
 const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   mappingMode: 5, scaleU: 0.5, scaleV: 0.5, lockScale: true,
   offsetU: 0, offsetV: 0, rotation: 0,

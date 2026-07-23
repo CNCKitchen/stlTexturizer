@@ -4,6 +4,7 @@
  */
 
 import * as THREE from 'three';
+import { scaleMmToRelative } from './mapping.js';
 
 // Mapping mode constants (must match index.html <option value="…">)
 export const MODE_PLANAR_XY   = 0;
@@ -47,8 +48,6 @@ const sharedGLSL = /* glsl */`
   uniform int       noDownwardZ;
   uniform int       useDisplacement;
   uniform vec2      textureAspect;
-  uniform int       useFixedReference;
-  uniform float     referenceExtentMm;
 
   const float PI     = 3.14159265358979;
   const float TWO_PI = 6.28318530717959;
@@ -113,9 +112,6 @@ const sharedGLSL = /* glsl */`
     vec3 rel = pos - boundsCenter;
     float maxDim = max(boundsSize.x, max(boundsSize.y, boundsSize.z));
     float md = max(maxDim, 1e-4);
-    if (useFixedReference > 0) {
-      md = max(referenceExtentMm, 1e-4);
-    }
 
     if (mappingMode == 0) {
       return sampleMap(vec2((pos.x - boundsMin.x) / md, (pos.y - boundsMin.y) / md));
@@ -439,7 +435,13 @@ export function updateMaterial(material, displacementTexture, settings) {
     u.displacementMap.value = displacementTexture;
   }
   u.mappingMode.value   = settings.mappingMode;
-  u.scaleUV.value.set(settings.scaleU, settings.scaleV);
+  // settings.scaleU/scaleV are absolute mm; the shader works in normalized
+  // UV space, so convert to the mode's relative factors on the CPU.
+  {
+    const b = settings.bounds || { size: { x: 1, y: 1, z: 1 } };
+    const rel = scaleMmToRelative(settings.mappingMode, settings, b);
+    u.scaleUV.value.set(rel.u, rel.v);
+  }
   u.amplitude.value     = settings.amplitude;
   u.offsetUV.value.set(settings.offsetU, settings.offsetV);
   u.rotation.value      = (settings.rotation ?? 0) * Math.PI / 180;
@@ -464,8 +466,6 @@ export function updateMaterial(material, displacementTexture, settings) {
   u.useDisplacement.value         = settings.useDisplacement         ? 1 : 0;
   u.textureAspect.value.set(settings.textureAspectU ?? 1, settings.textureAspectV ?? 1);
   u.boundaryFalloffDist.value       = settings.boundaryFalloff           ?? 0.0;
-  u.useFixedReference.value         = settings.fixedWorldTextureScale ? 1 : 0;
-  u.referenceExtentMm.value         = Math.max(Number(settings.referenceExtentMm) || 200, 1e-4);
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
@@ -476,10 +476,11 @@ function buildUniforms(tex, settings) {
     size:   new THREE.Vector3(1, 1, 1),
     center: new THREE.Vector3(),
   };
+  const relScale = scaleMmToRelative(settings.mappingMode ?? MODE_TRIPLANAR, settings, b);
   return {
     displacementMap: { value: tex || createFallbackTexture() },
     mappingMode:     { value: settings.mappingMode ?? MODE_TRIPLANAR },
-    scaleUV:         { value: new THREE.Vector2(settings.scaleU ?? 1, settings.scaleV ?? 1) },
+    scaleUV:         { value: new THREE.Vector2(relScale.u, relScale.v) },
     amplitude:       { value: settings.amplitude ?? 1.0 },
     offsetUV:        { value: new THREE.Vector2(settings.offsetU ?? 0, settings.offsetV ?? 0) },
     rotation:        { value: ((settings.rotation ?? 0) * Math.PI / 180) },
@@ -504,8 +505,6 @@ function buildUniforms(tex, settings) {
     boundaryEdgeCount:        { value: 0 },
     boundaryEdgeTexWidth:     { value: 1.0 },
     boundaryFalloffDist:        { value: settings.boundaryFalloff ?? 0.0 },
-    useFixedReference:          { value: settings.fixedWorldTextureScale ? 1 : 0 },
-    referenceExtentMm:          { value: Math.max(Number(settings.referenceExtentMm) || 200, 1e-4) },
   };
 }
 

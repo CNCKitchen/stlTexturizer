@@ -13,7 +13,8 @@ import { decimate } from './js/decimation.js';
 import { resolveTJunctions, countAreaSlivers, countEdgeDefects } from './js/meshRepair.js';
 
 const settings = {
-  mappingMode: 5, scaleU: 0.3, scaleV: 0.3, amplitude: 0.5, textureHeight: 0.5,
+  // scaleU/scaleV are absolute mm: 15 mm = legacy relative 0.3 on the 50 mm cube.
+  mappingMode: 5, scaleU: 15, scaleV: 15, amplitude: 0.5, textureHeight: 0.5,
   invertDisplacement: false, offsetU: 0, offsetV: 0, rotation: 0,
   refineLength: 0.2, maxTriangles: 2_000_000, lockScale: true,
   bottomAngleLimit: 5, topAngleLimit: 0, mappingBlend: 1, seamBandWidth: 0.5,

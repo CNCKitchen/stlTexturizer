@@ -80,6 +80,12 @@ g.computeBoundingBox();
 const bb = g.boundingBox;
 const bounds = { min: bb.min.clone(), max: bb.max.clone(), size: new THREE.Vector3().subVectors(bb.max, bb.min), center: new THREE.Vector3().addVectors(bb.min, bb.max).multiplyScalar(0.5) };
 const img = decodePNG(process.argv[3]);
+// scaleU/scaleV are absolute mm; 0.5 × maxDim matches the legacy relative 0.5.
+{
+  const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z);
+  settings.scaleU = 0.5 * md;
+  settings.scaleV = 0.5 * md;
+}
 
 const fw = buildFaceWeights(g, new Set(), false);
 let { geometry: sub } = await subdivide(g, settings.refineLength, null, fw);

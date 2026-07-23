@@ -20,11 +20,6 @@
 
 import { analyzeTexture } from './textureAnalysis.js';
 import { computeSurfaceArea } from './stlLoader.js';
-import {
-  MODE_PLANAR_XY, MODE_PLANAR_XZ, MODE_PLANAR_YZ,
-  MODE_CYLINDRICAL, MODE_SPHERICAL,
-  MODE_TRIPLANAR, MODE_CUBIC,
-} from './mapping.js';
 
 // Conservative BASE of subdivision.js's SAFETY_CAP (which is adaptive since
 // June 2026: 32M on Chrome/Edge machines reporting deviceMemory ≥ 8, 16M
@@ -70,43 +65,15 @@ const TRIS_PER_AREA_GEOM = 4 / Math.sqrt(3); // ≈ 2.309
  * not pick a degenerate axis.
  */
 function computeWorldPeriod(settings, bounds) {
-  const { size, center, min } = bounds;
+  // settings.scaleU/scaleV ARE the world period in mm (absolute tile size) —
+  // identical across all mapping modes by construction. Only the aspect
+  // correction from mapping.js (effective scale = scale / aspect) remains.
   const aspectU = settings.textureAspectU ?? 1;
   const aspectV = settings.textureAspectV ?? 1;
-  // Match mapping.js:106-107: effective scale is (settings.scale / aspect)
-  const sU = (settings.scaleU || 1e-6) / aspectU;
-  const sV = (settings.scaleV || 1e-6) / aspectV;
-
-  const md = Math.max(size.x, size.y, size.z, 1e-6);
-  const planar = md * sU; // planar period (any axis — same `md` is used in mapping.js)
-  const planarV = md * sV;
-
-  switch (settings.mappingMode) {
-    case MODE_PLANAR_XY:
-    case MODE_PLANAR_XZ:
-    case MODE_PLANAR_YZ:
-      return { periodU_mm: planar, periodV_mm: planarV };
-
-    case MODE_CYLINDRICAL: {
-      const rDefault = Math.max(size.x, size.y) * 0.5;
-      const r = Math.max(settings.cylinderRadius ?? rDefault, 1e-6);
-      const C = 2 * Math.PI * r;
-      // U: arc length per UV repeat = C × scaleU
-      // V: vSide normalised by C, so V period (along Z) = C × scaleV
-      return { periodU_mm: C * sU, periodV_mm: C * sV };
-    }
-
-    case MODE_SPHERICAL: {
-      const r = Math.max(0.5 * Math.max(size.x, size.y, size.z), 1e-6);
-      return { periodU_mm: 2 * Math.PI * r * sU, periodV_mm: Math.PI * r * sV };
-    }
-
-    case MODE_TRIPLANAR:
-    case MODE_CUBIC:
-    default:
-      // Three planar projections blended by normal — use planar period.
-      return { periodU_mm: planar, periodV_mm: planarV };
-  }
+  return {
+    periodU_mm: (settings.scaleU || 1e-6) / aspectU,
+    periodV_mm: (settings.scaleV || 1e-6) / aspectV,
+  };
 }
 
 // ── Subdivision triangle-count simulator ─────────────────────────────────────

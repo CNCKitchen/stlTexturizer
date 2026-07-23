@@ -1,10 +1,10 @@
-/*
+﻿/*
  * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
 import { THREE } from './threeCompat.js';
-import { computeUV, getDominantCubicAxis, getCubicBlendWeights, getReferenceExtent } from './mapping.js';
+import { computeUV, getDominantCubicAxis, getCubicBlendWeights, scaleMmToRelative } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
 
 /**
@@ -13,15 +13,15 @@ import { QuantizedPointMap } from './meshIndex.js';
  * For each vertex:
  *   1. Compute UV with the same math used in the GLSL preview shader (mapping.js).
  *   2. Bilinear-sample the greyscale ImageData at that UV.
- *   3. Move the vertex along its normal by:  (grey − 0.5) × 2 × amplitude
+ *   3. Move the vertex along its normal by:  (grey âˆ’ 0.5) Ã— 2 Ã— amplitude
  *      so 50% grey = no displacement, white = outward, black = inward.
  *
- * @param {THREE.BufferGeometry} geometry  – non-indexed (from subdivide())
- * @param {ImageData}            imageData – raw pixel data from Canvas2D
+ * @param {THREE.BufferGeometry} geometry  â€“ non-indexed (from subdivide())
+ * @param {ImageData}            imageData â€“ raw pixel data from Canvas2D
  * @param {number}               imgWidth
  * @param {number}               imgHeight
- * @param {object}               settings  – { mappingMode, scaleU, scaleV, amplitude, offsetU, offsetV }
- * @param {object}               bounds    – { min, max, center, size } (THREE.Vector3)
+ * @param {object}               settings  â€“ { mappingMode, scaleU, scaleV, amplitude, offsetU, offsetV }
+ * @param {object}               bounds    â€“ { min, max, center, size } (THREE.Vector3)
  * @param {function}             [onProgress]
  * @returns {THREE.BufferGeometry}  new non-indexed geometry with displaced positions
  */
@@ -50,29 +50,29 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   const aspectV = tmax / Math.max(imgHeight, 1);
   const settingsWithAspect = { ...settings, textureAspectU: aspectU, textureAspectV: aspectV };
 
-  // 10 µm vertex-dedup cells. Must match subdivision.js QUANTISE so the
+  // 10 Âµm vertex-dedup cells. Must match subdivision.js QUANTISE so the
   // displacement pipeline sees the same vertex-uniqueness that subdivision
-  // produced — coarser cells (1e4) collapsed real fillet vertices on small
+  // produced â€” coarser cells (1e4) collapsed real fillet vertices on small
   // models, creating needle artifacts and non-manifold edges.
   const QUANT = 1e5;
 
-  // ── WHY GAPS HAPPEN ───────────────────────────────────────────────────────
+  // â”€â”€ WHY GAPS HAPPEN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // The mesh is non-indexed (unrolled): every triangle has its own copy of
   // each vertex.  At a shared edge two triangles have the same position but
   // different face normals.  Displacing each copy along its own face normal
-  // moves them to DIFFERENT final positions → crack / gap.
+  // moves them to DIFFERENT final positions â†’ crack / gap.
   //
   // THE FIX: every copy of the same position must arrive at the exact same
   // displaced point.  We achieve this by computing a single *smooth* (area-
   // weighted average) normal per unique position and using that both for the
   // texture UV lookup and for the displacement direction.  All copies of the
-  // same position then move by the same vector → watertight result.
+  // same position then move by the same vector â†’ watertight result.
   //
   // The tradeoff is that displaced normals are smooth at hard edges, but the
   // underlying geometry is still faceted (the subdivision didn't change it),
   // so printed edges remain sharp.
 
-  // ── Vertex dedup pass: position → numeric ID (allocation-free hash table) ─
+  // â”€â”€ Vertex dedup pass: position â†’ numeric ID (allocation-free hash table) â”€
   // idPos{X,Y,Z} are only populated when boundary falloff is enabled, since
   // they're only consumed by the falloff distance field. Pre-sized to `count`
   // (upper bound on uniqueCount); read by ID, so extra tail slots stay unused.
@@ -96,7 +96,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   }
   const uniqueCount = _nextId;
 
-  // ── Pass 1: accumulate area-weighted smooth normals per unique position ───
+  // â”€â”€ Pass 1: accumulate area-weighted smooth normals per unique position â”€â”€â”€
   // Flat arrays indexed by vertex dedup ID (replaces Map<string, ...>)
   const smoothNrmX = new Float64Array(uniqueCount);
   const smoothNrmY = new Float64Array(uniqueCount);
@@ -131,11 +131,11 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     vC.fromBufferAttribute(posAttr, t + 2);
     edge1.subVectors(vB, vA);
     edge2.subVectors(vC, vA);
-    faceNrm.crossVectors(edge1, edge2); // length = 2× triangle area → natural area weighting
+    faceNrm.crossVectors(edge1, edge2); // length = 2Ã— triangle area â†’ natural area weighting
 
     // Determine if this face is masked (used to build the per-vertex blend weight).
     // Combines angle-based masking with optional user-painted exclusion.
-    const faceArea   = faceNrm.length();                               // ∝ 2× triangle area
+    const faceArea   = faceNrm.length();                               // âˆ 2Ã— triangle area
     const faceNzNorm = faceArea > 1e-12 ? faceNrm.z / faceArea : 0;  // unit-normal Z component
     const faceAngle  = Math.acos(Math.abs(faceNzNorm)) * (180 / Math.PI);
     const angleMasked = faceNzNorm < 0
@@ -143,7 +143,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
       : (settings.topAngleLimit    > 0 && faceAngle <= settings.topAngleLimit);
     // Threshold >0.99 (not 0.5) prevents shared-vertex MAX-propagation from
     // accidentally marking adjacent faces as excluded on closed meshes (e.g. a
-    // cube): adjacent faces have 2/3 vertices at weight 1.0 → avg ≈ 0.67 which
+    // cube): adjacent faces have 2/3 vertices at weight 1.0 â†’ avg â‰ˆ 0.67 which
     // would wrongly trigger the old 0.5 threshold.
     const userExcluded = ewAttr
       ? (ewAttr.getX(t) + ewAttr.getX(t + 1) + ewAttr.getX(t + 2)) / 3 > 0.99
@@ -178,7 +178,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
       if (userExcluded && excludedPos) excludedPos[vid] = 1;
       // Use the buffer normal (from subdivision) weighted by face area.
       // The subdivision pipeline splits indexed vertices at sharp dihedral
-      // edges (>30°), so the interpolated buffer normals are smooth across
+      // edges (>30Â°), so the interpolated buffer normals are smooth across
       // soft edges (cylinder, sphere) but sharp across hard edges (cube).
       // This eliminates visible faceting steps on round surfaces while still
       // preserving hard edges.
@@ -196,7 +196,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     }
   }
 
-  // Normalise each accumulated normal — also remember the pre-normalisation
+  // Normalise each accumulated normal â€” also remember the pre-normalisation
   // magnitude relative to the total face area at that position. A ratio near
   // 1 means all neighbouring face normals point the same way (the smooth
   // normal is a reliable surface direction); near 0 means opposing normals
@@ -212,27 +212,27 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     smoothNrmX[id] *= inv; smoothNrmY[id] *= inv; smoothNrmZ[id] *= inv;
   }
 
-  // ── Pass 1.5: Laplacian-smoothed BLEND normal ─────────────────────────────
+  // â”€â”€ Pass 1.5: Laplacian-smoothed BLEND normal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // The displacement direction (Pass 3) must remain the accurate per-vertex
-  // smooth normal — otherwise watertight copies of the same position move
+  // smooth normal â€” otherwise watertight copies of the same position move
   // differently and you get cracks. But the normal used to derive
   // *projection-direction blend weights* only needs to vary slowly across
   // the surface. On organic / sculpted meshes the smooth normal still has
   // high-frequency jitter (a few degrees vertex-to-vertex). Inside the
-  // blend band (where ∂w/∂n is largest) that jitter multiplies the
+  // blend band (where âˆ‚w/âˆ‚n is largest) that jitter multiplies the
   // difference between two unrelated heightmap samples (hA - hB), producing
   // visible seam noise even when the underlying texture is not at fault.
   //
   // Smoothing the blend normal kills this amplification at the source. On a
   // sphere the smoothing is a no-op (already smooth); on a noisy surface it
-  // damps the jitter that drives ∂w. Direction info is preserved because we
+  // damps the jitter that drives âˆ‚w. Direction info is preserved because we
   // re-normalise after each iteration.
   const blendNrmIters = Math.max(0, Math.floor(settings.blendNormalSmoothing ?? 0));
   let blendNrmX = smoothNrmX, blendNrmY = smoothNrmY, blendNrmZ = smoothNrmZ;
   if (blendNrmIters > 0) {
     // Build dedup-graph adjacency in CSR form: each triangle contributes
     // 3 directed edges; we build a multigraph (duplicates keep their natural
-    // weight from how often two positions share an edge — i.e., shared
+    // weight from how often two positions share an edge â€” i.e., shared
     // surfaces accumulate higher coupling, which is what we want).
     // For each unique-vertex id, neighbors[csrStart[id]..csrStart[id+1])
     // is the contiguous slice of neighbour ids.
@@ -283,7 +283,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
           const r = 1 / len;
           nxtX[id] = sx * r; nxtY[id] = sy * r; nxtZ[id] = sz * r;
         } else {
-          // Neighbour normals cancelled (knife-edge) — keep current.
+          // Neighbour normals cancelled (knife-edge) â€” keep current.
           nxtX[id] = curX[id]; nxtY[id] = curY[id]; nxtZ[id] = curZ[id];
         }
       }
@@ -294,7 +294,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     blendNrmX = curX; blendNrmY = curY; blendNrmZ = curZ;
   }
 
-  // ── Boundary falloff distance field ──────────────────────────────────────────
+  // â”€â”€ Boundary falloff distance field â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // When boundaryFalloff > 0, identify boundary positions (vertices adjacent to
   // both masked and unmasked faces, or on the user-exclusion seam) and compute
   // the Euclidean distance from every fully-textured vertex to its nearest
@@ -345,7 +345,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
 
       // CSR-style spatial grid: cellStart/cellIdx give each cell a contiguous
       // slice of boundary indices. Replaces per-cell JS arrays with flat typed
-      // arrays — no per-cell allocations, tight inner loop, better prefetching.
+      // arrays â€” no per-cell allocations, tight inner loop, better prefetching.
       const cellCount = new Uint32Array(gridSize);
       const bpCell = new Uint32Array(bpCount);
       for (let i = 0; i < bpCount; i++) {
@@ -414,7 +414,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     }
   }
 
-  // ── Pass 2: sample displacement texture once per unique position ──────────
+  // â”€â”€ Pass 2: sample displacement texture once per unique position â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   for (let i = 0; i < count; i++) {
     const vid = vertexId[i];
@@ -425,7 +425,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
 
     // Cubic: derive blend weights from the *smooth* per-vertex normal so that
     // adjacent vertices on a curved region (small fillets, rolled edges) see
-    // smoothly varying weights — this matches the per-fragment behaviour of
+    // smoothly varying weights â€” this matches the per-fragment behaviour of
     // the preview shader. The previous implementation summed per-face zone
     // weights into per-vertex zoneArea[X|Y|Z]; on small fillets those sums
     // change abruptly between neighbours because each face's dominant-axis
@@ -433,13 +433,14 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     //
     // The thin-plate edge case (top + bottom face normals cancel at a shared
     // knife-edge vertex, leaving the smooth normal nearly zero) still needs
-    // the per-face zoneArea path. We detect that via smoothNrmReliability —
+    // the per-face zoneArea path. We detect that via smoothNrmReliability â€”
     // length(rawSmoothNormal) / totalFaceArea, in [0, 1]. Surfaces with all
-    // normals broadly aligned read ≈1; perfectly cancelling pairs read 0.
-    // 0.5 is loose enough that a 90° cube edge (≈0.71) still uses the smooth
-    // path, but a near-180° fold falls back to face-area zones.
+    // normals broadly aligned read â‰ˆ1; perfectly cancelling pairs read 0.
+    // 0.5 is loose enough that a 90Â° cube edge (â‰ˆ0.71) still uses the smooth
+    // path, but a near-180Â° fold falls back to face-area zones.
     if (settings.mappingMode === 6 /* MODE_CUBIC */) {
-      const md = getReferenceExtent(settings, bounds);
+      const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z, 1e-6);
+      const relScale = scaleMmToRelative(6, settings, bounds);
       const rotRad = (settings.rotation ?? 0) * Math.PI / 180;
       const cubicBlend = settings.mappingBlend ?? 0;
       const cubicBandWidth = settings.seamBandWidth ?? 0.35;
@@ -457,27 +458,27 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
 
       if (wX + wY + wZ > 0) {
         let grey = 0;
-        // U-flip uses the *original* smoothNrm — it's a discrete sign decision
+        // U-flip uses the *original* smoothNrm â€” it's a discrete sign decision
         // about which face of the cube this vertex sits on. The smoothed blend
         // normal can have small components flip sign during Laplacian smoothing
-        // (e.g. for vertices near the equator x≈0), which would mirror their
+        // (e.g. for vertices near the equator xâ‰ˆ0), which would mirror their
         // texture sample relative to the true surface orientation.
-        if (wX > 0) { // X-dominant → YZ projection
+        if (wX > 0) { // X-dominant â†’ YZ projection
           let rawU = (tmpPos.y-bounds.min.y)/md;
           if (smoothNrmX[vid] < 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, settings, rotRad, aspectU, aspectV);
+          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, relScale, settings, rotRad, aspectU, aspectV);
           grey += sampleBilinear(imageData.data, imgWidth, imgHeight, uv.u, uv.v) * wX;
         }
-        if (wY > 0) { // Y-dominant → XZ projection
+        if (wY > 0) { // Y-dominant â†’ XZ projection
           let rawU = (tmpPos.x-bounds.min.x)/md;
           if (smoothNrmY[vid] > 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, settings, rotRad, aspectU, aspectV);
+          const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, relScale, settings, rotRad, aspectU, aspectV);
           grey += sampleBilinear(imageData.data, imgWidth, imgHeight, uv.u, uv.v) * wY;
         }
-        if (wZ > 0) { // Z-dominant → XY projection
+        if (wZ > 0) { // Z-dominant â†’ XY projection
           let rawU = (tmpPos.x-bounds.min.x)/md;
           if (smoothNrmZ[vid] < 0) rawU = -rawU;
-          const uv = _cubicUV(rawU, (tmpPos.y-bounds.min.y)/md, settings, rotRad, aspectU, aspectV);
+          const uv = _cubicUV(rawU, (tmpPos.y-bounds.min.y)/md, relScale, settings, rotRad, aspectU, aspectV);
           grey += sampleBilinear(imageData.data, imgWidth, imgHeight, uv.u, uv.v) * wZ;
         }
         dispCacheVal[vid] = grey;
@@ -489,7 +490,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     // adjacent vertices in a blend zone don't see jittery weights driven by
     // mesh-noise. Other modes ignore the normal for blending, so this is a
     // no-op there. Displacement direction (Pass 3) stays on the unsmoothed
-    // smooth normal — only blend weights change here.
+    // smooth normal â€” only blend weights change here.
     tmpNrm.set(blendNrmX[vid], blendNrmY[vid], blendNrmZ[vid]);
 
     const uvResult = computeUV(tmpPos, tmpNrm, settings.mappingMode, settingsWithAspect, bounds);
@@ -505,7 +506,7 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     dispCacheVal[vid] = grey;
   }
 
-  // ── Pass 3: displace every vertex copy by the same vector ─────────────────
+  // â”€â”€ Pass 3: displace every vertex copy by the same vector â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Using the smooth normal for the displacement direction ensures all copies
   // of the same position land at exactly the same 3-D point.
 
@@ -550,9 +551,9 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
 
     // Bottom-plane flat clamp: with overhang protection on, also clamp
     // upward motion when the original vertex sat on the print bottom plane.
-    // Without this, a downward-facing face (smoothNrm ≈ (0,0,-1)) pulls UP
+    // Without this, a downward-facing face (smoothNrm â‰ˆ (0,0,-1)) pulls UP
     // when the texture sample is below mid-grey (centeredGrey < 0 makes
-    // smoothNrm × disp positive in Z), so adjacent bottom-face vertices
+    // smoothNrm Ã— disp positive in Z), so adjacent bottom-face vertices
     // end up at slightly different heights and slicers render the now-
     // tilted triangles with visibly varying shading. The clamp keeps the
     // bed-contact surface a single Z value while leaving any vertex above
@@ -600,23 +601,23 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   return out;
 }
 
-// ── Bilinear sampler ─────────────────────────────────────────────────────────
+// â”€â”€ Bilinear sampler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
- * Sample a greyscale value (0–1) from raw RGBA ImageData using
+ * Sample a greyscale value (0â€“1) from raw RGBA ImageData using
  * bilinear interpolation. UV is tiled via mod 1.
  *
  * GL-exact (June 2026): texel centers sit at (i + 0.5) / w and the bilinear
- * neighbourhood WRAPS — matching texture2D with RepeatWrapping, which is what
+ * neighbourhood WRAPS â€” matching texture2D with RepeatWrapping, which is what
  * the GPU preview shader samples. The previous u * (w - 1) mapping with
  * clamped neighbours stretched each tile by one texel, so at every tile
  * boundary the texture's first and last texel column both appeared ("start
- * and end overlap") and the bilinear blend never wrapped — a visible seam
+ * and end overlap") and the bilinear blend never wrapped â€” a visible seam
  * groove on the exported mesh that the preview (correctly wrapping on the
  * GPU) never showed.
  */
 function sampleBilinear(data, w, h, u, v) {
-  // Ensure [0,1) — guard against floating-point edge cases
+  // Ensure [0,1) â€” guard against floating-point edge cases
   u = ((u % 1) + 1) % 1;
   v = ((v % 1) + 1) % 1;
   // Flip V to match WebGL/Three.js texture convention (flipY=true means
@@ -634,7 +635,7 @@ function sampleBilinear(data, w, h, u, v) {
   x0 = ((x0 % w) + w) % w;
   y0 = ((y0 % h) + h) % h;
 
-  // Red channel — image is greyscale so R == G == B
+  // Red channel â€” image is greyscale so R == G == B
   const v00 = data[(y0 * w + x0) * 4] / 255;
   const v10 = data[(y0 * w + x1) * 4] / 255;
   const v01 = data[(y1 * w + x0) * 4] / 255;
@@ -647,10 +648,11 @@ function sampleBilinear(data, w, h, u, v) {
 }
 
 /** Apply scale/offset/rotation to raw UV for cubic projection.
- *  Mirrors the private applyTransform helper in mapping.js. */
-function _cubicUV(rawU, rawV, settings, rotRad, aspectU, aspectV) {
-  let u = (rawU * aspectU) / settings.scaleU + settings.offsetU;
-  let v = (rawV * aspectV) / settings.scaleV + settings.offsetV;
+ *  Mirrors the private applyTransform helper in mapping.js. `relScale` is the
+ *  mm→relative conversion from scaleMmToRelative (constant per export). */
+function _cubicUV(rawU, rawV, relScale, settings, rotRad, aspectU, aspectV) {
+  let u = (rawU * aspectU) / relScale.u + settings.offsetU;
+  let v = (rawV * aspectV) / relScale.v + settings.offsetV;
   if (rotRad !== 0) {
     const c = Math.cos(rotRad), s = Math.sin(rotRad);
     u -= 0.5; v -= 0.5;

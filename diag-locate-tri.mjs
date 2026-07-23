@@ -5,13 +5,14 @@
 
 // Locate a triangle by index in an exported 3MF and report where it sits
 // relative to the triplanar texture-tile lines of a centered cube.
-//   node diag-locate-tri.mjs <file.3mf> <triIndex> [scaleU]
+//   node diag-locate-tri.mjs <file.3mf> <triIndex> [tileSizeMm]
+// tileSizeMm is the absolute texture size in mm (app's Size U); defaults to
+// half the model's largest bbox edge (the app's per-model default).
 import { readFileSync } from 'fs';
 import { unzipSync } from 'fflate';
 
 const [file, triIdxArg, scaleArg] = process.argv.slice(2);
 const triIdx = +triIdxArg;
-const scaleU = +(scaleArg ?? 0.5);
 
 const z = unzipSync(readFileSync(file));
 const entry = Object.keys(z).find(k => k.endsWith('3dmodel.model'));
@@ -32,7 +33,7 @@ let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity
 for (const v of vtx) for (let k = 0; k < 3; k++) { if (v[k] < min[k]) min[k] = v[k]; if (v[k] > max[k]) max[k] = v[k]; }
 const size = [max[0]-min[0], max[1]-min[1], max[2]-min[2]];
 const md = Math.max(...size);
-const P = md * scaleU;
+const P = scaleArg != null ? +scaleArg : md * 0.5; // absolute tile size in mm
 console.log(`bbox min=${min.map(x=>x.toFixed(2))} size=${size.map(x=>x.toFixed(2))} md=${md.toFixed(2)} tilePeriod=${P.toFixed(2)}mm`);
 for (let k = 0; k < 3; k++) {
   const u = (c[k] - min[k]) / P;

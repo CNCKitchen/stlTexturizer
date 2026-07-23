@@ -232,20 +232,21 @@ async function runCase(stlName, texEntry, ratios) {
   const ta = analyzeTexture(texEntry.imageData);
   const diag = bounds.size.length();
 
-  // Settings: triplanar with a fixed scale chosen so pixMm sits in a useful range.
-  // Use scaleU=0.5 like in the existing test — that's diag*0.5 mm per UV repeat.
+  // Settings: triplanar with a fixed scale chosen so pixMm sits in a useful
+  // range. scaleU/scaleV are absolute mm — 0.5 × maxDim matches the legacy
+  // relative 0.5 per UV repeat.
+  const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z, 1e-6);
   const settings = {
     mappingMode: MODE_TRIPLANAR,
-    scaleU: 0.5, scaleV: 0.5,
+    scaleU: 0.5 * md, scaleV: 0.5 * md,
     offsetU: 0, offsetV: 0,
     amplitude: 0.5,
     textureAspectU: 1, textureAspectV: 1,
     boundaryFalloff: 0,
   };
 
-  // Mirror smartResolution.computeWorldPeriod for triplanar (planar):
-  const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z, 1e-6);
-  const periodU = md * settings.scaleU;
+  // Mirror smartResolution.computeWorldPeriod: the period IS the mm tile size.
+  const periodU = settings.scaleU;
   const pixMm = (periodU / texEntry.imageData.width);
 
   const recommended = recommendMaxTri({

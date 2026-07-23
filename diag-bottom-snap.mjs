@@ -191,6 +191,12 @@ const g = loadSTL(stlPath);
 const bb = g.boundingBox;
 const bounds = { min: bb.min.clone(), max: bb.max.clone(), size: new THREE.Vector3().subVectors(bb.max, bb.min), center: new THREE.Vector3().addVectors(bb.min, bb.max).multiplyScalar(0.5) };
 const img = decodePNG(texPath);
+// scaleU/scaleV are absolute mm; 0.5 × maxDim matches the legacy relative 0.5.
+{
+  const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z);
+  baseSettings.scaleU = 0.5 * md;
+  baseSettings.scaleV = 0.5 * md;
+}
 console.log(`model=${stlPath} tris=${g.attributes.position.count/3} bottomZ=${bounds.min.z.toFixed(4)} refine=${refineLength}`);
 
 for (const smoothBottom of [true, false]) {

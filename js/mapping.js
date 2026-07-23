@@ -20,18 +20,41 @@ export const MODE_CUBIC       = 6;
 const TWO_PI = Math.PI * 2;
 
 /**
- * Millimetres used to normalize planar / triplanar / cubic UV coordinates.
- * Default (fixed off): each mesh's largest bounding-box edge — pattern scales with part size.
- * Fixed world scale: user `referenceExtentMm` — same profile yields similar physical pattern size on any mesh.
+ * Reference lengths (mm) that one full UV unit spans along U and V, per
+ * mapping mode. settings.scaleU/scaleV are absolute tile sizes in mm; the
+ * internal math still works in normalized coordinates, so consumers divide
+ * mm by these lengths to get the relative scale factor:
+ *
+ *   planar / triplanar / cubic: largest bbox edge (cancels against the
+ *     coordinate normalization → texture is truly world-anchored)
+ *   cylindrical: circumference of the projection cylinder (U = arc length,
+ *     V is normalized by the same C in computeUV)
+ *   spherical: equator arc for U, pole-to-pole meridian arc for V
  */
-export function getReferenceExtent(settings, bounds) {
-  const maxDim = Math.max(bounds.size.x, bounds.size.y, bounds.size.z);
-  const md = Math.max(maxDim, 1e-6);
-  if (settings.fixedWorldTextureScale) {
-    const ref = Number(settings.referenceExtentMm);
-    if (Number.isFinite(ref) && ref > 0) return ref;
+export function getScaleReferenceLengths(mode, settings, bounds) {
+  const { size } = bounds;
+  const md = Math.max(size.x, size.y, size.z, 1e-6);
+  switch (mode) {
+    case MODE_CYLINDRICAL: {
+      const r = Math.max(settings.cylinderRadius ?? Math.max(size.x, size.y) * 0.5, 1e-6);
+      const C = TWO_PI * r;
+      return { refU: C, refV: C };
+    }
+    case MODE_SPHERICAL: {
+      const R = Math.max(0.5 * md, 1e-6);
+      return { refU: TWO_PI * R, refV: Math.PI * R };
+    }
+    default:
+      return { refU: md, refV: md };
   }
-  return md;
+}
+
+/** Convert absolute mm tile sizes to the mode's relative scale factors. */
+export function scaleMmToRelative(mode, settings, bounds) {
+  const { refU, refV } = getScaleReferenceLengths(mode, settings, bounds);
+  const u = Math.max(Number(settings.scaleU) || 1e-6, 1e-6) / refU;
+  const v = Math.max(Number(settings.scaleV) || 1e-6, 1e-6) / refV;
+  return { u, v };
 }
 const CUBIC_AXIS_EPSILON = 1e-4;
 
@@ -123,13 +146,16 @@ export function computeUV(pos, normal, mode, settings, bounds) {
   // so equal world-space distances produce equal physical texture distances.
   const aU = settings.textureAspectU ?? 1;
   const aV = settings.textureAspectV ?? 1;
-  const scaleU = (settings.scaleU) / aU;
-  const scaleV = (settings.scaleV) / aV;
+  // settings.scaleU/scaleV are absolute mm — convert to the relative factors
+  // the normalized-coordinate math below expects.
+  const rel = scaleMmToRelative(mode, settings, bounds);
+  const scaleU = rel.u / aU;
+  const scaleV = rel.v / aV;
   const { offsetU, offsetV } = settings;
   const rotRad = (settings.rotation ?? 0) * Math.PI / 180;
   const cosR = Math.cos(rotRad);
   const sinR = Math.sin(rotRad);
-  const md = getReferenceExtent(settings, bounds);
+  const md = Math.max(size.x, size.y, size.z, 1e-6);
 
   let u = 0, v = 0;
 
