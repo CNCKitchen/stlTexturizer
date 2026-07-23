@@ -51,20 +51,33 @@ async function _loadLang(lang) {
 
 // ── Core API ──────────────────────────────────────────────────────────────────
 
-/**
- * Look up a translation key in the current language, falling back to English.
- * Replace {placeholder} tokens with values from `params`.
- */
-export function t(key, params = {}) {
+function _interpolate(key, params, escape) {
   const strings  = _cache[_currentLang] ?? _cache.en ?? {};
   const fallback = _cache.en ?? {};
   let str = strings[key] ?? fallback[key] ?? key;
 
   for (const [k, v] of Object.entries(params)) {
-    str = str.replaceAll(`{${k}}`, v);
+    str = str.replaceAll(`{${k}}`, escape ? _escapeHtml(v) : v);
   }
 
   return str;
+}
+
+const _escapeHtml = (v) => String(v)
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#39;');
+
+/** Translate key + interpolate {placeholder}s. Text sinks only; innerHTML uses tHtml(). */
+export function t(key, params = {}) {
+  return _interpolate(key, params, false);
+}
+
+/** t() with params HTML-escaped (templates stay raw). For innerHTML sinks. */
+export function tHtml(key, params = {}) {
+  return _interpolate(key, params, true);
 }
 
 export function getLang() {
@@ -107,9 +120,9 @@ export function applyTranslations() {
     el.textContent = t(el.dataset.i18n);
   });
 
-  // innerHTML (safe: all values are hardcoded in translation files, not user input)
+  // innerHTML — templates trusted, params escaped
   document.querySelectorAll('[data-i18n-html]').forEach(el => {
-    el.innerHTML = t(el.dataset.i18nHtml);
+    el.innerHTML = tHtml(el.dataset.i18nHtml);
   });
 
   // title attribute
