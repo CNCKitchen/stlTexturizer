@@ -25,6 +25,7 @@ import { runFastDiagnostics, runExpensiveDiagnostics,
 import { t, tHtml, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
 import { getScaleReferenceLengths } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
+import { APP_VERSION } from './version.js';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -934,6 +935,9 @@ function autoFitCylinderAxis() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 let PRESETS = [];
+
+document.getElementById('app-version').textContent = `v${APP_VERSION}`;
+console.info(`BumpMesh v${APP_VERSION}`);
 
 initViewer(canvas);
 

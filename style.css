@@ -157,6 +157,12 @@ header {
   letter-spacing: 0.02em;
 }
 
+.app-version {
+  opacity: 0.45;
+  font-weight: 400;
+  font-size: 11px;
+}
+
 .header-note {
   margin-left: auto;
   font-size: 11px;
