@@ -5042,6 +5042,7 @@ const PERSISTED_KEYS = [
   // null means "fall back to AABB defaults", which is what fresh loads get.
   'snapSeamlessWrap', 'cylinderCenterX', 'cylinderCenterY', 'cylinderRadius',
   'cylinderPanelMinimized',
+  'fixedWorldTextureScale', 'referenceExtentMm',
 ];
 
 function getSettingsSnapshot() {
@@ -5140,6 +5141,14 @@ function applySettingsSnapshot(snap) {
   if (snap.harvestTol != null) {
     harvestTolInput.value = snap.harvestTol;
     harvestTolInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  if (snap.fixedWorldTextureScale != null && fixedWorldTextureToggle) {
+    fixedWorldTextureToggle.checked = !!snap.fixedWorldTextureScale;
+    fixedWorldTextureToggle.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  if (snap.referenceExtentMm != null && referenceExtentMmVal) {
+    referenceExtentMmVal.value = snap.referenceExtentMm;
+    referenceExtentMmVal.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   // Cylindrical-mode state. cylinderCenterX/Y/radius pass through unchanged
