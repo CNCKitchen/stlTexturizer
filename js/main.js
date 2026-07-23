@@ -4075,6 +4075,7 @@ function estimateSubdivisionTriCount(geometry, targetEdge) {
 
 /** Deactivate precision masking and bake the refined mesh as the new base geometry. */
 function deactivatePrecisionMasking() {
+  const promoted = !!precisionGeometry;
   if (precisionGeometry) {
     // Bake: the precision geometry becomes the new currentGeometry
     if (currentGeometry && currentGeometry !== precisionGeometry) {
@@ -4124,6 +4125,12 @@ function deactivatePrecisionMasking() {
     if (excludedFaces.size > 0) refreshExclusionOverlay();
     else setExclusionOverlay(null);
   }
+
+  // Promoting the precision mesh re-tessellates currentGeometry, so undo
+  // snapshots reference the pre-promotion triangle set. Applying one of them
+  // afterwards scatters the mask across the new tessellation (issue #61) —
+  // clear the history, same as bake does.
+  if (promoted) _clearUndoStacks();
 }
 
 /** Refresh (or initially build) the precision mesh from current brush size. */
