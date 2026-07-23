@@ -154,6 +154,12 @@ Open http://localhost:8000 in your browser and you're ready to go.
 
 > **Tip:** Any static server will work — the app has no server-side dependencies.
 
+**Docker / Podman**
+```bash
+docker compose up -d      # or: podman-compose -f podman-compose.yaml up -d
+```
+Serves the app on http://localhost:8080. To change the port or container name, copy `.env.example` to `.env` and edit it.
+
 ## Dependencies
 
 Loaded via CDN ([jsDelivr](https://www.jsdelivr.com/)) — no build step or npm install needed:
