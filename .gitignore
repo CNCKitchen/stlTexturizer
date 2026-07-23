@@ -7,3 +7,5 @@ debug_out/
 *.stl
 *.3mf
 test-*.mjs
+.env
+.codegraph

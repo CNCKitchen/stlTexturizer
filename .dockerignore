@@ -1,0 +1,13 @@
+.git
+.gitignore
+.codegraph
+CLAUDE.md
+CNAME
+LICENSE
+README.md
+Dockerfile
+compose.yaml
+podman-compose.yaml
+.dockerignore
+.env
+.env.example
