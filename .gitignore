@@ -10,3 +10,9 @@ test-*.mjs
 test-fixtures/
 .env
 .codegraph
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
