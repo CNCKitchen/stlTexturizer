@@ -1,23 +1,25 @@
 # Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 
-"""Generate 80×80 WebP thumbnails for preset textures (cover-crop, center)."""
+"""Generate 80×80 WebP thumbnails for preset textures (cover-crop, center).
+
+The preset list is parsed from js/presetTextures.js (IMAGE_PRESETS url: fields)
+so adding a texture there is the only edit needed.
+"""
+import re
 from pathlib import Path
 from PIL import Image
 
 THUMB = 80
-SRC = Path(__file__).parent / "textures"
+ROOT = Path(__file__).parent
+SRC = ROOT / "textures"
 DST = SRC / "thumbs"
 DST.mkdir(exist_ok=True)
 
-PRESETS = [
-    "basket.png", "brick.png", "bubble.png", "carbonFiber.jpg",
-    "crystal.png", "dots.png", "grid.png", "gripSurface.jpg",
-    "hexagon.jpg", "hexagons.jpg", "isogrid.png", "knitting.png",
-    "knurling.jpg", "leather2.png", "noise.jpg", "stripes.png",
-    "stripes_02.png", "voronoi.jpg", "weave.png", "weave_02.jpg",
-    "weave_03.jpg", "wood.jpg", "woodgrain_02.jpg", "woodgrain_03.jpg",
-]
+_presets_js = (ROOT / "js" / "presetTextures.js").read_text()
+PRESETS = re.findall(r"url:\s*'textures/([^']+)'", _presets_js)
+if not PRESETS:
+    raise SystemExit("No presets found in js/presetTextures.js — url: format changed?")
 
 total = 0
 for fname in PRESETS:
