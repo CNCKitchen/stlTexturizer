@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bumpmesh"
+dynamic = ["version"]
+description = "BumpMesh integration for OrcaSlicer"
+requires-python = ">=3.12"
+dependencies = ["numpy~=2.0"]
+authors = [{ name = "CNC Kitchen" }]
+license = "AGPL-3.0-only"
+
+[tool.setuptools]
+py-modules = ["bumpmesh_plugin"]
+packages = ["bumpmesh_orca_assets"]
+
+[tool.setuptools.package-data]
+bumpmesh_orca_assets = ["*.png"]
+
+[tool.setuptools.dynamic]
+version = { attr = "bumpmesh_plugin.PLUGIN_VERSION" }

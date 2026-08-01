@@ -28,6 +28,23 @@ export const TRANSLATIONS = {
 let _currentLang = 'en';
 const _cache = {};
 
+function _storageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function _storageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Embedded third-party WebViews may deny persistent storage. The current
+    // in-memory language still applies for this session.
+  }
+}
+
 /**
  * Load a language file into the cache.
  * Returns true on success, false on failure.
@@ -103,7 +120,7 @@ export async function setLang(lang) {
   }
 
   _currentLang = lang;
-  localStorage.setItem('stlt-lang', lang);
+  _storageSet('stlt-lang', lang);
   document.documentElement.setAttribute('data-lang', lang);
   document.documentElement.setAttribute('lang', lang);
 
@@ -150,10 +167,16 @@ export function applyTranslations() {
  * of text. The caller should surface a visible warning in this case.
  */
 export async function initLang() {
-  const saved   = localStorage.getItem('stlt-lang');
+  const params  = new URLSearchParams(window.location.search);
+  const orcaLang = params.get('orcaslicer') === '1'
+    ? params.get('orcaslicerLang')
+    : null;
+  const saved   = _storageGet('stlt-lang');
   const browser = navigator.language.split('-')[0];
 
-  if (saved && TRANSLATIONS[saved]) {
+  if (orcaLang && TRANSLATIONS[orcaLang]) {
+    _currentLang = orcaLang;
+  } else if (saved && TRANSLATIONS[saved]) {
     _currentLang = saved;
   } else if (TRANSLATIONS[browser]) {
     _currentLang = browser;

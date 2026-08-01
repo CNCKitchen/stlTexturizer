@@ -4,6 +4,19 @@
  */
 
 export default {
+  "orca.loadFromOrca": "OrcaSlicer에서 불러오기",
+  "orca.refreshObjects": "새로 고침",
+  "orca.refreshingObjects": "OrcaSlicer 개체를 새로 고치는 중…",
+  "orca.noObjects": "OrcaSlicer에 전송 가능한 모델 개체가 없습니다.",
+  "orca.preparingModel": "OrcaSlicer에서 모델을 준비하는 중…",
+  "orca.receivingModel": "OrcaSlicer에서 모델을 받는 중…",
+  "orca.loadingModel": "OrcaSlicer 모델을 불러오는 중…",
+  "orca.modelLoaded": "OrcaSlicer에서 모델을 불러왔습니다. 결과를 내보낸 뒤 OrcaSlicer로 다시 가져오세요.",
+  "orca.transferFailed": "OrcaSlicer에서 모델을 전송하지 못했습니다.",
+  "orca.loadFailed": "OrcaSlicer 모델을 불러오지 못했습니다: {msg}",
+  "orca.negativeVolumes": "네거티브 볼륨은 수동 내보내기가 필요합니다",
+  "orca.externalLinksUnavailable": "이 내장 OrcaSlicer 페이지에서는 외부 링크를 열 수 없습니다.",
+  "orca.objectFallback": "개체 {id}",
   "theme.dark": "다크 테마",
   "theme.light": "라이트 테마",
   "theme.toggleTitle": "라이트 / 다크 모드 전환",

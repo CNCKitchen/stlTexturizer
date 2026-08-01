@@ -29,6 +29,7 @@ import { getScaleReferenceLengths } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
 import { APP_VERSION } from './version.js';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
+import { initOrcaIntegration } from './orcaIntegration.js?v=5';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -1068,13 +1069,25 @@ populateLanguageSelector();
 // Theme toggle
 document.getElementById('theme-toggle').addEventListener('click', () => {
   const isLight = document.documentElement.getAttribute('data-theme') !== 'light';
-  document.documentElement.setAttribute('data-theme', isLight ? 'light' : 'dark');
-  localStorage.setItem('stlt-theme', isLight ? 'light' : 'dark');
-  setViewerTheme(isLight);
+  applyTheme(isLight ? 'light' : 'dark', true);
 });
 
+function applyTheme(theme, persist = false) {
+  const normalized = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', normalized);
+  if (persist) {
+    try { localStorage.setItem('stlt-theme', normalized); } catch { /* blocked embedded storage */ }
+  }
+  setViewerTheme(normalized === 'light');
+}
+
 wireEvents();
-showWelcomeIfNeeded();
+const orcaIntegrationActive = initOrcaIntegration({
+  loadModelFile: handleModelFile,
+  t,
+  applyHostTheme: theme => applyTheme(theme),
+});
+if (!orcaIntegrationActive) showWelcomeIfNeeded();
 // Sync scale number inputs with the slider's initial position
 scaleUVal.value = fmtScaleVal(posToScale(parseFloat(scaleUSlider.value)));
 scaleVVal.value = fmtScaleVal(posToScale(parseFloat(scaleVSlider.value)));
@@ -1654,7 +1667,10 @@ function wireEvents() {
     // the work until it's dismissed.
     handleExport(format);
 
-    if (sessionStorage.getItem('stlt-no-sponsor') === '1') return;
+    let sponsorDismissed = false;
+    try { sponsorDismissed = sessionStorage.getItem('stlt-no-sponsor') === '1'; }
+    catch { /* blocked embedded storage */ }
+    if (sponsorDismissed) return;
     const overlay = document.getElementById('sponsor-overlay');
     const closeBtn = document.getElementById('sponsor-close');
     const storeLink = overlay.querySelector('.sponsor-link');
@@ -1663,7 +1679,8 @@ function wireEvents() {
 
     const dismiss = () => {
       if (document.getElementById('sponsor-dont-show').checked) {
-        sessionStorage.setItem('stlt-no-sponsor', '1');
+        try { sessionStorage.setItem('stlt-no-sponsor', '1'); }
+        catch { /* blocked embedded storage */ }
       }
       overlay.classList.add('hidden');
     };

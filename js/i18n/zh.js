@@ -4,6 +4,19 @@
  */
 
 export default {
+  "orca.loadFromOrca": "从 OrcaSlicer 加载",
+  "orca.refreshObjects": "刷新",
+  "orca.refreshingObjects": "正在刷新 OrcaSlicer 对象…",
+  "orca.noObjects": "OrcaSlicer 中没有可传输的模型对象。",
+  "orca.preparingModel": "正在 OrcaSlicer 中准备模型…",
+  "orca.receivingModel": "正在从 OrcaSlicer 接收模型…",
+  "orca.loadingModel": "正在加载 OrcaSlicer 模型…",
+  "orca.modelLoaded": "已从 OrcaSlicer 加载模型。请导出结果并重新导入 OrcaSlicer。",
+  "orca.transferFailed": "无法从 OrcaSlicer 传输模型。",
+  "orca.loadFailed": "无法加载 OrcaSlicer 模型：{msg}",
+  "orca.negativeVolumes": "负体积需要手动导出",
+  "orca.externalLinksUnavailable": "无法从此嵌入式 OrcaSlicer 页面打开外部链接。",
+  "orca.objectFallback": "对象 {id}",
   "theme.dark": "深色主题",
   "theme.light": "浅色主题",
   "theme.toggleTitle": "切换浅色/深色模式",

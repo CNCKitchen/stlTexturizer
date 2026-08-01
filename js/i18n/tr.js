@@ -4,6 +4,19 @@
  */
 
 export default {
+  "orca.loadFromOrca": "OrcaSlicer’dan yükle",
+  "orca.refreshObjects": "Yenile",
+  "orca.refreshingObjects": "OrcaSlicer nesneleri yenileniyor…",
+  "orca.noObjects": "OrcaSlicer’da aktarılabilir model nesnesi yok.",
+  "orca.preparingModel": "Model OrcaSlicer’da hazırlanıyor…",
+  "orca.receivingModel": "Model OrcaSlicer’dan alınıyor…",
+  "orca.loadingModel": "OrcaSlicer modeli yükleniyor…",
+  "orca.modelLoaded": "Model OrcaSlicer’dan yüklendi. Sonucu dışa aktarın ve OrcaSlicer’a yeniden içe aktarın.",
+  "orca.transferFailed": "Model OrcaSlicer’dan aktarılamadı.",
+  "orca.loadFailed": "OrcaSlicer modeli yüklenemedi: {msg}",
+  "orca.negativeVolumes": "negatif hacimler manuel dışa aktarma gerektirir",
+  "orca.externalLinksUnavailable": "Harici bağlantılar bu gömülü OrcaSlicer sayfasından açılamaz.",
+  "orca.objectFallback": "Nesne {id}",
   "theme.dark": "Karanlık Tema",
   "theme.light": "Aydınlık Tema",
   "theme.toggleTitle": "Değiştir: aydınlık / karanlık mod",

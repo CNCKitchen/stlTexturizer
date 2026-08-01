@@ -4,6 +4,19 @@
  */
 
 export default {
+  "orca.loadFromOrca": "Загрузить из OrcaSlicer",
+  "orca.refreshObjects": "Обновить",
+  "orca.refreshingObjects": "Обновление объектов OrcaSlicer…",
+  "orca.noObjects": "В OrcaSlicer нет объектов модели, доступных для передачи.",
+  "orca.preparingModel": "Подготовка модели в OrcaSlicer…",
+  "orca.receivingModel": "Получение модели из OrcaSlicer…",
+  "orca.loadingModel": "Загрузка модели OrcaSlicer…",
+  "orca.modelLoaded": "Модель загружена из OrcaSlicer. Экспортируйте результат и импортируйте его обратно в OrcaSlicer.",
+  "orca.transferFailed": "Не удалось передать модель из OrcaSlicer.",
+  "orca.loadFailed": "Не удалось загрузить модель OrcaSlicer: {msg}",
+  "orca.negativeVolumes": "отрицательные объёмы требуют ручного экспорта",
+  "orca.externalLinksUnavailable": "Внешние ссылки нельзя открыть из встроенной страницы OrcaSlicer.",
+  "orca.objectFallback": "Объект {id}",
   "theme.dark": "Тёмная тема",
   "theme.light": "Светлая тема",
   "theme.toggleTitle": "Переключить светлую / тёмную тему",
