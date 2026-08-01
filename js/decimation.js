@@ -49,6 +49,10 @@
  *   touch are left completely untouched. If locked faces alone reach the
  *   triangle target the run degrades to harvest-only and the returned
  *   geometry carries userData.lockedOverBudget = true.
+ * @param {Uint16Array|null}     [faceMaterial]  per-face palette slot in the
+ *   input's face order (3MF colour preservation). Vertices shared by two
+ *   materials are pinned so part boundaries stay crisp, and the surviving
+ *   faces' slots are returned on the output's userData.faceMaterial.
  * @returns {THREE.BufferGeometry}
  */
 
@@ -113,12 +117,14 @@ function _yieldFrame() {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL, lockedFaces = null) {
+export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL, lockedFaces = null, faceMaterial = null) {
   const { positions, faces, vertCount, faceCount } = buildIndexed(geometry);
 
   // Already at/under the target: nothing to decimate. But if harvesting is on we
   // still run — there may be flat faces collapsible for free even below the limit.
-  if (faceCount <= targetTriangles && !harvestFlat) return buildOutput(positions, faces, faceCount);
+  if (faceCount <= targetTriangles && !harvestFlat) {
+    return buildOutput(positions, faces, faceCount, faceMaterial);
+  }
 
   // Preserve-untextured (beta): a vertex touching any locked (untextured) face
   // may neither move nor be removed, so edges with a locked endpoint are never
@@ -137,6 +143,24 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
       lockedVert[faces[f * 3 + 2]] = 1;
     }
   }
+
+  // Multi-material (3MF colour preservation): buildIndexed welds coincident
+  // vertices globally, so two touching parts share the vertices along their
+  // contact surface. Collapsing there would drag one filament's geometry into
+  // the other's and visibly ragged the colour boundary, so every vertex seen by
+  // more than one material is pinned — the same treatment locked faces get.
+  if (faceMaterial) {
+    const seenMat = new Int32Array(vertCount).fill(-1);
+    if (!lockedVert) lockedVert = new Uint8Array(vertCount);
+    for (let f = 0; f < faceCount; f++) {
+      const m = faceMaterial[f];
+      for (let k = 0; k < 3; k++) {
+        const v = faces[f * 3 + k];
+        if (seenMat[v] === -1) seenMat[v] = m;
+        else if (seenMat[v] !== m) lockedVert[v] = 1;
+      }
+    }
+  }
   // When the locked faces alone meet or exceed the triangle target, the target
   // is unreachable without touching untextured geometry. Chasing it anyway
   // would grind the textured region down to its guard limit, so instead drop
@@ -146,7 +170,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
     && lockedFaceCount >= targetTriangles;
   if (lockedOverBudget && !harvestFlat) {
     if (onProgress) onProgress(1);
-    const out = buildOutput(positions, faces, faceCount);
+    const out = buildOutput(positions, faces, faceCount, faceMaterial);
     out.userData.lockedOverBudget = true;
     return out;
   }
@@ -303,7 +327,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
   }
 
   if (onProgress) onProgress(1);
-  const out = buildOutput(positions, faces, faceCount);
+  const out = buildOutput(positions, faces, faceCount, faceMaterial);
   if (lockedOverBudget) out.userData.lockedOverBudget = true;
   return out;
 }
@@ -706,14 +730,18 @@ function buildIndexed(geometry) {
 
 // (adjacency helpers replaced by buildLinkedAdj and _unlinkSlot/_moveSlot above)
 
-function buildOutput(positions, faces, faceCount) {
+function buildOutput(positions, faces, faceCount, faceMaterial = null) {
   let activeFaces = 0;
   for (let f = 0; f < faceCount; f++) {
     if (faces[f * 3] >= 0) activeFaces++;
   }
 
   const posArray = new Float32Array(activeFaces * 9);
+  // Surviving faces keep their own material slot; collapses only delete faces
+  // and move vertices, they never merge two faces into one.
+  const outMaterial = faceMaterial ? new Uint16Array(activeFaces) : null;
   let out = 0;
+  let outFace = 0;
   for (let f = 0; f < faceCount; f++) {
     if (faces[f * 3] < 0) continue;
     for (let v = 0; v < 3; v++) {
@@ -722,6 +750,8 @@ function buildOutput(positions, faces, faceCount) {
       posArray[out++] = positions[vi * 3 + 1];
       posArray[out++] = positions[vi * 3 + 2];
     }
+    if (outMaterial) outMaterial[outFace] = faceMaterial[f];
+    outFace++;
   }
 
   // Compute exact per-face normals from the final positions so winding order
@@ -744,6 +774,7 @@ function buildOutput(positions, faces, faceCount) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
   geo.setAttribute('normal',   new THREE.BufferAttribute(nrmArray, 3));
+  if (outMaterial) geo.userData.faceMaterial = outMaterial;
   return geo;
 }
 

@@ -122,6 +122,11 @@ export function resolveTJunctions(geometry, opts = {}) {
   //      the two — and since we output the snapped coords, the importer sees the
   //      identical geometry and finds nothing left to remove.
   const DEGEN_AREA2 = 1e-18;
+  // Multi-material (3MF colour preservation): carry each face's palette slot
+  // alongside `faces` so drops and fan-splits below keep it in step.
+  const inMaterial = opts.faceMaterial || null;
+  let faceMat = inMaterial ? [] : null;
+
   let faces = [], droppedNeedles = 0;
   for (let t = 0; t < nTri; t++) {
     const a = vid[t*3], b = vid[t*3+1], c = vid[t*3+2];
@@ -131,6 +136,7 @@ export function resolveTJunctions(geometry, opts = {}) {
     const cx = uy*wz - uz*wy, cy = uz*wx - ux*wz, cz = ux*wy - uy*wx;
     if (cx*cx + cy*cy + cz*cz < DEGEN_AREA2) { droppedNeedles++; continue; }
     faces.push([a, b, c]);
+    if (faceMat) faceMat.push(inMaterial[t]);
   }
 
   const ekey = (a, b) => (a < b ? a * 4294967296 + b : b * 4294967296 + a);
@@ -185,18 +191,28 @@ export function resolveTJunctions(geometry, opts = {}) {
 
     // Apply: replace each split face with a fan from its apex over the split edge.
     const next = [];
+    const nextMat = faceMat ? [] : null;
     for (let fi = 0; fi < faces.length; fi++) {
       const sp = splits.get(fi);
-      if (!sp) { next.push(faces[fi]); continue; }
+      if (!sp) {
+        next.push(faces[fi]);
+        if (nextMat) nextMat.push(faceMat[fi]);
+        continue;
+      }
       const f = faces[fi], { a, b, mids } = sp;
       const apex = f[0] !== a && f[0] !== b ? f[0] : f[1] !== a && f[1] !== b ? f[1] : f[2];
       // Preserve winding: walk the base in the direction the face traverses it.
       let dirAB = false;
       for (let e = 0; e < 3; e++) if (f[e] === a && f[(e+1)%3] === b) { dirAB = true; break; }
       const seq = dirAB ? [a, ...mids, b] : [b, ...mids.slice().reverse(), a];
-      for (let s = 0; s < seq.length - 1; s++) next.push([seq[s], seq[s+1], apex]);
+      // Every shard of a split face belongs to the same part as its parent.
+      for (let s = 0; s < seq.length - 1; s++) {
+        next.push([seq[s], seq[s+1], apex]);
+        if (nextMat) nextMat.push(faceMat[fi]);
+      }
     }
     faces = next;
+    if (nextMat) faceMat = nextMat;
   }
 
   // ── Rebuild non-indexed soup with flat normals ──────────────────────────────
@@ -219,5 +235,6 @@ export function resolveTJunctions(geometry, opts = {}) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(out, 3));
   g.setAttribute('normal',   new THREE.BufferAttribute(nrm, 3));
+  if (faceMat) g.userData.faceMaterial = Uint16Array.from(faceMat);
   return g;
 }

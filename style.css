@@ -343,6 +343,61 @@ main {
   user-select: none;
 }
 
+/* Part-colour toggle is only meaningful for a multi-colour 3MF import. */
+.wireframe-toggle.hidden { display: none; }
+
+/* ── Tool/extruder legend (multi-colour 3MF) ───────────────────────────────
+   Bottom-left of the viewport: the top-left corner is taken by the cylinder
+   projection panel, and the bottom-right by the controls hint. */
+.part-legend {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  z-index: 21;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  font-size: 11px;
+  color: var(--text-muted);
+  user-select: none;
+  pointer-events: none;
+  max-width: 240px;
+}
+.part-legend.hidden { display: none; }
+.part-legend-title {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin-bottom: 5px;
+}
+.part-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.6;
+}
+.part-legend-swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+.part-legend-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.part-legend-tool {
+  margin-left: auto;
+  padding-left: 8px;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
 .place-on-face-btn {
   display: flex;
   align-items: center;

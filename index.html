@@ -147,6 +147,8 @@
             </button>
           </div>
         </div>
+        <!-- Tool/extruder legend for a multi-colour 3MF; populated by main.js. -->
+        <div id="part-legend" class="part-legend hidden" aria-live="polite"></div>
         <div id="store-cta-wrapper">
           <span id="store-cta">
             <span data-i18n-html="cta.store">Support this tool? Shop at <a href="https://geni.us/CNCStoreTexture" target="_blank" rel="noopener noreferrer">CNCKitchen.STORE</a> or send a tip via <a href="https://www.paypal.me/CNCKitchen" target="_blank" rel="noopener noreferrer">PayPal</a> / <a href="https://ko-fi.com/cnckitchen" target="_blank" rel="noopener noreferrer">Ko-fi</a></span><button id="store-cta-dismiss" aria-label="Dismiss">&times;</button>
@@ -162,6 +164,13 @@
         <label class="wireframe-toggle">
           <input type="checkbox" id="projection-toggle" />
           <span data-i18n="ui.perspective">Perspective View</span>
+        </label>
+        <!-- Only shown for a multi-colour 3MF; main.js unhides it on import. -->
+        <label class="wireframe-toggle hidden" id="part-colors-row"
+               data-i18n-title="ui.partColorsTitle"
+               title="Shade the model with the part colours from the imported 3MF">
+          <input type="checkbox" id="part-colors-toggle" />
+          <span data-i18n="ui.partColors">Part Colours</span>
         </label>
 
         <div class="viewport-controls-hint" data-i18n="ui.controlsHint">Left drag: orbit &nbsp;Â·&nbsp; Right drag: pan &nbsp;Â·&nbsp; Scroll: zoom</div>
