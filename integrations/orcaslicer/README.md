@@ -28,12 +28,6 @@ model meshes as immutable snapshots and has no supported hook for replacing or
 adding model geometry. G-code post-processing runs after slicing and therefore
 cannot provide this missing geometry round-trip.
 
-At the current Plugin Pages draft, external links cannot be handed off to the
-system browser through a host API, so links that would replace the embedded app
-are disabled. Initial light/dark appearance follows OrcaSlicer; a theme change
-made while the page is open is applied after the capability is reloaded because
-the current host does not propagate live theme changes to plugin pages.
-
 The JSON page bridge also has no binary attachment channel. To keep OrcaSlicer
 responsive, automatic input transfer is limited to one million triangles. For
 larger objects, export the source model from OrcaSlicer and load it using
