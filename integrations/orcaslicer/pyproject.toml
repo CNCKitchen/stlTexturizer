@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = ["numpy~=2.0"]
 authors = [{ name = "CNC Kitchen" }]
 license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
 
 [tool.setuptools]
 py-modules = ["bumpmesh_plugin"]

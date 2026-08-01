@@ -42,11 +42,16 @@ wrong model.
 
 ```powershell
 cd integrations/orcaslicer
-python -m build --wheel
+python build_package.py
 ```
 
-Install the resulting wheel from `dist/` using OrcaSlicer's local plugin
-installer.
+The command creates a versioned `dist/plugin-hub-*/` upload kit containing the
+wheel, plugin image, listing description, changelog, metadata and checksums.
+Install the resulting wheel using OrcaSlicer's local plugin installer.
+
+See [PUBLISHING.md](PUBLISHING.md) for the exact Orca Cloud fields and release
+checklist. The prepared listing text lives in [description.md](description.md),
+and release notes live in [CHANGELOG.md](CHANGELOG.md).
 
 To test unmerged BumpMesh bridge changes, serve the repository on a loopback
 address and start OrcaSlicer with `BUMPMESH_ORCASLICER_DEV_URL` set, for

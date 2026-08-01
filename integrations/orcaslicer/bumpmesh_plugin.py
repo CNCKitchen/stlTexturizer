@@ -11,7 +11,7 @@
 # description = "Open BumpMesh inside OrcaSlicer and transfer printable model geometry into the texturing workspace."
 # author = "CNC Kitchen"
 # version = "0.1.0"
-# network = ["https://bumpmesh.com"]
+# network = ["bumpmesh.com", "cdn.jsdelivr.net"]
 # ///
 """BumpMesh integration for OrcaSlicer's Python plugin system."""
 
