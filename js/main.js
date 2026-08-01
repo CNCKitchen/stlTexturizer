@@ -118,6 +118,10 @@ const settings = {
   // without the key fall back to 'linear' — the only ramp they had.
   boundaryFalloffCurve: 'ease',
   symmetricDisplacement: false,
+  // Shade the viewport with the per-part colours of a multi-colour 3MF instead
+  // of the flat teal. Starts off and is switched on by syncPartColorsUI() only
+  // when the loaded model actually carries part colours.
+  showPartColors: false,
   noDownwardZ: false,
   smoothBottom: true,
   harvestFlatFaces: true,
@@ -301,6 +305,9 @@ const advancedSection  = document.getElementById('advanced-section');
 const advancedToggle   = document.getElementById('advanced-toggle');
 const wireframeToggle  = document.getElementById('wireframe-toggle');
 const projectionToggle = document.getElementById('projection-toggle');
+const partColorsToggle = document.getElementById('part-colors-toggle');
+const partColorsRow    = document.getElementById('part-colors-row');
+const partLegend       = document.getElementById('part-legend');
 const placeOnFaceBtn   = document.getElementById('place-on-face-btn');
 const rotateBtn        = document.getElementById('rotate-btn');
 const rotateControls   = document.getElementById('rotate-controls');
@@ -1032,6 +1039,9 @@ function populateLanguageSelector() {
       refreshExclusionOverlay();
       if (lastFastDiag) renderFastDiag(lastFastDiag);
       if (lastAdvancedDiag) renderAdvancedDiag(lastAdvancedDiag);
+      // Built imperatively from the part palette, so applyTranslations() can't
+      // reach its labels — rebuild it in the new locale.
+      renderPartLegend();
     }
     // The cylinder panel paints its placeholder text via Canvas2D, which
     // applyTranslations() doesn't reach — re-render so the new locale lands.
@@ -1685,6 +1695,14 @@ function wireEvents() {
 
   // ── Projection toggle ──
   projectionToggle.addEventListener('change', () => setProjection(projectionToggle.checked));
+
+  // ── Part colours (multi-colour 3MF) ──
+  partColorsToggle.addEventListener('change', () => {
+    settings.showPartColors = partColorsToggle.checked;
+    renderPartLegend();
+    updatePreview();
+    requestRender();
+  });
 
   // ── Exclusion tool wiring ─────────────────────────────────────────────────
 
@@ -2961,6 +2979,7 @@ function loadDefaultCube() {
   currentStlName  = 'cube_50x50x50';
   currentStlExt   = '.stl';
   checkAmplitudeWarning();
+  syncPartColorsUI();   // demo cube has no parts → hides the toggle
 
   loadGeometry(geo);
   dropHint.classList.add('hidden');
@@ -3128,6 +3147,8 @@ async function handleModelFile(file, stepSettings = null) {
     const _extMatch = file.name.match(/\.(stl|obj|3mf|step|stp)$/i);
     currentStlExt   = _extMatch ? _extMatch[0].toLowerCase() : '';
     checkAmplitudeWarning();
+    // Reveal (and default on) the part-colour view when the import carried one.
+    syncPartColorsUI();
 
     // Surface the STEP conversion verdict without blocking the user.
     if (step && step.diagnostics && !step.diagnostics.ok) {
@@ -3516,6 +3537,161 @@ function updateSmartResBtnState() {
 if (smartResBtn) smartResBtn.addEventListener('click', applySmartResolution);
 
 /**
+ * Viewport colours by extruder / tool number, mirroring how a slicer presents a
+ * multi-tool plate: one distinct colour per tool, not per stored swatch.
+ *
+ * A 3MF's own `displaycolor` is a poor basis for the viewport — files routinely
+ * give several parts the same swatch (white is the common default) even though
+ * they print on different tools, which would render them indistinguishable here
+ * while the slicer shows them apart. Keying on the extruder instead means what
+ * you see maps 1:1 to what actually prints.
+ *
+ * Saturated orange is deliberately absent: it is the exclusion-mask colour, and
+ * a part sharing that hue would be ambiguous while painting.
+ */
+const EXTRUDER_COLORS = [
+  '#3b82f6', // 1 blue
+  '#ef4444', // 2 red
+  '#22c55e', // 3 green
+  '#a855f7', // 4 purple
+  '#eab308', // 5 yellow
+  '#06b6d4', // 6 cyan
+  '#ec4899', // 7 pink
+  '#84cc16', // 8 lime
+];
+
+/** Colour a palette entry is drawn with: by tool, else its own file swatch. */
+function partSwatch(p) {
+  if (p.extruder !== null && p.extruder !== undefined) {
+    return EXTRUDER_COLORS[(p.extruder - 1) % EXTRUDER_COLORS.length];
+  }
+  return p.color || '#b8b8bf';   // no tool and no swatch → neutral grey
+}
+
+/** "#rrggbb" → linear-space [r,g,b]; the renderer is linear, so sRGB values fed
+ *  in raw come out visibly washed out. Returns null for anything unparseable. */
+function hexToLinear(hex) {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
+  if (!m) return null;
+  return [1, 2, 3].map((k) => {
+    const c = parseInt(m[k], 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+}
+
+/**
+ * Set (or update) the `partColor` vertex attribute so the preview shader can
+ * paint each body of a multi-colour 3MF in its own tool colour.
+ *
+ * The palette lives on currentGeometry (put there by the 3MF importer). The
+ * preview and precision geometries are refined copies, so their faces are
+ * mapped back to original faces through the same parent maps the masking code
+ * uses. Without a palette the attribute is removed and the shader falls back to
+ * the flat teal.
+ */
+function updatePartColors(geometry) {
+  if (!geometry) return;
+  const mats = currentGeometry && currentGeometry.userData.materials;
+  // Skip the buffer entirely when unused — on a heavily subdivided preview mesh
+  // this attribute is three floats per vertex and would cost real memory.
+  if (!mats || !settings.showPartColors) {
+    if (geometry.attributes.partColor) geometry.deleteAttribute('partColor');
+    return;
+  }
+
+  const posCount = geometry.attributes.position.count;
+  const triCount = posCount / 3;
+
+  // Refined geometries index their own faces; map back to original faces.
+  const parentMap = (geometry === dispPreviewGeometry) ? dispPreviewParentMap
+                  : (geometry === precisionGeometry)   ? precisionParentMap
+                  : null;
+
+  // Decode once — parsing "#rrggbb" per vertex would be wasteful. An entry that
+  // resolves to nothing falls back to neutral grey rather than black, which
+  // would read as a shading bug rather than "this part has no colour".
+  const rgb = mats.palette.map((p) => hexToLinear(partSwatch(p)) || [0.72, 0.72, 0.75]);
+
+  const existing = geometry.getAttribute('partColor');
+  const reuse = existing && existing.array.length === posCount * 3;
+  const arr = reuse ? existing.array : new Float32Array(posCount * 3);
+
+  const fallback = [0.72, 0.72, 0.75];
+  for (let t = 0; t < triCount; t++) {
+    const faceIdx = parentMap ? parentMap[t] : t;
+    const slot = mats.triMaterial[faceIdx];
+    const c = rgb[slot] || fallback;
+    for (let v = 0; v < 3; v++) {
+      const o = (t * 3 + v) * 3;
+      arr[o] = c[0]; arr[o + 1] = c[1]; arr[o + 2] = c[2];
+    }
+  }
+
+  if (reuse) existing.needsUpdate = true;
+  else geometry.setAttribute('partColor', new THREE.Float32BufferAttribute(arr, 3));
+}
+
+/**
+ * Show or hide the part-colour toggle to match the loaded model, and default it
+ * on whenever a model that has colours is imported.
+ */
+function syncPartColorsUI() {
+  const has = !!(currentGeometry && currentGeometry.userData.materials);
+  partColorsRow.classList.toggle('hidden', !has);
+  // Must be cleared for a colourless model, not just hidden: the shader would
+  // otherwise keep shading from an attribute that no longer exists, which WebGL
+  // supplies as (0,0,0) — a solid black mesh.
+  settings.showPartColors = has;
+  partColorsToggle.checked = has;
+  renderPartLegend();
+}
+
+/**
+ * Draw the viewport legend mapping each swatch to its part name and tool.
+ * Colours are assigned per extruder rather than taken from the file, so without
+ * this the mapping would be unguessable.
+ */
+function renderPartLegend() {
+  const mats = currentGeometry && currentGeometry.userData.materials;
+  if (!mats || !settings.showPartColors) {
+    partLegend.classList.add('hidden');
+    partLegend.replaceChildren();
+    return;
+  }
+
+  const title = document.createElement('div');
+  title.className = 'part-legend-title';
+  title.textContent = t('ui.partColorsLegend');
+  const rows = [title];
+
+  mats.palette.forEach((p) => {
+    const row = document.createElement('div');
+    row.className = 'part-legend-row';
+
+    const sw = document.createElement('span');
+    sw.className = 'part-legend-swatch';
+    sw.style.background = partSwatch(p);
+
+    // textContent, not innerHTML — part names come from the imported file.
+    const name = document.createElement('span');
+    name.className = 'part-legend-name';
+    name.textContent = p.name || '—';
+
+    const tool = document.createElement('span');
+    tool.className = 'part-legend-tool';
+    tool.textContent = (p.extruder !== null && p.extruder !== undefined)
+      ? t('ui.partColorsTool', { n: p.extruder })
+      : '—';
+
+    row.append(sw, name, tool);
+    rows.push(row);
+  });
+
+  partLegend.replaceChildren(...rows);
+  partLegend.classList.remove('hidden');
+}
+
+/**
  * Set (or update) the `faceMask` vertex attribute on a geometry.
  * 1.0 = textured, 0.0 = user-excluded.  Angle masking stays in the shader.
  *
@@ -3561,6 +3737,12 @@ function updateFaceMask(geometry) {
   } else {
     geometry.setAttribute('faceMask', new THREE.Float32BufferAttribute(maskArr, 1));
   }
+
+  // partColor is a sibling per-face shader attribute with the same lifetime and
+  // the same parent-map handling, and several call sites swap geometry straight
+  // into the viewer without going through updatePreview(). Refreshing it here
+  // keeps the two from drifting apart (a missing partColor renders black).
+  updatePartColors(geometry);
 
   // Ensure faceNormal attribute exists (needed by shader for angle masking).
   // For the original geometry normal == faceNormal; for subdivided geometry
@@ -4781,9 +4963,13 @@ async function handleExport(format = 'stl') {
     // running inline if the worker can't initialise. See exportPipeline.js.
     const exportEntry = getEffectiveMapEntry();
     const isStale = () => exportToken !== myToken;
+    // Multi-colour 3MF: per-triangle palette slots ride along so each body
+    // keeps its filament assignment in the exported file (no repainting).
+    const srcMaterials = currentGeometry.userData.materials || null;
     const result = await runPipeline({
       positions: currentGeometry.attributes.position.array,
       faceWeights,
+      triMaterial: srcMaterials ? srcMaterials.triMaterial : null,
       imageData: exportEntry.imageData,
       imgWidth: exportEntry.width,
       imgHeight: exportEntry.height,
@@ -4835,7 +5021,10 @@ async function handleExport(format = 'stl') {
       setProgress(0.97, t('progress.writing3mf'));
       await yieldFrame();
       if (exportToken !== myToken) return;
-      export3MF(finalGeometry, `${baseName}.3mf`);
+      export3MF(finalGeometry, `${baseName}.3mf`,
+        srcMaterials && result.faceMaterial
+          ? { palette: srcMaterials.palette, faceMaterial: result.faceMaterial }
+          : null);
     } else {
       setProgress(0.97, t('progress.writingStl'));
       await yieldFrame();
@@ -5082,9 +5271,11 @@ async function bakeTextures() {
     // to remap user exclusions onto the baked output). Worker-first with
     // inline fallback, same as handleExport.
     const exportEntry = getEffectiveMapEntry();
+    const srcMaterials = currentGeometry.userData.materials || null;
     const result = await runPipeline({
       positions: currentGeometry.attributes.position.array,
       faceWeights,
+      triMaterial: srcMaterials ? srcMaterials.triMaterial : null,
       imageData: exportEntry.imageData,
       imgWidth: exportEntry.width,
       imgHeight: exportEntry.height,
@@ -5099,6 +5290,14 @@ async function bakeTextures() {
     displaced = new THREE.BufferGeometry();
     displaced.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
     if (result.normals) displaced.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
+    // Carry the part/colour assignment onto the baked mesh so a second texture
+    // pass — and the eventual export — still knows which body is which.
+    if (srcMaterials && result.faceMaterial) {
+      displaced.userData.materials = {
+        palette:     srcMaterials.palette,
+        triMaterial: result.faceMaterial,
+      };
+    }
 
     setBakeProgress(0.90, t('progress.finalizing'));
     await yieldFrame();
@@ -5176,6 +5375,7 @@ function adoptBakedGeometry(geometry, bounds, opts = {}) {
   currentBounds   = bounds;
   currentStlName  = `${currentStlName}_baked`;
   checkAmplitudeWarning();
+  syncPartColorsUI();   // bake carries materials forward, so the toggle stays
 
   geometry = currentGeometry;
 

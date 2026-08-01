@@ -35,6 +35,7 @@ self.onmessage = async (e) => {
     const transfers = [result.positions.buffer];
     if (result.normals) transfers.push(result.normals.buffer);
     if (result.faceParentId) transfers.push(result.faceParentId.buffer);
+    if (result.faceMaterial) transfers.push(result.faceMaterial.buffer);
     self.postMessage({ type: 'done', result }, transfers);
   } catch (err) {
     self.postMessage({ type: 'error', message: (err && err.message) || String(err) });

@@ -201,6 +201,12 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(input.positions, 3));
 
+  // Multi-material 3MF colour preservation: one palette slot per source
+  // triangle. When present it is carried all the way to the exporter so each
+  // body keeps its filament assignment. Absent for STL/OBJ and single-colour
+  // 3MFs, in which case every stage below behaves exactly as before.
+  const srcMaterial = input.triMaterial || null;
+
   // Hoist intermediates so the finally block can always dispose them.
   let subdivided    = null;
   let displaced     = null;
@@ -226,7 +232,10 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     if (settings.regularizeEnabled) {
       onEvent('regularize', 0);
       await yieldFrame();
-      const regParents = mode === 'bake'
+      // Export mode normally has no use for the parent map, but material
+      // tracking needs it too — thread the real one whenever either wants it.
+      const needParents = mode === 'bake' || srcMaterial !== null;
+      const regParents = needParents
         ? faceParentId
         : new Int32Array(subdivided.attributes.position.count / 3);
       const reg = regularizeMesh(subdivided, regParents, settings.refineLength, regularizeOpts);
@@ -239,7 +248,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
         secondPassWeights, { fast: false }
       );
       reg.geometry.dispose();
-      if (mode === 'bake') {
+      if (needParents) {
         const composed = new Int32Array(resubParents.length);
         for (let i = 0; i < resubParents.length; i++) {
           composed[i] = reg.faceParentId[resubParents[i]];
@@ -249,6 +258,17 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       subdivided = resub;
     }
     if (shouldAbort()) return null;
+
+    // Project the source palette slots onto the refined mesh. faceParentId maps
+    // each refined face back to the source triangle it descends from, so this
+    // is exact — no spatial guessing at part boundaries.
+    let faceMaterial = null;
+    if (srcMaterial) {
+      faceMaterial = new Uint16Array(faceParentId.length);
+      for (let i = 0; i < faceParentId.length; i++) {
+        faceMaterial[i] = srcMaterial[faceParentId[i]];
+      }
+    }
 
     const subTriCount = subdivided.attributes.position.count / 3;
     onEvent('displace', 0, { triCount: subTriCount });
@@ -302,10 +322,12 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
         (p) => onEvent('decimate', p, { from: dispTriCount, needsDecimation }),
         settings.harvestFlatFaces,
         settings.harvestTol,
-        lockedFaces
+        lockedFaces,
+        faceMaterial
       );
       // Capture before repair replaces the geometry (userData isn't carried over).
       lockedOverBudget = !!finalGeometry.userData.lockedOverBudget;
+      if (faceMaterial) faceMaterial = finalGeometry.userData.faceMaterial;
       // Free pre-decimation geometry — decimate created a separate copy.
       displaced.dispose();
       displaced = null;
@@ -327,9 +349,10 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       onEvent('repair', 0);
       await yieldFrame();
       const beforeSlivers = countAreaSlivers(finalGeometry);
-      const repaired = resolveTJunctions(finalGeometry);
+      const repaired = resolveTJunctions(finalGeometry, { faceMaterial });
       finalGeometry.dispose();
       finalGeometry = repaired;
+      if (faceMaterial) faceMaterial = repaired.userData.faceMaterial;
       const after = countEdgeDefects(finalGeometry);
       repairStats = {
         beforeSlivers,
@@ -350,6 +373,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       runDecimation,
       needsDecimation,
       faceParentId: mode === 'bake' ? faceParentId : null,
+      faceMaterial,
       repairStats,
     };
   } finally {

@@ -81,6 +81,18 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 - Downloads a **binary STL** with displacement baked in
 - Progress reporting through subdivision → displacement → decimation → writing stages
 - Configurable edge-length threshold and output triangle limit
+- **Multi-colour 3MF round-trip** — a 3MF whose bodies carry per-part colours and
+  extruder assignments (Bambu Studio / OrcaSlicer / PrusaSlicer) keeps them through
+  texturing: each part is re-exported as its own object with its original name,
+  `displaycolor` and extruder, so no repainting is needed after re-import. STL has
+  no notion of colour, so use 3MF export to preserve it.
+- **Part Colours view** — a viewport toggle (bottom bar, shown only for a
+  multi-colour import) shades each body by the **extruder** it is assigned to,
+  with a legend mapping colour → part name → tool. Colouring by tool rather than
+  by the file's `displaycolor` matches how a slicer presents the plate, and keeps
+  parts distinct even when the file gives several of them the same swatch. Masked
+  and include-only regions keep their part hue under the mask tint rather than
+  going flat orange.
 
 ### Other
 - **Light / Dark theme** — respects OS preference, persisted per browser

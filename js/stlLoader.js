@@ -50,12 +50,21 @@ export function loadSTLFile(file) {
  * BufferAttribute. Any existing normal attribute is deleted so that
  * setupGeometry will recompute it on the clean data.
  *
+ * geometry.userData.materials.triMaterial (one entry per triangle, set by the
+ * 3MF importer) is compacted in lockstep — dropping triangles here renumbers
+ * every face, and the whole colour-preservation chain is keyed on face index.
+ *
  * Returns { nanCount, degenerateCount } so callers can warn the user.
  */
 function validateAndCleanGeometry(geometry) {
   const pos  = geometry.attributes.position;
   const src  = pos.array;           // Float32Array, 9 floats per triangle
   const triCount = src.length / 9;
+
+  const triMaterial = geometry.userData.materials
+    ? geometry.userData.materials.triMaterial
+    : null;
+  let matWrite = 0;
 
   let writeIdx = 0;
   let nanCount = 0;
@@ -89,12 +98,16 @@ function validateAndCleanGeometry(geometry) {
       src[writeIdx+6] = cx; src[writeIdx+7] = cy; src[writeIdx+8] = cz;
     }
     writeIdx += 9;
+    if (triMaterial) triMaterial[matWrite++] = triMaterial[t];
   }
 
   const removed = nanCount + degenerateCount;
   if (removed > 0) {
     geometry.setAttribute('position', new THREE.BufferAttribute(src.slice(0, writeIdx), 3));
     geometry.deleteAttribute('normal'); // stale — recomputed below
+    if (triMaterial) {
+      geometry.userData.materials.triMaterial = triMaterial.slice(0, matWrite);
+    }
   }
 
   if (writeIdx === 0) {
@@ -253,6 +266,53 @@ export function load3MFFile(file) {
 const MAX_3MF_TRIANGLES = 10_000_000;
 const MAX_3MF_DEPTH     = 32;
 
+/**
+ * Normalise a 3MF displaycolor ("#RRGGBB" or "#RRGGBBAA", case-insensitive)
+ * to lowercase "#rrggbb". Alpha is dropped — it has no meaning for filament
+ * assignment and slicers ignore it. Returns null for anything unparseable.
+ */
+function normaliseColor(raw) {
+  if (!raw) return null;
+  const m = /^#?([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?$/.exec(raw.trim());
+  return m ? '#' + m[1].toLowerCase() : null;
+}
+
+/**
+ * Parse Bambu Studio / OrcaSlicer's Metadata/model_settings.config.
+ *
+ * Shape:
+ *   <config><object id="5">
+ *     <part id="1"><metadata key="name" value="body"/>
+ *                  <metadata key="extruder" value="1"/></part>
+ *     ...
+ *   </object></config>
+ *
+ * Each <part id> refers to an <object id> in 3dmodel.model, so the result is
+ * keyed by object id directly. Returns Map(objectId → { name, extruder }).
+ * An absent or malformed file yields an empty map — colour handling then falls
+ * back to the core-spec basematerials alone.
+ */
+function parseModelSettings(doc) {
+  const out = new Map();
+  if (!doc || doc.getElementsByTagName('parsererror').length > 0) return out;
+  for (const part of doc.getElementsByTagName('part')) {
+    const id = part.getAttribute('id');
+    if (id === null) continue;
+    let name = '', extruder = null;
+    for (const md of part.getElementsByTagName('metadata')) {
+      const key = md.getAttribute('key');
+      const val = md.getAttribute('value');
+      if (key === 'name') name = val || '';
+      else if (key === 'extruder') {
+        const n = Number(val);
+        if (Number.isInteger(n) && n >= 1 && n <= 64) extruder = n;
+      }
+    }
+    out.set(String(id), { name, extruder });
+  }
+  return out;
+}
+
 // ── Custom 3MF parser ────────────────────────────────────────────────────────
 
 function parse3MF(data) {
@@ -293,6 +353,35 @@ function parse3MF(data) {
   // Find all .model files in the zip
   const modelPaths = Object.keys(files).filter(f => f.endsWith('.model'));
 
+  // ── Material / colour resources ────────────────────────────────────────────
+  // baseMaterials: "path#groupId" → [{ name, color }] indexed by pindex.
+  // Slicers (Bambu/Orca/Prusa) declare one <base> per body and point each
+  // <object> at it via pid (group id) + pindex (slot).
+  const baseMaterials = new Map();
+  for (const path of modelPaths) {
+    const doc = readXML(path);
+    if (!doc) continue;
+    const normPath = path.replace(/^\//, '').replace(/\\/g, '/');
+    const groups = doc.getElementsByTagNameNS(NS_CORE, 'basematerials');
+    for (const g of groups) {
+      const gid = g.getAttribute('id');
+      if (gid === null) continue;
+      const bases = [];
+      for (const b of g.getElementsByTagNameNS(NS_CORE, 'base')) {
+        bases.push({
+          name:  b.getAttribute('name') || '',
+          color: normaliseColor(b.getAttribute('displaycolor')),
+        });
+      }
+      baseMaterials.set(normPath + '#' + gid, bases);
+    }
+  }
+
+  // Slicer part metadata (Bambu Studio / OrcaSlicer): per-part display name and
+  // — the bit that actually matters for a multi-tool print — the extruder the
+  // part is assigned to. Lives outside the 3MF core spec, so it is optional.
+  const partSettings = parseModelSettings(readXML('Metadata/model_settings.config'));
+
   for (const path of modelPaths) {
     const doc = readXML(path);
     if (!doc) continue;
@@ -327,7 +416,25 @@ function parse3MF(data) {
 
       // Normalise path for lookup (strip leading slash, use forward slashes)
       const normPath = path.replace(/^\//, '').replace(/\\/g, '/');
-      objectMap.set(normPath + '#' + id, { vertices, triangles });
+      // Resolve this object's colour slot (pid → basematerials group, pindex →
+      // slot within it) and its slicer-assigned extruder, keyed by object id.
+      const pid    = obj.getAttribute('pid');
+      const pindex = obj.getAttribute('pindex');
+      let baseName = '', baseColor = null;
+      if (pid !== null && pindex !== null) {
+        const group = baseMaterials.get(normPath + '#' + pid);
+        const slot  = group && group[Number(pindex)];
+        if (slot) { baseName = slot.name; baseColor = slot.color; }
+      }
+      const slicer = partSettings.get(String(id)) || null;
+      objectMap.set(normPath + '#' + id, {
+        vertices, triangles,
+        material: {
+          name:     (slicer && slicer.name) || baseName || ('Part ' + id),
+          color:    baseColor,
+          extruder: slicer ? slicer.extruder : null,
+        },
+      });
     }
   }
 
@@ -446,12 +553,26 @@ function parse3MF(data) {
   }
 
   const positions = new Float32Array(totalTris * 9);
+  // Per-triangle palette slot. Built alongside positions so it stays in exact
+  // face order — every later stage (cleanup, subdivision, decimation, export)
+  // maps faces back to this array.
+  const triMaterial = new Uint16Array(totalTris);
+  const palette     = [];
+  const slotOfMesh  = new Map();   // meshKey → palette index
   let writeOffset = 0;
+  let triWrite    = 0;
   const tmpV = new THREE.Vector3();
 
   for (const inst of instances) {
     const mesh = objectMap.get(inst.meshKey);
     if (!mesh) continue;
+    // Instances of the same object (e.g. a duplicated body) share one slot.
+    let slot = slotOfMesh.get(inst.meshKey);
+    if (slot === undefined) {
+      slot = palette.length;
+      slotOfMesh.set(inst.meshKey, slot);
+      palette.push(mesh.material);
+    }
     const { vertices, triangles } = mesh;
     for (let t = 0; t < triangles.length; t += 3) {
       for (let v = 0; v < 3; v++) {
@@ -462,11 +583,21 @@ function parse3MF(data) {
         positions[writeOffset++] = tmpV.y;
         positions[writeOffset++] = tmpV.z;
       }
+      triMaterial[triWrite++] = slot;
     }
   }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+  // Only carry material data when it actually distinguishes the parts. A plain
+  // single-body 3MF, or a multi-body one with no colour/extruder information,
+  // keeps the previous behaviour of exporting as one merged object.
+  const distinctColors = new Set(palette.map(p => p.color).filter(Boolean));
+  const hasExtruder    = palette.some(p => p.extruder !== null);
+  if (palette.length > 1 && (hasExtruder || distinctColors.size > 1)) {
+    geometry.userData.materials = { palette, triMaterial };
+  }
   return geometry;
 }
 

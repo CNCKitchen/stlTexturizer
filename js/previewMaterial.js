@@ -220,6 +220,9 @@ const vertexShader = /* glsl */`
   attribute float faceMask;
   attribute float boundaryFalloffAttr;
   attribute float boundaryMaskTypeAttr;
+  // Per-part display colour from a multi-colour 3MF import. Absent on plain
+  // meshes, where WebGL supplies (0,0,0) — the usePartColors uniform gates it.
+  attribute vec3  partColor;
 
   varying vec3  vModelPos;    // ORIGINAL model-space position → UV computation in fragment
   varying vec3  vModelNormal; // model-space face normal       → stable UV blending
@@ -229,8 +232,10 @@ const vertexShader = /* glsl */`
   varying float vFaceMask;    // combined mask (angle + user exclusion + boundary falloff)
   varying float vUserMask;    // raw user-exclusion mask (0 = user-excluded, 1 = included)
   varying float vMaskType;    // boundary mask type (0 = user mask, 1 = angle mask)
+  varying vec3  vPartColor;   // per-part colour from a multi-colour 3MF
 
   void main() {
+    vPartColor = partColor;
     vec3 safeN = length(normal) > 1e-6 ? normalize(normal) : vec3(0.0, 0.0, 1.0);
     // Use the true geometric face normal for angle masking so that
     // smooth/interpolated normals from subdivision don't cause mask bleeding.
@@ -283,7 +288,9 @@ const fragmentShader = /* glsl */`
   uniform float     boundaryEdgeTexWidth;
   uniform float     boundaryFalloffDist;
   uniform int       boundaryFalloffCurve; // 0 = linear, 1 = s-curve, 2 = ease-in
+  uniform int       usePartColors;        // 1 = shade with the imported 3MF part colours
 
+  varying vec3  vPartColor;
   varying vec3  vModelPos;
   varying vec3  vModelNormal;
   varying vec3  vViewPos;
@@ -379,7 +386,12 @@ const fragmentShader = /* glsl */`
     // that specular highlights, diffuse response, and view-dependent shading
     // are perfectly consistent everywhere.  Mask tinting is applied AFTER
     // lighting as a colour blend so masked areas keep the same glossy look.
-    vec3 tealBase      = vec3(0.22, 0.68, 0.68);
+    // Base surface colour: the stock teal, or — for a multi-colour 3MF with
+    // "part colours" enabled — the body's own filament colour, so the viewport
+    // reads like the slicer will after export.
+    vec3 tealBase      = usePartColors == 1
+                       ? vPartColor
+                       : vec3(0.22, 0.68, 0.68);
     vec3 userMaskColor = vec3(0.85, 0.40, 0.15);
     vec3 angleMaskColor = vec3(0.45, 0.48, 0.50);
 
@@ -403,6 +415,11 @@ const fragmentShader = /* glsl */`
     float maskEffect = 1.0 - maskBlend; // 0 = fully textured, 1 = fully masked
     float effectiveMaskType = mix(vMaskType, 0.0, step(0.5, 1.0 - vUserMask));
     vec3 maskBase = mix(userMaskColor, angleMaskColor, effectiveMaskType);
+    // With part colours on, a flat orange mask would hide exactly what the user
+    // turned the mode on to see. Keep the part's own hue dominant and let the
+    // mask read as a darkened tint over it, so include/exclude painting stays
+    // legible without erasing the colour layout.
+    if (usePartColors == 1) maskBase = mix(vPartColor * 0.5, maskBase, 0.35);
     vec3 litMask = maskBase * 0.55
                  + maskBase * diff1 * vec3(1.00, 0.96, 0.88) * 0.55
                  + maskBase * diff2 * vec3(0.80, 0.60, 0.50) * 0.15
@@ -473,6 +490,7 @@ export function updateMaterial(material, displacementTexture, settings) {
   u.textureAspect.value.set(settings.textureAspectU ?? 1, settings.textureAspectV ?? 1);
   u.boundaryFalloffDist.value       = settings.boundaryFalloff           ?? 0.0;
   u.boundaryFalloffCurve.value      = FALLOFF_CURVE_INDEX[settings.boundaryFalloffCurve] ?? 0;
+  u.usePartColors.value             = settings.showPartColors            ? 1 : 0;
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
@@ -513,6 +531,7 @@ function buildUniforms(tex, settings) {
     boundaryEdgeTexWidth:     { value: 1.0 },
     boundaryFalloffDist:        { value: settings.boundaryFalloff ?? 0.0 },
     boundaryFalloffCurve:       { value: FALLOFF_CURVE_INDEX[settings.boundaryFalloffCurve] ?? 0 },
+    usePartColors:              { value: settings.showPartColors ? 1 : 0 },
   };
 }
 
