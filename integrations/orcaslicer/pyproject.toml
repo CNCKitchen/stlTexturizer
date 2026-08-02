@@ -14,10 +14,9 @@ license-files = ["LICENSE"]
 
 [tool.setuptools]
 py-modules = ["bumpmesh_plugin"]
-packages = ["bumpmesh_orca_assets"]
 
-[tool.setuptools.package-data]
-bumpmesh_orca_assets = ["*.png"]
+[tool.setuptools.data-files]
+bumpmesh_orca_assets = ["bumpmesh_orca_assets/bumpmesh.png"]
 
 [tool.setuptools.dynamic]
 version = { attr = "bumpmesh_plugin.PLUGIN_VERSION" }

@@ -22,7 +22,6 @@ import json
 import math
 import os
 import re
-import sys
 import threading
 import urllib.parse
 import uuid
@@ -88,7 +87,6 @@ PAGE_TEMPLATE = r"""<!doctype html>
       if (initialHostTheme === 'light' || initialHostTheme === 'dark') {
         frameUrl.searchParams.set('orcaslicerTheme', initialHostTheme);
       }
-      const debug = frameUrl.searchParams.get('orcaslicerDebug') === '1';
       const frameOrigin = frameUrl.origin;
       const frame = document.getElementById('bumpmesh');
       let activeTransfer = null;
@@ -105,11 +103,6 @@ PAGE_TEMPLATE = r"""<!doctype html>
       function sendToPlugin(message) {
         if (!window.orca) return;
         window.orca.postMessage(message);
-      }
-
-      function diagnostic(event, details) {
-        if (!debug) return;
-        sendToPlugin({ type: 'diagnostic', event, details: details || {} });
       }
 
       function sendHostTheme() {
@@ -157,44 +150,18 @@ PAGE_TEMPLATE = r"""<!doctype html>
       }
 
       window.addEventListener('message', (event) => {
-        const message = event.data;
-        diagnostic('wrapper-message-observed', {
-          origin: event.origin || '',
-          frameMatches: event.source === frame.contentWindow,
-          source: message && typeof message === 'object' ? String(message.source || '') : '',
-          type: message && typeof message === 'object' ? String(message.type || '') : '',
-          protocol: message && typeof message === 'object' ? message.protocol : null,
-        });
-      });
-
-      window.addEventListener('message', (event) => {
         if (event.source !== frame.contentWindow || event.origin !== frameOrigin) return;
         const message = event.data;
         if (!message || message.source !== appSource || message.protocol !== protocol) return;
         if (message.type === 'ready') sendHostTheme();
         if (message.type === 'ready' || message.type === 'refresh-objects' ||
             message.type === 'request-model' ||
-            message.type === 'model-loaded' || message.type === 'model-load-error' ||
-            message.type === 'diagnostic') {
+            message.type === 'model-loaded' || message.type === 'model-load-error') {
           sendToPlugin(message);
         }
       });
 
-      window.addEventListener('error', (event) => {
-        diagnostic('wrapper-error', {
-          message: event.message || 'Unknown wrapper error',
-          line: event.lineno || 0,
-          column: event.colno || 0,
-        });
-      });
-      window.addEventListener('unhandledrejection', (event) => {
-        const reason = event.reason;
-        diagnostic('wrapper-unhandled-rejection', {
-          message: reason && reason.message ? reason.message : String(reason),
-        });
-      });
       frame.addEventListener('load', () => {
-        diagnostic('iframe-load', { origin: frameOrigin, src: frame.src });
         sendHostTheme();
       });
 
@@ -293,9 +260,6 @@ def bumpmesh_frame_url() -> str:
     parsed = urllib.parse.urlsplit(base_url)
     query = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
     query.update({"orcaslicer": "1", "orcaslicerLang": _host_language()})
-    if base_url != BUMPMESH_URL:
-        query["orcaslicerDebug"] = "1"
-        query["orcaslicerBridge"] = "6"
     return urllib.parse.urlunsplit(
         (parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(query), parsed.fragment)
     )
@@ -306,12 +270,17 @@ def render_page() -> str:
 
 
 def plugin_icon() -> str:
-    try:
-        import bumpmesh_orca_assets
+    module_dir = Path(__file__).resolve().parent
+    source_icon = module_dir / "bumpmesh_orca_assets" / "bumpmesh.png"
+    if source_icon.is_file():
+        return str(source_icon)
 
-        return str(Path(bumpmesh_orca_assets.__file__).with_name("bumpmesh.png"))
-    except (ImportError, TypeError):
-        return ""
+    for wheel_icon in module_dir.glob(
+        "bumpmesh-*.data/data/bumpmesh_orca_assets/bumpmesh.png"
+    ):
+        if wheel_icon.is_file():
+            return str(wheel_icon)
+    return ""
 
 
 def _object_id(model_object: Any) -> int:
@@ -468,18 +437,6 @@ class TransferController:
         if not isinstance(message, dict):
             return
         kind = message.get("type")
-        if kind == "diagnostic":
-            event = str(message.get("event") or "unknown")[:80]
-            details = message.get("details")
-            if not isinstance(details, dict):
-                details = {"value": str(details)[:200]}
-            print(
-                f"[BumpMesh WebView] {event} "
-                f"{json.dumps(details, ensure_ascii=True, separators=(',', ':'))}",
-                file=sys.stderr,
-                flush=True,
-            )
-            return
         if kind in {"ready", "refresh-objects"}:
             self.send_objects()
             return

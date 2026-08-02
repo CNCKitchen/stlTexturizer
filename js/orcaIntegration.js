@@ -6,10 +6,7 @@
 const PROTOCOL_VERSION = 1;
 const PLUGIN_SOURCE = 'orcaslicer-bumpmesh-plugin';
 const APP_SOURCE = 'bumpmesh';
-
-function diagnosticsEnabled() {
-  return new URLSearchParams(window.location.search).get('orcaslicerDebug') === '1';
-}
+const MAX_MODEL_BYTES = 50_000_084;
 
 function integrationEnabled() {
   const params = new URLSearchParams(window.location.search);
@@ -24,6 +21,45 @@ function postToPlugin(data, transfer = []) {
   }, '*', transfer);
 }
 
+function createIntegrationControls(t) {
+  const loadRow = document.querySelector('.load-stl-row');
+  if (!loadRow) return null;
+
+  const row = document.createElement('div');
+  row.id = 'orca-integration-row';
+  row.className = 'orca-integration-row';
+
+  const select = document.createElement('select');
+  select.id = 'orca-object-select';
+  select.disabled = true;
+  select.dataset.i18nAriaLabel = 'orca.loadFromOrca';
+  select.setAttribute('aria-label', t('orca.loadFromOrca'));
+
+  const refreshButton = document.createElement('button');
+  refreshButton.id = 'orca-refresh-btn';
+  refreshButton.className = 'upload-btn';
+  refreshButton.type = 'button';
+  refreshButton.dataset.i18n = 'orca.refreshObjects';
+  refreshButton.textContent = t('orca.refreshObjects');
+
+  const loadButton = document.createElement('button');
+  loadButton.id = 'orca-load-btn';
+  loadButton.className = 'upload-btn';
+  loadButton.type = 'button';
+  loadButton.disabled = true;
+  loadButton.dataset.i18n = 'orca.loadFromOrca';
+  loadButton.textContent = t('orca.loadFromOrca');
+
+  const status = document.createElement('span');
+  status.id = 'orca-integration-status';
+  status.className = 'orca-integration-status';
+  status.setAttribute('aria-live', 'polite');
+
+  row.append(select, refreshButton, loadButton, status);
+  loadRow.insertAdjacentElement('afterend', row);
+  return { select, refreshButton, loadButton, status };
+}
+
 /**
  * Enable the optional OrcaSlicer parent-frame integration.
  *
@@ -36,81 +72,12 @@ function postToPlugin(data, transfer = []) {
 export function initOrcaIntegration({ loadModelFile, t, applyHostTheme }) {
   if (!integrationEnabled()) return false;
 
-  const debug = diagnosticsEnabled();
-  const diagnostic = (event, details = {}) => {
-    if (!debug) return;
-    postToPlugin({ type: 'diagnostic', event, details });
-  };
-
-  const row = document.getElementById('orca-integration-row');
-  const select = document.getElementById('orca-object-select');
-  const refreshButton = document.getElementById('orca-refresh-btn');
-  const loadButton = document.getElementById('orca-load-btn');
-  const status = document.getElementById('orca-integration-status');
-
-  if (!row || !select || !refreshButton || !loadButton || !status) return false;
+  const controls = createIntegrationControls(t);
+  if (!controls) return false;
+  const { select, refreshButton, loadButton, status } = controls;
 
   let loading = false;
   let refreshing = false;
-
-  diagnostic('integration-init', {
-    language: document.documentElement.lang,
-    hasFileApi: typeof File === 'function',
-  });
-
-  window.addEventListener('error', (event) => {
-    diagnostic('window-error', {
-      message: event.message || 'Unknown JavaScript error',
-      source: event.filename ? new URL(event.filename, window.location.href).pathname : '',
-      line: event.lineno || 0,
-      column: event.colno || 0,
-    });
-  });
-  window.addEventListener('unhandledrejection', (event) => {
-    const reason = event.reason;
-    diagnostic('unhandled-rejection', {
-      message: reason && reason.message ? reason.message : String(reason),
-    });
-  });
-
-  const describeControl = (target) => {
-    const control = target instanceof Element
-      ? target.closest('button, label, a, input, select')
-      : null;
-    if (!control) return null;
-    return {
-      tag: control.tagName.toLowerCase(),
-      id: control.id || '',
-      for: control.getAttribute('for') || '',
-      disabled: Boolean(control.disabled),
-      text: (control.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 80),
-    };
-  };
-  document.addEventListener('pointerdown', (event) => {
-    const control = describeControl(event.target);
-    if (control) diagnostic('control-pointerdown', control);
-  }, true);
-  document.addEventListener('click', (event) => {
-    const control = describeControl(event.target);
-    if (control) diagnostic('control-click', control);
-  }, true);
-
-  for (const inputId of ['stl-file-input', 'texture-file-input']) {
-    const input = document.getElementById(inputId);
-    if (!input) {
-      diagnostic('file-input-missing', { id: inputId });
-      continue;
-    }
-    input.addEventListener('change', () => {
-      diagnostic('file-input-change', {
-        id: inputId,
-        fileCount: input.files ? input.files.length : 0,
-      });
-    });
-    input.addEventListener('cancel', () => {
-      diagnostic('file-input-cancel', { id: inputId });
-    });
-  }
 
   document.body.classList.add('orca-embedded');
   const attributionLink = document.querySelector('.logo a');
@@ -127,6 +94,9 @@ export function initOrcaIntegration({ loadModelFile, t, applyHostTheme }) {
     status.classList.toggle('error', isError);
   };
 
+  const firstAvailableOption = () =>
+    Array.from(select.options).find(option => !option.disabled) || null;
+
   document.addEventListener('click', (event) => {
     const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
     if (!link) return;
@@ -135,7 +105,6 @@ export function initOrcaIntegration({ loadModelFile, t, applyHostTheme }) {
     event.preventDefault();
     event.stopImmediatePropagation();
     setStatus(t('orca.externalLinksUnavailable'));
-    diagnostic('external-link-blocked', { url: url.toString() });
   }, true);
 
   const setObjects = (objects) => {
@@ -156,7 +125,7 @@ export function initOrcaIntegration({ loadModelFile, t, applyHostTheme }) {
     // WebView2 may propagate a disabled <select> into the CSS :disabled state
     // of its child options. Inspect each option's own flag so a list refreshed
     // after an empty state can become enabled again.
-    const firstAvailable = Array.from(select.options).find(option => !option.disabled) || null;
+    const firstAvailable = firstAvailableOption();
     if (firstAvailable) firstAvailable.selected = true;
     select.title = firstAvailable ? firstAvailable.textContent : '';
     const available = Boolean(firstAvailable);
@@ -179,9 +148,6 @@ export function initOrcaIntegration({ loadModelFile, t, applyHostTheme }) {
     }
 
     if (message.type === 'objects') {
-      diagnostic('objects-received', {
-        count: Array.isArray(message.objects) ? message.objects.length : 0,
-      });
       setObjects(Array.isArray(message.objects) ? message.objects : []);
       return;
     }
@@ -195,12 +161,21 @@ export function initOrcaIntegration({ loadModelFile, t, applyHostTheme }) {
 
     if (message.type === 'transfer-error') {
       loading = false;
-      loadButton.disabled = select.options.length === 0;
+      refreshing = false;
+      refreshButton.disabled = false;
+      loadButton.disabled = !firstAvailableOption();
       setStatus(message.message || t('orca.transferFailed'), true);
       return;
     }
 
     if (message.type !== 'load-model' || !(message.buffer instanceof ArrayBuffer)) return;
+    if (message.buffer.byteLength > MAX_MODEL_BYTES) {
+      loading = false;
+      loadButton.disabled = !firstAvailableOption();
+      setStatus(t('orca.transferFailed'), true);
+      postToPlugin({ type: 'model-load-error', message: 'Transferred model exceeds the size limit.' });
+      return;
+    }
 
     try {
       setStatus(t('orca.loadingModel'));
@@ -218,16 +193,11 @@ export function initOrcaIntegration({ loadModelFile, t, applyHostTheme }) {
       postToPlugin({ type: 'model-load-error', message: detail });
     } finally {
       loading = false;
-      loadButton.disabled = select.options.length === 0;
+      loadButton.disabled = !firstAvailableOption();
     }
   });
 
   loadButton.addEventListener('click', () => {
-    diagnostic('load-from-orca-click', {
-      objectId: select.value || '',
-      disabled: loadButton.disabled,
-      loading,
-    });
     if (!select.value || loading) return;
     loading = true;
     loadButton.disabled = true;
@@ -236,7 +206,6 @@ export function initOrcaIntegration({ loadModelFile, t, applyHostTheme }) {
   });
 
   refreshButton.addEventListener('click', () => {
-    diagnostic('refresh-click', { refreshing, loading });
     if (refreshing || loading) return;
     refreshing = true;
     refreshButton.disabled = true;
@@ -244,7 +213,6 @@ export function initOrcaIntegration({ loadModelFile, t, applyHostTheme }) {
     postToPlugin({ type: 'refresh-objects' });
   });
 
-  row.classList.remove('hidden');
   postToPlugin({ type: 'ready' });
   return true;
 }

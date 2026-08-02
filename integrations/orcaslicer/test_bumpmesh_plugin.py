@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import importlib.util
-import io
 import pathlib
 import struct
 import sys
@@ -55,15 +54,15 @@ class BumpMeshPluginTest(unittest.TestCase):
         self.assertIn("orcaslicer=1", url)
         self.assertIn("orcaslicerLang=ru", url)
 
-    def test_development_url_enables_webview_diagnostics(self):
+    def test_development_url_keeps_embedded_mode_parameters(self):
         with mock.patch.dict(
             self.plugin.os.environ,
             {"BUMPMESH_ORCASLICER_DEV_URL": "http://127.0.0.1:8000/"},
         ):
             url = self.plugin.bumpmesh_frame_url()
 
-        self.assertIn("orcaslicerDebug=1", url)
-        self.assertIn("orcaslicerBridge=6", url)
+        self.assertIn("orcaslicer=1", url)
+        self.assertIn("orcaslicerLang=en", url)
 
     def test_development_url_accepts_loopback_only(self):
         with mock.patch.dict(
@@ -77,6 +76,12 @@ class BumpMeshPluginTest(unittest.TestCase):
             {"BUMPMESH_ORCASLICER_DEV_URL": "https://example.com/"},
         ):
             self.assertTrue(self.plugin.bumpmesh_frame_url().startswith("https://bumpmesh.com/"))
+
+    def test_wheel_icon_asset_is_available(self):
+        icon = pathlib.Path(self.plugin.plugin_icon())
+
+        self.assertEqual(icon.suffix, ".png")
+        self.assertTrue(icon.is_file())
 
     def test_binary_stl_applies_volume_transform(self):
         vertices = np.array(
@@ -200,8 +205,6 @@ class BumpMeshPluginTest(unittest.TestCase):
         self.assertIn("event.origin !== frameOrigin", page)
         self.assertIn("transfer-chunk", page)
         self.assertIn("message.type === 'refresh-objects'", page)
-        self.assertIn("wrapper-message-observed", page)
-        self.assertIn("if (!debug) return", page)
         self.assertIn("data-orca-theme", page)
         self.assertIn("host-theme", page)
         self.assertIn("orcaslicer=1", page)
@@ -217,18 +220,6 @@ class BumpMeshPluginTest(unittest.TestCase):
             posted,
             [{"protocol": self.plugin.PROTOCOL_VERSION, "type": "objects", "objects": [{"id": 7}]}],
         )
-
-    def test_webview_diagnostic_is_written_to_python_stderr(self):
-        controller = self.plugin.TransferController(lambda payload: None)
-        stderr = io.StringIO()
-
-        with mock.patch.object(self.plugin.sys, "stderr", stderr):
-            controller.on_message(
-                {"type": "diagnostic", "event": "control-click", "details": {"id": "load"}}
-            )
-
-        self.assertIn('[BumpMesh WebView] control-click {"id":"load"}', stderr.getvalue())
-
 
 if __name__ == "__main__":
     unittest.main()

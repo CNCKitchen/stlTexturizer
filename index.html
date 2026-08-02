@@ -33,7 +33,8 @@
     // Apply saved theme before first paint to avoid flash
     (function() {
       const params = new URLSearchParams(window.location.search);
-      const hostTheme = params.get('orcaslicer') === '1'
+      const orcaEmbedded = params.get('orcaslicer') === '1' && window.parent !== window;
+      const hostTheme = orcaEmbedded
         ? params.get('orcaslicerTheme')
         : null;
       let t = hostTheme === 'light' || hostTheme === 'dark' ? hostTheme : null;
@@ -59,50 +60,6 @@
   <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js">
 </head>
 <body>
-  <script>
-    (() => {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('orcaslicerDebug') !== '1' || window.parent === window) return;
-      const diagnostic = (event, details) => {
-        window.parent.postMessage({
-          source: 'bumpmesh',
-          protocol: 1,
-          type: 'diagnostic',
-          event,
-          details: details || {},
-        }, '*');
-      };
-      window.addEventListener('error', (event) => {
-        diagnostic('inline-window-error', {
-          message: event.message || 'Resource or JavaScript load failed',
-          source: event.filename || '',
-          line: event.lineno || 0,
-          column: event.colno || 0,
-          target: event.target && event.target.src ? event.target.src : '',
-        });
-      }, true);
-      window.addEventListener('unhandledrejection', (event) => {
-        const reason = event.reason;
-        diagnostic('inline-unhandled-rejection', {
-          message: reason && reason.message ? reason.message : String(reason),
-          stack: reason && reason.stack ? String(reason.stack).slice(0, 1000) : '',
-        });
-      });
-      let storageAvailable = true;
-      let storageError = '';
-      try {
-        localStorage.getItem('stlt-lang');
-      } catch (error) {
-        storageAvailable = false;
-        storageError = error && error.name ? error.name : String(error);
-      }
-      diagnostic('inline-bootstrap', {
-        readyState: document.readyState,
-        storageAvailable,
-        storageError,
-      });
-    })();
-  </script>
   <header>
     <div class="logo">
       <img src="logo.png" alt="BumpMesh" width="24" height="24" />
@@ -237,16 +194,6 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 0 1 14.5-4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 12a8 8 0 0 1-14.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.5 3v4.5H14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.5 21v-4.5H10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span data-i18n="ui.rotate">Rotate</span>
           </button>
-        </div>
-        <div id="orca-integration-row" class="orca-integration-row hidden">
-          <select id="orca-object-select" aria-label="OrcaSlicer object"></select>
-          <button id="orca-refresh-btn" class="upload-btn" type="button" data-i18n="orca.refreshObjects">
-            Refresh
-          </button>
-          <button id="orca-load-btn" class="upload-btn" type="button" data-i18n="orca.loadFromOrca">
-            Load from OrcaSlicer
-          </button>
-          <span id="orca-integration-status" class="orca-integration-status" aria-live="polite"></span>
         </div>
         <div id="import-progress" class="export-progress hidden" style="margin-top:10px;margin-bottom:0;">
           <div class="export-progress-track">
@@ -814,6 +761,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/main.js?v=1.2.0-orca.7"></script>
+  <script type="module" src="js/main.js?v=1.2.0-orca.8"></script>
 </body>
 </html>

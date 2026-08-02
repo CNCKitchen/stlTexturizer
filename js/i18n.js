@@ -168,7 +168,8 @@ export function applyTranslations() {
  */
 export async function initLang() {
   const params  = new URLSearchParams(window.location.search);
-  const orcaLang = params.get('orcaslicer') === '1'
+  const orcaEmbedded = params.get('orcaslicer') === '1' && window.parent !== window;
+  const orcaLang = orcaEmbedded
     ? params.get('orcaslicerLang')
     : null;
   const saved   = _storageGet('stlt-lang');

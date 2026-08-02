@@ -29,7 +29,6 @@ import { getScaleReferenceLengths } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
 import { APP_VERSION } from './version.js';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
-import { initOrcaIntegration } from './orcaIntegration.js?v=5';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -1082,12 +1081,22 @@ function applyTheme(theme, persist = false) {
 }
 
 wireEvents();
-const orcaIntegrationActive = initOrcaIntegration({
-  loadModelFile: handleModelFile,
-  t,
-  applyHostTheme: theme => applyTheme(theme),
-});
-if (!orcaIntegrationActive) showWelcomeIfNeeded();
+const pageParams = new URLSearchParams(window.location.search);
+const orcaEmbedded = pageParams.get('orcaslicer') === '1' && window.parent !== window;
+if (orcaEmbedded) {
+  try {
+    const { initOrcaIntegration } = await import('./orcaIntegration.js?v=6');
+    initOrcaIntegration({
+      loadModelFile: handleModelFile,
+      t,
+      applyHostTheme: theme => applyTheme(theme),
+    });
+  } catch (error) {
+    console.error('[OrcaSlicer] Failed to initialize the embedded integration:', error);
+  }
+} else {
+  showWelcomeIfNeeded();
+}
 // Sync scale number inputs with the slider's initial position
 scaleUVal.value = fmtScaleVal(posToScale(parseFloat(scaleUSlider.value)));
 scaleVVal.value = fmtScaleVal(posToScale(parseFloat(scaleVSlider.value)));

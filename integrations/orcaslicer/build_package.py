@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+import zipfile
 from pathlib import Path
 
 
@@ -65,6 +66,25 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def validate_wheel(wheel: Path) -> None:
+    with zipfile.ZipFile(wheel) as archive:
+        names = archive.namelist()
+        top_level_files = [name for name in names if name.endswith(".dist-info/top_level.txt")]
+        if len(top_level_files) != 1:
+            raise ValueError("Wheel must contain exactly one top_level.txt")
+        top_levels = archive.read(top_level_files[0]).decode("utf-8").splitlines()
+        if top_levels != ["bumpmesh_plugin"]:
+            raise ValueError(
+                "OrcaSlicer requires one wheel top-level module; "
+                f"found {top_levels!r}"
+            )
+        if not any(
+            name.endswith(".data/data/bumpmesh_orca_assets/bumpmesh.png")
+            for name in names
+        ):
+            raise ValueError("Wheel does not contain the BumpMesh tab icon")
+
+
 def build_wheel(version: str, output_root: Path, release_dir: Path) -> Path:
     build_dir = output_root / "wheel-build"
     if build_dir.exists():
@@ -82,6 +102,7 @@ def build_wheel(version: str, output_root: Path, release_dir: Path) -> Path:
     wheel = release_dir / f"bumpmesh-{version}-py3-none-any.whl"
     if not wheel.is_file():
         raise FileNotFoundError(f"Expected wheel was not created: {wheel}")
+    validate_wheel(wheel)
     return wheel
 
 
