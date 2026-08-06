@@ -53,7 +53,7 @@
  */
 
 import { THREE } from './threeCompat.js';
-import { QuantizedPointMap } from './meshIndex.js';
+import { QuantizedPointMap, IntPairMap } from './meshIndex.js';
 
 // Vertex-weld quantisation for buildIndexed. 1e6 → 1 nm cells, finer than the
 // float32 resolution of the incoming positions, so it behaves as exact-float
@@ -113,8 +113,20 @@ function _yieldFrame() {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL, lockedFaces = null) {
+export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL, lockedFaces = null, releaseInput = false) {
   const { positions, faces, vertCount, faceCount } = buildIndexed(geometry);
+
+  // buildIndexed is the ONLY reader of `geometry`; everything below works off
+  // the indexed copy and buildOutput allocates fresh arrays. When the caller
+  // has no further use for the input (it disposes it the moment we return),
+  // dropping the attributes here releases the non-indexed position+normal
+  // buffers — 72 B per input triangle — for the whole collapse loop, which is
+  // by far the longest-lived phase of the pipeline. dispose() alone cannot do
+  // this: it frees GPU resources, not the JS typed arrays.
+  if (releaseInput) {
+    geometry.deleteAttribute('position');
+    geometry.deleteAttribute('normal');
+  }
 
   // Already at/under the target: nothing to decimate. But if harvesting is on we
   // still run — there may be flat faces collapsible for free even below the limit.
@@ -157,7 +169,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
   addCreaseQuadrics(quadrics, positions, faces, faceCount);
 
   // Doubly-linked vertex-face incidence (typed arrays — faster than Set<number>)
-  const { vfHead, slotFace, slotVert, slotNext, slotPrev, faceSlot } =
+  const { vfHead, slotVert, slotNext, slotPrev, slotLive } =
     buildLinkedAdj(faces, faceCount, vertCount);
 
   const active  = new Uint8Array(vertCount).fill(1);
@@ -176,8 +188,22 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
   // Seed min-heap with one entry per unique edge. Dedup via the integer
   // pair-keyed hash map (no V8 Set entry cap, no per-key boxing); seeding
   // order over faces/edges is unchanged.
-  const heap     = new SoAHeap(Math.min(faceCount * 3, 1 << 24));
-  const seedSeen = new QuantizedPointMap(1, Math.min(faceCount * 3, 1 << 22));
+  //
+  // Sizing: a closed manifold triangle mesh has exactly 1.5 F unique edges
+  // (Euler), so seeding pushes ~1.5 F entries, NOT the 3 F edge slots the
+  // face loop visits. The old `SoAHeap(faceCount * 3)` therefore asked for 2×
+  // what it needs, and SoAHeap's constructor then rounded that up to the next
+  // power of two — at 3.3 M triangles a 4.9 M-entry heap was allocated as
+  // 16.7 M slots × 48 B = 805 MB, over half the whole pipeline's peak. Both
+  // the 2× and the power-of-two rounding are now gone; 1.6 F leaves headroom
+  // for open/non-manifold inputs and the heap still grows on demand.
+  const heap     = new SoAHeap(Math.min(Math.ceil(faceCount * 1.6) + 16, 1 << 26));
+  // Sizing hint is the Euler edge count exactly (1.5 F). IntPairMap rounds the
+  // /0.6 load-factor target up to a power of two, so padding the hint the way
+  // the heap's is padded would tip it over the next doubling and cost 2× the
+  // slots for nothing — the table grows on its own if an open or non-manifold
+  // input pushes past the load factor.
+  let   seedSeen = new IntPairMap(Math.min(Math.ceil(faceCount * 1.5), 1 << 23));
   for (let f = 0; f < faceCount; f++) {
     if (faces[f * 3] < 0) continue;
     for (let e = 0; e < 3; e++) {
@@ -185,10 +211,13 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
       const vb = faces[f * 3 + ((e + 1) % 3)];
       if (lockedVert && (lockedVert[va] || lockedVert[vb])) continue;
       const lo = va < vb ? va : vb, hi = va < vb ? vb : va;
-      seedSeen.getOrSet(lo, hi, 0, 1);
+      seedSeen.getOrSet(lo, hi, 1);
       if (seedSeen.inserted) pushEdge(heap, quadrics, positions, version, va, vb);
     }
   }
+  // Seeding is the only consumer — drop the table before the collapse loop so
+  // its slots are not held for the (much longer) rest of the run.
+  seedSeen = null;
 
   const initFaces  = activeFaces;
   // Progress denominator: triangles to remove to reach the target. When already
@@ -240,14 +269,14 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
 
     // Single pass combines the old shareActiveFace + isBoundaryEdge:
     // 0 → stale entry, 1 → boundary edge (Guard 1), ≥2 → safe to continue
-    const nsh = sharedFaceCount(faces, vfHead, slotFace, slotNext, v1, v2);
+    const nsh = sharedFaceCount(faces, vfHead, slotNext, v1, v2);
     if (nsh < 2) continue;
 
     // ── Three safety guards ───────────────────────────────────────────────────
     lkEpoch += 2;  // +2 so ep and ep+1 never collide with the next call
-    if (hasLinkViolation(faces, vfHead, slotFace, slotNext, v1, v2, lkStamp, lkEpoch)) continue; // Guard 2
-    if (checkFlipped(positions, vfHead, slotFace, slotNext, faces, v1, v2, px, py, pz)) continue; // Guard 3a
-    if (checkFlipped(positions, vfHead, slotFace, slotNext, faces, v2, v1, px, py, pz)) continue; // Guard 3b
+    if (hasLinkViolation(faces, vfHead, slotNext, v1, v2, lkStamp, lkEpoch)) continue; // Guard 2
+    if (checkFlipped(positions, vfHead, slotNext, faces, v1, v2, px, py, pz)) continue; // Guard 3a
+    if (checkFlipped(positions, vfHead, slotNext, faces, v2, v1, px, py, pz)) continue; // Guard 3b
 
     // ── Collapse: keep v1 at new position, remove v2 ─────────────────────────
     positions[v1 * 3]     = px;
@@ -259,7 +288,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
     // Walk v2's face list; read sNext BEFORE modifying the list.
     let s = vfHead[v2];
     while (s >= 0) {
-      const f     = slotFace[s];
+      const f     = (s / 3) | 0;
       const sNext = slotNext[s]; // must be read before any list modification
       if (faces[f * 3] >= 0) {
         // Remap v2 → v1 in this face
@@ -269,8 +298,8 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
         if (fa === fb || fb === fc || fa === fc) {
           // Degenerate: unlink all 3 slots from their current vertex lists
           for (let k = 0; k < 3; k++) {
-            const sk = faceSlot[f*3+k];
-            if (sk >= 0) { _unlinkSlot(sk, vfHead, slotNext, slotPrev, slotVert); faceSlot[f*3+k] = -1; }
+            const sk = f*3+k;
+            if (slotLive[sk]) { _unlinkSlot(sk, vfHead, slotNext, slotPrev, slotVert); slotLive[sk] = 0; }
           }
           faces[f*3] = faces[f*3+1] = faces[f*3+2] = -1;
           activeFaces--;
@@ -287,7 +316,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
     // Re-push edges for v1's updated neighbourhood (stamp dedup — no new Set)
     epoch++;
     for (let sv = vfHead[v1]; sv >= 0; sv = slotNext[sv]) {
-      const f = slotFace[sv];
+      const f = (sv / 3) | 0;
       if (faces[f*3] < 0) continue;
       for (let k = 0; k < 3; k++) {
         const nb = faces[f*3+k];
@@ -313,36 +342,41 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
 // position k, slot s = f*3+k tracks face f in vertex v = faces[f*3+k]'s list.
 //
 //   vfHead[v]       → first slot for vertex v  (-1 = empty)
-//   slotFace[s]     → face tracked by slot s
 //   slotVert[s]     → vertex that currently owns slot s
 //   slotNext[s]     → next slot in vertex's list  (-1 = end)
 //   slotPrev[s]     → prev slot in vertex's list  (-1 = head)
-//   faceSlot[f*3+k] → slot for face f's k-th vertex incidence
+//   slotLive[s]     → 1 while slot s is linked into some vertex's list
+//
+// Two Int32Arrays that used to live here are gone, saving 8 B per face slot
+// (24 B/triangle) on top of the reduced allocation churn:
+//
+//   slotFace[s]     – redundant: slots are assigned s = f*3+k and never
+//                     renumbered, so the owning face is always (s/3)|0.
+//   faceSlot[f*3+k] – only ever held `s` (== f*3+k) or -1, i.e. one bit of
+//                     information; it is now the Uint8Array slotLive above.
 
 function buildLinkedAdj(faces, faceCount, vertCount) {
   const S        = faceCount * 3;
   const vfHead   = new Int32Array(vertCount).fill(-1);
-  const slotFace = new Int32Array(S);
   const slotVert = new Int32Array(S);
   const slotNext = new Int32Array(S).fill(-1);
   const slotPrev = new Int32Array(S).fill(-1);
-  const faceSlot = new Int32Array(S).fill(-1);
+  const slotLive = new Uint8Array(S);
   for (let f = 0; f < faceCount; f++) {
     if (faces[f * 3] < 0) continue;
     for (let k = 0; k < 3; k++) {
       const v = faces[f * 3 + k];
       const s = f * 3 + k;
-      slotFace[s] = f;
       slotVert[s] = v;
       const h = vfHead[v];
       slotNext[s] = h;
       slotPrev[s] = -1;
       if (h >= 0) slotPrev[h] = s;
       vfHead[v] = s;
-      faceSlot[f * 3 + k] = s;
+      slotLive[s] = 1;
     }
   }
-  return { vfHead, slotFace, slotVert, slotNext, slotPrev, faceSlot };
+  return { vfHead, slotVert, slotNext, slotPrev, slotLive };
 }
 
 // Remove slot s from its current vertex's list (slotVert[s] identifies the vertex).
@@ -366,10 +400,10 @@ function _moveSlot(s, nv, vfHead, slotNext, slotPrev, slotVert) {
 // ── Guard 0+1: combined shareActiveFace + isBoundaryEdge ─────────────────────
 // Returns 0 = stale entry, 1 = boundary edge, ≥2 = safe to proceed.
 
-function sharedFaceCount(faces, vfHead, slotFace, slotNext, v1, v2) {
+function sharedFaceCount(faces, vfHead, slotNext, v1, v2) {
   let count = 0;
   for (let s = vfHead[v1]; s >= 0; s = slotNext[s]) {
-    const f = slotFace[s];
+    const f = (s / 3) | 0;
     if (faces[f * 3] < 0) continue;
     const fa = faces[f*3], fb = faces[f*3+1], fc = faces[f*3+2];
     if (fa === v2 || fb === v2 || fc === v2) { if (++count >= 2) return 2; }
@@ -386,10 +420,10 @@ function sharedFaceCount(faces, vfHead, slotFace, slotNext, v1, v2) {
 // the subset of these that produce identical triangles. O(valence) via stamps.
 // lkStamp[w] === ep      → w is a one-ring neighbour of v1
 // lkStamp[w] === ep + 1  → w is a legal shared-face apex (allowed)
-function hasLinkViolation(faces, vfHead, slotFace, slotNext, v1, v2, lkStamp, ep) {
+function hasLinkViolation(faces, vfHead, slotNext, v1, v2, lkStamp, ep) {
   // Pass 1: stamp every one-ring neighbour of v1.
   for (let s = vfHead[v1]; s >= 0; s = slotNext[s]) {
-    const f = slotFace[s]; if (faces[f*3] < 0) continue;
+    const f = (s / 3) | 0; if (faces[f*3] < 0) continue;
     const a = faces[f*3], b = faces[f*3+1], c = faces[f*3+2];
     if (a !== v1) lkStamp[a] = ep;
     if (b !== v1) lkStamp[b] = ep;
@@ -398,7 +432,7 @@ function hasLinkViolation(faces, vfHead, slotFace, slotNext, v1, v2, lkStamp, ep
   // Pass 2: promote shared-face apexes to ep+1 (legal) and count shared faces.
   let shared = 0;
   for (let s = vfHead[v1]; s >= 0; s = slotNext[s]) {
-    const f = slotFace[s]; if (faces[f*3] < 0) continue;
+    const f = (s / 3) | 0; if (faces[f*3] < 0) continue;
     const a = faces[f*3], b = faces[f*3+1], c = faces[f*3+2];
     if (a === v2 || b === v2 || c === v2) {
       shared++;
@@ -410,7 +444,7 @@ function hasLinkViolation(faces, vfHead, slotFace, slotNext, v1, v2, lkStamp, ep
   // Pass 3: a neighbour of v2 that is a v1-neighbour (ep) but not a shared apex
   // (ep+1) is an illegal common neighbour → collapse would be non-manifold.
   for (let s = vfHead[v2]; s >= 0; s = slotNext[s]) {
-    const f = slotFace[s]; if (faces[f*3] < 0) continue;
+    const f = (s / 3) | 0; if (faces[f*3] < 0) continue;
     const a = faces[f*3], b = faces[f*3+1], c = faces[f*3+2];
     if (a !== v2 && a !== v1 && lkStamp[a] === ep) return true;
     if (b !== v2 && b !== v1 && lkStamp[b] === ep) return true;
@@ -425,9 +459,9 @@ function hasLinkViolation(faces, vfHead, slotFace, slotNext, v1, v2, lkStamp, ep
 //   dot(on_norm, nn_norm) < FLIP_DOT
 //   ⟺  rawDot < 0  OR  rawDot² < FLIP_DOT² · |on|² · |nn|²
 
-function checkFlipped(positions, vfHead, slotFace, slotNext, faces, vc, vo, npx, npy, npz) {
+function checkFlipped(positions, vfHead, slotNext, faces, vc, vo, npx, npy, npz) {
   for (let s = vfHead[vc]; s >= 0; s = slotNext[s]) {
-    const f = slotFace[s];
+    const f = (s / 3) | 0;
     if (faces[f * 3] < 0) continue;
     const fa = faces[f*3], fb = faces[f*3+1], fc = faces[f*3+2];
     if (fa === vo || fb === vo || fc === vo) continue;
@@ -679,16 +713,33 @@ function buildIndexed(geometry) {
   const posAttr = geometry.attributes.position;
   const n = posAttr.count;
 
-  const positions  = new Float64Array(n * 3); // over-allocated, trimmed later
+  // `positions` grows on demand instead of being allocated at the vertex-slot
+  // count n. A closed manifold welds 3 F corners down to ~F/2 vertices, i.e.
+  // n/6, so the old `new Float64Array(n * 3)` was ~6× oversized — and because
+  // the result was returned as a `subarray` VIEW, the whole oversized buffer
+  // stayed reachable for the entire decimation (237 MB held to store 39 MB at
+  // 3.3 M triangles). Start at the manifold estimate with slack and grow 1.5×.
+  let   posCap     = Math.max(1024, Math.ceil(n / 5));
+  let   positions  = new Float64Array(posCap * 3);
   const indexRemap = new Int32Array(n);
   let   vertCount  = 0;
 
-  const vertMap = new QuantizedPointMap(QUANT, Math.min(n, 1 << 22));
+  // Hint the welded vertex count, not the corner count. Welding 3 F corners of
+  // a closed manifold yields ~n/6 unique vertices; hinting `n` sized the table
+  // 6× too large (235 MB at 3.3 M triangles). n/4 keeps slack for open and
+  // soup-like inputs, and the table doubles itself if even that is short.
+  const vertMap = new QuantizedPointMap(QUANT, Math.min(Math.ceil(n / 4), 1 << 22));
 
   for (let i = 0; i < n; i++) {
     const x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
     const idx = vertMap.getOrSet(x, y, z, vertCount);
     if (vertMap.inserted) {
+      if (vertCount >= posCap) {
+        posCap = Math.ceil(posCap * 1.5) + 16;
+        const grown = new Float64Array(posCap * 3);
+        grown.set(positions);
+        positions = grown;
+      }
       vertCount++;
       positions[idx * 3]     = x;
       positions[idx * 3 + 1] = y;
@@ -701,7 +752,8 @@ function buildIndexed(geometry) {
   const faces = new Int32Array(faceCount * 3);
   for (let i = 0; i < n; i++) faces[i] = indexRemap[i];
 
-  return { positions: positions.subarray(0, vertCount * 3), faces, vertCount, faceCount };
+  // Copy (not subarray) so the growth slack is released with the old buffer.
+  return { positions: positions.slice(0, vertCount * 3), faces, vertCount, faceCount };
 }
 
 // (adjacency helpers replaced by buildLinkedAdj and _unlinkSlot/_moveSlot above)
@@ -756,8 +808,11 @@ function buildOutput(positions, faces, faceCount) {
 const SOA_GROW = 1.5;
 class SoAHeap {
   constructor(initialCap = 65536) {
-    let cap = 2;
-    while (cap <= initialCap) cap <<= 1;
+    // Capacity is used only as a bound in push() — nothing here masks or
+    // wraps on it — so it does NOT need to be a power of two. Rounding up to
+    // one wasted between 0 and 2× the requested slots (48 B each) on every
+    // run; the caller's estimate is close enough and _grow() covers overruns.
+    const cap  = Math.max(4, (initialCap | 0) + 2);
     this._cap  = cap;
     this._len  = 0;
     this._cost = new Float64Array(cap);

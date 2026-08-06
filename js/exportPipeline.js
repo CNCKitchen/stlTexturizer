@@ -302,7 +302,11 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
         (p) => onEvent('decimate', p, { from: dispTriCount, needsDecimation }),
         settings.harvestFlatFaces,
         settings.harvestTol,
-        lockedFaces
+        lockedFaces,
+        // releaseInput: `displaced` is disposed on the next line and never read
+        // again, so decimate may drop its buffers as soon as it has indexed
+        // them instead of holding them for the whole collapse loop.
+        true
       );
       // Capture before repair replaces the geometry (userData isn't carried over).
       lockedOverBudget = !!finalGeometry.userData.lockedOverBudget;
