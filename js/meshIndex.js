@@ -109,6 +109,98 @@ export class QuantizedPointMap {
 }
 
 /**
+ * IntPairMap — open-addressing map keyed by an ORDERED PAIR OF INTEGERS.
+ *
+ * Several places key on two vertex ids rather than a 3-D point — edge tables,
+ * above all.  The tempting shortcut is to pack the pair into one JS number as
+ * `a * 2**32 + b` and use it in a Map.  **That is only correct up to
+ * a = 2^21 = 2,097,152.**  float64 carries 53 bits of integer precision, so
+ * beyond that the packed value rounds and distinct pairs collide — silently,
+ * and only on meshes large enough that nobody checks by hand.  meshRepair.js
+ * did exactly this and reported hundreds of thousands of non-manifold edges on
+ * meshes that were provably manifold (see diag-edgekey-collision.mjs).
+ *
+ * This class keeps the two components as separate Int32s, so the key is exact
+ * for every id the pipeline can produce (< 2^31), and it has no equivalent of
+ * a JS Map's ~16.7 M entry cap.
+ *
+ * It is also 12 bytes per slot against QuantizedPointMap's 28 (3 × Float64 key
+ * + Int32 value), which matters wherever an integer-pair table is sized by
+ * triangle count.
+ *
+ * Values must be integers in [0, 2^31-1]; -1 is the "empty" sentinel and is
+ * what get() returns on a miss — same contract as QuantizedPointMap.
+ */
+export class IntPairMap {
+  /**
+   * @param {number} expected – expected number of unique pairs (sizing hint)
+   */
+  constructor(expected = 256) {
+    /** true when the last getOrSet() inserted a new key */
+    this.inserted = false;
+    this._size = 0;
+    let cap = 16;
+    const target = Math.max(16, Math.ceil(expected / 0.6));
+    while (cap < target) cap *= 2;
+    this._alloc(cap);
+  }
+
+  get size() { return this._size; }
+
+  _alloc(cap) {
+    this._cap = cap;
+    this._mask = cap - 1;
+    this._k1  = new Int32Array(cap);
+    this._k2  = new Int32Array(cap);
+    this._val = new Int32Array(cap).fill(-1);
+  }
+
+  _slot(a, b) {
+    let h = Math.imul(a, 0x9E3779B1) ^ Math.imul(b, 0x85EBCA77);
+    h ^= h >>> 15;
+    let i = h & this._mask;
+    const k1 = this._k1, k2 = this._k2, val = this._val, mask = this._mask;
+    while (val[i] !== -1) {
+      if (k1[i] === a && k2[i] === b) return i;
+      i = (i + 1) & mask;
+    }
+    return i;
+  }
+
+  _grow() {
+    const ok1 = this._k1, ok2 = this._k2, oval = this._val, ocap = this._cap;
+    this._alloc(ocap * 2);
+    for (let i = 0; i < ocap; i++) {
+      if (oval[i] === -1) continue;
+      const s = this._slot(ok1[i], ok2[i]);
+      this._k1[s] = ok1[i]; this._k2[s] = ok2[i]; this._val[s] = oval[i];
+    }
+  }
+
+  /** Value stored for the pair (a,b), or -1 if absent. */
+  get(a, b) {
+    return this._val[this._slot(a, b)];
+  }
+
+  /**
+   * Return the value already stored for (a,b); if absent, store `value` and
+   * return it.  `this.inserted` tells which case occurred.
+   */
+  getOrSet(a, b, value) {
+    const i = this._slot(a, b);
+    const existing = this._val[i];
+    if (existing !== -1) {
+      this.inserted = false;
+      return existing;
+    }
+    this._k1[i] = a; this._k2[i] = b; this._val[i] = value;
+    this.inserted = true;
+    if (++this._size > this._cap * 0.7) this._grow();
+    return value;
+  }
+}
+
+/**
  * Weld a non-indexed position buffer: assign each vertex the sequential id of
  * its quantised position (first occurrence wins).
  *

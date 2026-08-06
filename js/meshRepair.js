@@ -32,7 +32,7 @@
  * @returns {THREE.BufferGeometry}  repaired non-indexed geometry
  */
 import { THREE } from './threeCompat.js';
-import { QuantizedPointMap } from './meshIndex.js';
+import { QuantizedPointMap, IntPairMap } from './meshIndex.js';
 
 /**
  * Count open (1-face) and non-manifold (3+-face) edges of a non-indexed geometry,
@@ -46,19 +46,40 @@ export function countEdgeDefects(geometry, Q = 1e4) {
   for (let i = 0; i < n * 3; i++) {
     id[i] = vmap.getOrSet(p[i*3], p[i*3+1], p[i*3+2], vmap.size);
   }
-  const ec = new Map();
+  // Exact integer pair keys over typed arrays. The previous implementation
+  // packed each edge as `x * 4294967296 + y` into a JS number and counted in a
+  // Map, which failed twice on large exports:
+  //
+  //   * float64 holds x * 2^32 + y exactly only up to x = 2^21 = 2,097,152
+  //     vertices. Beyond that distinct edges share a key and their incidence
+  //     counts add, so the `> 2` test fires on a perfectly manifold mesh —
+  //     measured on a torus that is manifold by construction, 2.52 M vertices
+  //     reported 210,422 phantom non-manifold edges and 3.74 M reported
+  //     819,608. Exports were being declared broken when they were fine.
+  //   * a JS Map throws past V8's ~16.7 M entry cap, i.e. above ~11 M
+  //     triangles, which the pipeline can now reach.
+  const edges = new IntPairMap(Math.max(16, n * 2));
+  let nE = 0;
+  let counts = new Int32Array(n * 3 + 16);
   for (let t = 0; t < n; t++) {
     const a = id[t*3], b = id[t*3+1], c = id[t*3+2];
     if (a === b || b === c || a === c) continue;
-    const tri = [a, b, c];
     for (let e = 0; e < 3; e++) {
-      const x = tri[e], y = tri[(e+1)%3];
-      const key = x < y ? x * 4294967296 + y : y * 4294967296 + x;
-      ec.set(key, (ec.get(key) || 0) + 1);
+      const x = e === 0 ? a : e === 1 ? b : c;
+      const y = e === 0 ? b : e === 1 ? c : a;
+      const lo = x < y ? x : y, hi = x < y ? y : x;
+      const s = edges.getOrSet(lo, hi, nE);
+      if (edges.inserted) {
+        if (nE >= counts.length) {
+          const g = new Int32Array(counts.length * 2); g.set(counts); counts = g;
+        }
+        nE++;
+      }
+      counts[s]++;
     }
   }
   let open = 0, nonManifold = 0;
-  for (const c of ec.values()) { if (c === 1) open++; else if (c > 2) nonManifold++; }
+  for (let i = 0; i < nE; i++) { if (counts[i] === 1) open++; else if (counts[i] > 2) nonManifold++; }
   return { open, nonManifold, tris: n };
 }
 
@@ -133,21 +154,50 @@ export function resolveTJunctions(geometry, opts = {}) {
     faces.push([a, b, c]);
   }
 
-  const ekey = (a, b) => (a < b ? a * 4294967296 + b : b * 4294967296 + a);
-
   for (let iter = 0; iter < maxIters; iter++) {
-    // Edge → adjacent-face count + sample.
-    const eCount = new Map();
+    // Edge → adjacent-face count, in a dense table keyed on the EXACT integer
+    // pair. The previous key packed the pair into one JS number as
+    // `a * 4294967296 + b`, which float64 represents exactly only while the
+    // product stays inside 2^53 — i.e. up to a = 2^21 = 2,097,152 vertices.
+    // Above that distinct edges land on the same key and their counts merge,
+    // which here is a CORRECTNESS bug and not merely a reporting one: a real
+    // boundary edge (count 1) colliding with another reads as count 2, so its
+    // T-junction is never repaired, and decoding the key back into (a, b) —
+    // `b = k % 4294967296` — yields vertex ids that were never on that edge.
+    // Measured on a torus that is manifold by construction: 2.52 M vertices
+    // reported 210,422 phantom non-manifold edges, 3.74 M reported 819,608.
+    const eMap = new IntPairMap(Math.max(16, faces.length * 2));
+    let nE = 0;
+    let eLo = new Int32Array(faces.length * 3 + 16);
+    let eHi = new Int32Array(eLo.length);
+    let eCnt = new Int32Array(eLo.length);
+    const edgeSlot = (a, b) => {
+      const lo = a < b ? a : b, hi = a < b ? b : a;
+      const s = eMap.getOrSet(lo, hi, nE);
+      if (eMap.inserted) {
+        if (nE >= eLo.length) {
+          const grow = (o) => { const g = new Int32Array(o.length * 2); g.set(o); return g; };
+          eLo = grow(eLo); eHi = grow(eHi); eCnt = grow(eCnt);
+        }
+        eLo[nE] = lo; eHi[nE] = hi; nE++;
+      }
+      return s;
+    };
+    const edgeCount = (a, b) => {
+      const lo = a < b ? a : b, hi = a < b ? b : a;
+      const s = eMap.get(lo, hi);
+      return s === -1 ? 0 : eCnt[s];
+    };
+
     for (let fi = 0; fi < faces.length; fi++) {
       const f = faces[fi];
-      for (let e = 0; e < 3; e++) eCount.set(ekey(f[e], f[(e+1)%3]), (eCount.get(ekey(f[e], f[(e+1)%3])) || 0) + 1);
+      for (let e = 0; e < 3; e++) eCnt[edgeSlot(f[e], f[(e+1)%3])]++;
     }
     // Boundary edges (exactly one face) and the set of boundary vertices.
     const bverts = new Set();
-    for (const [k, c] of eCount) {
-      if (c !== 1) continue;
-      const b = k % 4294967296, a = (k - b) / 4294967296;
-      bverts.add(a); bverts.add(b);
+    for (let s = 0; s < nE; s++) {
+      if (eCnt[s] !== 1) continue;
+      bverts.add(eLo[s]); bverts.add(eHi[s]);
     }
     if (bverts.size === 0) break;
     const bvArr = [...bverts];
@@ -159,7 +209,7 @@ export function resolveTJunctions(geometry, opts = {}) {
       const f = faces[fi];
       for (let e = 0; e < 3; e++) {
         const a = f[e], b = f[(e+1)%3];
-        if ((eCount.get(ekey(a, b)) || 0) !== 1) continue;     // only boundary edges
+        if (edgeCount(a, b) !== 1) continue;                    // only boundary edges
         const ax = vx[a], ay = vy[a], az = vz[a];
         const ex = vx[b]-ax, ey = vy[b]-ay, ez = vz[b]-az;
         const elen2 = ex*ex + ey*ey + ez*ez;

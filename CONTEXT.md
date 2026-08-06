@@ -32,3 +32,30 @@ decimation/bottom-snap folds; the cross-module grid differences above are a
 suspected contributor. If unifying grids is ever attempted, it is a
 behaviour change — verify with the export→import round-trip, not the
 in-memory mesh.
+
+## Edge keys must be exact integers (`js/meshIndex.js`, `js/meshRepair.js`)
+
+Do **not** pack a vertex-id pair into one JS number as `a * 2**32 + b`. float64
+carries 53 bits of integer precision, so that form is exact only up to
+`a = 2^21 = 2,097,152` — above it distinct edges collide onto one key, silently,
+and only on meshes big enough that nobody verifies by hand.
+
+`meshRepair.js` used to do this in both `countEdgeDefects` and
+`resolveTJunctions`, with different severities:
+
+* **countEdgeDefects** — colliding edges sum their incidence counts and trip the
+  `> 2` non-manifold test, so a *good* export is reported as broken. Measured on
+  a torus that is manifold by grid construction: 2.52 M vertices reported
+  210,422 phantom non-manifold edges, 3.74 M reported 819,608.
+* **resolveTJunctions** — worse, because it repairs rather than measures. A real
+  boundary edge (count 1) that collides reads as count 2 and its T-junction is
+  left unrepaired; and decoding the key back (`b = k % 4294967296`) returns
+  vertex ids that were never on that edge.
+
+Both now use `IntPairMap` (Int32 pair keys) over a dense edge table. Below the
+2.1 M threshold the old keys were exact, so the change is a no-op there — which
+is what the pipeline fingerprints confirm.
+
+`diag-edgekey-collision.mjs` reproduces the failure and is the regression test:
+it builds meshes whose manifoldness is guaranteed by topology, not measured, so
+any counter that disagrees is wrong by construction.
