@@ -21,6 +21,7 @@ export const TRANSLATIONS = {
   ru: { 'lang.name': 'Русский' },
   zh: { 'lang.name': '简体中文' },
   pl: { 'lang.name': 'Polish' },
+  nl: { 'lang.name': 'Nederlands' },
 };
 
 // ── Module state ──────────────────────────────────────────────────────────────
