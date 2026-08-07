@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Faithful full-pipeline reproduction using the REAL app modules.
 // Mirrors handleExport() exactly: subdivide → regularize → re-subdivide →
 // displace → bottom-clamp → smoothBottom → decimate(harvest) → resolveTJunctions.
@@ -155,6 +160,12 @@ currentGeometry.computeBoundingBox();
 const bb = currentGeometry.boundingBox;
 const currentBounds = { min: bb.min.clone(), max: bb.max.clone(), size: new THREE.Vector3().subVectors(bb.max,bb.min), center: new THREE.Vector3().addVectors(bb.min,bb.max).multiplyScalar(0.5) };
 const img = decodePNG('textures/dots.png');
+// scaleU/scaleV are absolute mm; 0.5 × maxDim matches the legacy relative 0.5.
+{
+  const md = Math.max(currentBounds.size.x, currentBounds.size.y, currentBounds.size.z);
+  settings.scaleU = 0.5 * md;
+  settings.scaleV = 0.5 * md;
+}
 console.log(`source: ${stlPath}  ${stats(currentGeometry)}  | texture ${img.width}x${img.height} | refine=${refineLength} maxTri=${maxTriangles}`);
 
 const faceWeights = buildCombinedFaceWeights(currentGeometry, new Set(), false, settings);

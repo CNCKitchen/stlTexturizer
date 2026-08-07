@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { unzipSync } from 'fflate';
@@ -109,7 +114,7 @@ function validateAndCleanGeometry(geometry) {
  * export so files keep their original world coordinates and stay aligned with
  * sibling parts (issue #82).
  */
-function setupGeometry(geometry) {
+export function setupGeometry(geometry) {
   const { nanCount, degenerateCount } = validateAndCleanGeometry(geometry);
   geometry.computeBoundingBox();
   const box = geometry.boundingBox;
@@ -305,17 +310,18 @@ function parse3MF(data) {
         vertices[i * 3 + 1] = parseFloat(vertEls[i].getAttribute('y'));
         vertices[i * 3 + 2] = parseFloat(vertEls[i].getAttribute('z'));
       }
-      const triangles = new Uint32Array(triEls.length * 3);
+      // Validate raw attrs before storing — Uint32Array coerces on write
+      // (NaN→0, negatives wrap), so post-hoc checks can't catch bad input.
+      const vertCount  = vertEls.length;
+      const triangles  = new Uint32Array(triEls.length * 3);
       for (let i = 0; i < triEls.length; i++) {
-        triangles[i * 3]     = parseInt(triEls[i].getAttribute('v1'), 10);
-        triangles[i * 3 + 1] = parseInt(triEls[i].getAttribute('v2'), 10);
-        triangles[i * 3 + 2] = parseInt(triEls[i].getAttribute('v3'), 10);
-      }
-
-      const vertCount = vertEls.length;
-      for (let i = 0; i < triangles.length; i++) {
-        if (triangles[i] < 0 || triangles[i] >= vertCount || isNaN(triangles[i])) {
-          throw new Error('Invalid triangle index in 3MF file');
+        for (let j = 0; j < 3; j++) {
+          const raw = triEls[i].getAttribute('v' + (j + 1));
+          const idx = (raw !== null && /^[0-9]+$/.test(raw.trim())) ? Number(raw) : NaN;
+          if (!Number.isInteger(idx) || idx >= vertCount) {
+            throw new Error('Invalid triangle index in 3MF file');
+          }
+          triangles[i * 3 + j] = idx;
         }
       }
 
@@ -466,11 +472,17 @@ function parse3MF(data) {
 
 /**
  * Unified loader: dispatches to the right parser based on file extension.
+ * `opts` is only meaningful for STEP files ({ quality, onProgress }); the
+ * STEP loader is imported lazily so its worker code stays off the critical
+ * path for the common STL case.
  */
-export function loadModelFile(file) {
+export function loadModelFile(file, opts) {
   const ext = file.name.split('.').pop().toLowerCase();
   if (ext === 'obj') return loadOBJFile(file);
   if (ext === '3mf') return load3MFFile(file);
+  if (ext === 'step' || ext === 'stp') {
+    return import('./stepLoader.js').then((m) => m.loadSTEPFile(file, opts));
+  }
   return loadSTLFile(file);
 }
 

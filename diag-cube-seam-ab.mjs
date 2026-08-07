@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // A/B the tile-seam crease on Stefan's exact cube project: run the export
 // pipeline (whatever sampler the current checkout has) on the 50mm cube with
 // Leather 2 / triplanar / amplitude 2, then measure interior-edge dihedral

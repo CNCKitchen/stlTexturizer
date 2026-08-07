@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Compares the legacy K · area / edge² triangle-count estimate (the formula
 // used in smartResolution.js before this change) against the per-triangle
 // subdivision simulator now wired in via estimateSubdivisionTriCount().

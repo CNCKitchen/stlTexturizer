@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 import * as THREE from 'three';
 import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWireframe,
          getControls, getCamera, getCurrentMesh,
@@ -6,6 +11,8 @@ import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWirefram
          clearDiagOverlays, setDiagEdges, addDiagFaces,
          setRotationGizmo, isGizmoDragging } from './viewer.js';
 import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js';
+import { estimateStep } from './stepLoader.js';
+import { resolveStepSettings } from './stepConvert.js';
 import { computeSmartResolution } from './smartResolution.js';
 import { loadAllThumbnails, loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextures.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
@@ -17,8 +24,10 @@ import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions, getShellAssignments } from './meshValidation.js';
-import { t, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
+import { t, tHtml, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
+import { getScaleReferenceLengths } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
+import { APP_VERSION } from './version.js';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -35,7 +44,7 @@ let currentPoseRot    = new THREE.Quaternion();
 let currentPoseTrans  = new THREE.Vector3();
 let _rotatePoseSnapshot = null; // { rot, trans } captured on rotate-mode entry, restored by the reset button alongside _rotateOriginalPositions
 let currentStlName    = 'model'; // base filename of the loaded STL (no extension)
-let currentStlExt     = '.stl';  // source file extension (.stl/.obj/.3mf), for the stats line
+let currentStlExt     = '.stl';  // source file extension (.stl/.obj/.3mf/.step/.stp), for the stats line
 let activeMapEntry    = null;   // { name, texture, imageData, width, height, isCustom? }
 let _lastCustomMap    = null;   // most recent uploaded/imported custom-map entry, kept across preset switches so the thumbnail can re-activate it
 let previewMaterial   = null;
@@ -61,6 +70,7 @@ let brushRadius        = 5.0;
 let bucketThreshold    = 20;
 let isPainting         = false;
 let selectionMode      = false;       // false = exclude painted faces; true = include only painted faces
+let maskModeChosen     = false;       // false until the user (or a loaded/seeded mask) engages surface masking — neither mode button is highlighted
 let _lastHoverTriIdx   = -1;          // last triangle index used for hover preview
 let placeOnFaceActive  = false;       // true while "Place on Face" mode is active
 let rotateActive       = false;       // true while rotate mode is active
@@ -75,8 +85,12 @@ let _effectiveMapCacheKey = null;
 
 const settings = {
   mappingMode:   5,     // Triplanar default
-  scaleU:        0.5,
-  scaleV:        0.5,
+  // Texture tile size in ABSOLUTE millimetres (one full repeat along U/V).
+  // Initialized per model on load: DEFAULT_TILE_FRACTION × largest bbox edge
+  // (the default 50 mm cube → 25 mm). Consumers convert to relative factors
+  // via mapping.js scaleMmToRelative.
+  scaleU:        25,
+  scaleV:        25,
   amplitude:     0.5,
   textureHeight: 0.5,
   invertDisplacement: false,
@@ -98,11 +112,21 @@ const settings = {
   blendNormalSmoothing: 32,
   capAngle:         20,
   boundaryFalloff:  0,
+  // Shape of the 0→1 displacement ramp inside the boundary-falloff band:
+  // 'linear' (constant slope), 'scurve' (smoothstep, eased at both ends),
+  // 'ease' (quadratic ease-in, gentlest at the mask edge). Old snapshots
+  // without the key fall back to 'linear' — the only ramp they had.
+  boundaryFalloffCurve: 'ease',
   symmetricDisplacement: false,
   noDownwardZ: false,
   smoothBottom: true,
   harvestFlatFaces: true,
   harvestTol: 0.005,
+  // Preserve Untextured Surfaces (beta): regularize + decimation leave faces
+  // excluded from texturing (painted mask, selection mode, top/bottom angle
+  // masks) completely untouched, so original fillets and fine CAD detail
+  // survive. Subdivision already skips their interior edges regardless.
+  preserveUntextured: true,
   useDisplacement: false,
   // Cylindrical-mode controls.
   // null/undefined → derive from bounds (preserves legacy / non-cylindrical behavior).
@@ -111,11 +135,11 @@ const settings = {
   cylinderCenterY:  null,
   cylinderRadius:   null,
   cylinderPanelMinimized: false,
-  // Regularize Mesh (Advanced/Beta).  Two-step pipeline applied after the
-  // initial subdivide: collapse sliver chains, then re-subdivide stretched
-  // edges back to a configurable multiple of refineLength.  All knobs here
-  // mirror regularize.js opts; second-pass cap is for the post-regularize
-  // subdivide step in main.js.
+  // Regularize Mesh.  Two-step pipeline applied after the initial subdivide:
+  // collapse sliver chains, then re-subdivide stretched edges back to a
+  // multiple of refineLength.  Always on with these standard values — the
+  // knobs here mirror regularize.js opts; second-pass cap is for the
+  // post-regularize subdivide step in main.js.
   regularizeEnabled:        true,
   regularizeAspectThreshold: 5,
   regularizeSlack:           3.0,
@@ -239,6 +263,18 @@ const customMapRow      = document.getElementById('custom-map-row');
 const customMapSwatch   = document.getElementById('custom-map-swatch');
 const customMapRemoveBtn = document.getElementById('custom-map-remove');
 const meshInfo       = document.getElementById('mesh-info');
+const importProgress    = document.getElementById('import-progress');
+const importProgBar     = document.getElementById('import-progress-bar');
+const importProgPct     = document.getElementById('import-progress-pct');
+const importProgLbl     = document.getElementById('import-progress-label');
+const stepOverlay       = document.getElementById('step-overlay');
+const stepDialogClose   = document.getElementById('step-dialog-close');
+const stepModelSize     = document.getElementById('step-model-size');
+const stepSurfaceDev    = document.getElementById('step-surface-dev');
+const stepNormalDev     = document.getElementById('step-normal-dev');
+const stepMaxEdge       = document.getElementById('step-max-edge');
+const stepImportGo      = document.getElementById('step-import-go');
+const stepImportCancel  = document.getElementById('step-import-cancel');
 
 // Render the bottom-left mesh stats line, prefixed with the loaded model's
 // name (currentStlName, extension-stripped) so the user can see which file
@@ -322,6 +358,11 @@ const cylinderCanvas         = document.getElementById('cylinder-canvas');
 const cylinderPanelMinimize  = document.getElementById('cylinder-panel-minimize');
 const boundaryFalloffSlider    = document.getElementById('boundary-falloff');
 const boundaryFalloffVal       = document.getElementById('boundary-falloff-val');
+const falloffCurveButtons      = {
+  linear: document.getElementById('falloff-curve-linear'),
+  scurve: document.getElementById('falloff-curve-scurve'),
+  ease:   document.getElementById('falloff-curve-ease'),
+};
 const symmetricDispToggle    = document.getElementById('symmetric-displacement');
 const dispPreviewToggle      = document.getElementById('displacement-preview');
 const noDownwardZChk         = document.getElementById('no-downward-z-chk');
@@ -329,15 +370,7 @@ const smoothBottomChk        = document.getElementById('smooth-bottom-chk');
 const harvestFlatChk         = document.getElementById('harvest-flat-chk');
 const harvestTolInput        = document.getElementById('harvest-tol');
 const harvestTolRow          = document.getElementById('harvest-tol-row');
-const regularizeEnabledChk   = document.getElementById('regularize-enabled-chk');
-const regularizeDebugRows    = document.getElementById('regularize-debug-rows');
-const regAspectThresholdEl   = document.getElementById('reg-aspect-threshold');
-const regSlackEl             = document.getElementById('reg-slack');
-const regAggressiveSlackEl   = document.getElementById('reg-aggressive-slack');
-const regExtremeAspectEl     = document.getElementById('reg-extreme-aspect');
-const regNormalDegEl         = document.getElementById('reg-normal-deg');
-const regAggressiveNormalDegEl = document.getElementById('reg-aggressive-normal-deg');
-const regSecondPassMulEl     = document.getElementById('reg-second-pass-mul');
+const preserveUntexturedChk  = document.getElementById('preserve-untextured-chk');
 
 // ── Exclusion panel DOM refs ──────────────────────────────────────────────────
 const exclBrushBtn        = document.getElementById('excl-brush-btn');
@@ -385,7 +418,7 @@ const imprintClose   = document.getElementById('imprint-close');
 // ── Welcome / What's New popup ───────────────────────────────────────────────
 // Bump this date whenever the "What's New" bullets in index.html change to
 // re-show the popup to all returning visitors who previously dismissed it.
-const WELCOME_LAST_UPDATED = '2026-06-10';
+const WELCOME_LAST_UPDATED = '2026-07-23';
 const WELCOME_STORAGE_KEY  = 'stlt-welcome-seen';
 const welcomeLink     = document.getElementById('welcome-link');
 const welcomeOverlay  = document.getElementById('welcome-overlay');
@@ -397,12 +430,40 @@ const welcomeDontShow = document.getElementById('welcome-dont-show');
 const languageSelector = document.querySelector('.lang-seg');
 
 // ── Scale slider log helpers ──────────────────────────────────────────────────
-// Slider stores 0–1000; actual scale spans 0.05–10 on a log axis.
-// Middle position 500 → scale ~0.71 (log midpoint between 0.05 and 10).
-const _LOG_MIN = Math.log(0.05);
-const _LOG_MAX = Math.log(10);
-const scaleToPos = v => Math.round(Math.max(0, Math.min(1000, (Math.log(Math.max(0.01, Math.min(10, v))) - _LOG_MIN) / (_LOG_MAX - _LOG_MIN) * 1000)));
-const posToScale = p => parseFloat(Math.exp(_LOG_MIN + (p / 1000) * (_LOG_MAX - _LOG_MIN)).toFixed(2));
+// The slider stores 0–1000 and sweeps 0.05×–10× of the current model's
+// largest bbox edge on a log axis — the exact travel and default position of
+// the legacy relative slider — but the value it reads/writes is the absolute
+// tile size in mm. The numeric input accepts values beyond the slider range
+// (clamped in _applyScaleU/V); the slider just pins to its end.
+const SCALE_REL_SLIDER_MIN = 0.05;
+const SCALE_REL_SLIDER_MAX = 10;
+const SCALE_MM_INPUT_MIN   = 0.01;
+const SCALE_MM_INPUT_MAX   = 10000;
+// Fraction of the model's largest bbox edge used to pre-calculate a
+// nice-looking initial tile size when a model loads (legacy relative 0.5 —
+// lands at slider position 435, same as always).
+const DEFAULT_TILE_FRACTION = 0.5;
+const _LOG_MIN = Math.log(SCALE_REL_SLIDER_MIN);
+const _LOG_MAX = Math.log(SCALE_REL_SLIDER_MAX);
+
+/** Largest bbox edge of the loaded model — the slider's per-model anchor. */
+function _scaleAnchorMm() {
+  return currentBounds
+    ? Math.max(currentBounds.size.x, currentBounds.size.y, currentBounds.size.z)
+    : 50;
+}
+
+const scaleToPos = mm => {
+  const rel = Math.max(SCALE_REL_SLIDER_MIN, Math.min(SCALE_REL_SLIDER_MAX, mm / _scaleAnchorMm()));
+  return Math.round((Math.log(rel) - _LOG_MIN) / (_LOG_MAX - _LOG_MIN) * 1000);
+};
+const posToScale = p => parseFloat(
+  (_scaleAnchorMm() * Math.exp(_LOG_MIN + (p / 1000) * (_LOG_MAX - _LOG_MIN))).toPrecision(3));
+
+/** Tile size (mm) that visually matches the legacy relative default on this model. */
+function _defaultTileMm(relFraction = DEFAULT_TILE_FRACTION) {
+  return parseFloat((relFraction * _scaleAnchorMm()).toPrecision(3));
+}
 
 // Compute the active U texture-aspect factor (mirrors updatePreview's logic so
 // the snap math agrees with what computeUV actually does).
@@ -412,27 +473,41 @@ function _currentTextureAspectU() {
   return tmax / Math.max(tw, 1);
 }
 
-// Round a U scale to the nearest seamless-wrap value:
-//   tiles around circumference = aspectU / scaleU  →  must be a positive integer.
-// Returns the snapped scale, clamped to [aspectU/MAX_TILES, aspectU].
-function _snapScaleUForSeamlessWrap(scaleU) {
-  const aU = _currentTextureAspectU();
-  const MAX_TILES = 20;
-  let n = Math.round(aU / Math.max(scaleU, 1e-6));
-  if (!Number.isFinite(n) || n < 1) n = 1;
-  if (n > MAX_TILES) n = MAX_TILES;
-  return parseFloat((aU / n).toFixed(4));
+// True when the active mapping mode wraps U around the model, so snapping the
+// U scale to integer tile counts can make the wrap seam disappear.
+function _isSeamlessWrapMode() {
+  return settings.mappingMode === 3 /* MODE_CYLINDRICAL */ ||
+         settings.mappingMode === 4 /* MODE_SPHERICAL */;
 }
 
+// Round a U texture size (mm) to the nearest seamless-wrap value:
+//   tiles around circumference = aspectU × C / scaleU_mm  →  must be a
+//   positive integer, where C is the mode's wrap circumference (projection
+//   cylinder circumference, or the sphere's equator).
+function _snapScaleUForSeamlessWrap(scaleUMm) {
+  const aU = _currentTextureAspectU();
+  const size = currentBounds ? currentBounds.size : { x: 50, y: 50, z: 50 };
+  const { refU: C } = getScaleReferenceLengths(settings.mappingMode, settings, { size });
+  const MAX_TILES = 200;
+  let n = Math.round((aU * C) / Math.max(scaleUMm, 1e-6));
+  if (!Number.isFinite(n) || n < 1) n = 1;
+  if (n > MAX_TILES) n = MAX_TILES;
+  return parseFloat(((aU * C) / n).toFixed(4));
+}
+
+// The Size U/V number boxes show at most 2 decimals; the precise value
+// (needed for exact seamless-wrap snapping) stays in settings.scaleU/scaleV.
+const fmtScaleVal = v => +(+v).toFixed(2);
+
 function _applyScaleU(v) {
-  v = Math.max(0.01, Math.min(10, v));
-  if (settings.snapSeamlessWrap && settings.mappingMode === 3 /* MODE_CYLINDRICAL */) {
+  v = Math.max(SCALE_MM_INPUT_MIN, Math.min(SCALE_MM_INPUT_MAX, v));
+  if (settings.snapSeamlessWrap && _isSeamlessWrapMode()) {
     v = _snapScaleUForSeamlessWrap(v);
   }
   settings.scaleU = v;
   scaleUSlider.value = scaleToPos(v);
-  scaleUVal.value = v;
-  if (settings.lockScale) { settings.scaleV = v; scaleVSlider.value = scaleToPos(v); scaleVVal.value = v; }
+  scaleUVal.value = fmtScaleVal(v);
+  if (settings.lockScale) { settings.scaleV = v; scaleVSlider.value = scaleToPos(v); scaleVVal.value = fmtScaleVal(v); }
   clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
 }
 
@@ -748,6 +823,11 @@ function _scheduleCylinderPreviewUpdate() {
   if (_cylPreviewThrottle) return;
   _cylPreviewThrottle = setTimeout(() => {
     _cylPreviewThrottle = null;
+    // Texture size is absolute mm, so a radius change alters the tile count
+    // around the circumference — re-snap to keep the wrap seamless.
+    if (settings.snapSeamlessWrap && settings.mappingMode === 3 /* MODE_CYLINDRICAL */) {
+      _applyScaleU(settings.scaleU);
+    }
     updatePreview();
     // updatePreview() mutates uniforms in place; the 3D viewport's render
     // loop only re-draws when _needsRender flips, so push it explicitly.
@@ -820,7 +900,9 @@ cylinderCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function updateCylinderUIVisibility() {
   const isCyl = settings.mappingMode === 3 /* MODE_CYLINDRICAL */;
-  cylinderSnapRow.style.display = isCyl ? '' : 'none';
+  // The seamless-wrap snap applies to both wrap-around modes (cylindrical
+  // and spherical); the rest of this panel is cylinder-only.
+  cylinderSnapRow.style.display = _isSeamlessWrapMode() ? '' : 'none';
   cylinderAxisRow.style.display = isCyl ? '' : 'none';
   // Show the panel whenever the user is in cylindrical mode, even without a
   // model loaded — they get the empty placeholder until they load one, which
@@ -897,6 +979,9 @@ function autoFitCylinderAxis() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 let PRESETS = [];
+
+document.getElementById('app-version').textContent = `v${APP_VERSION}`;
+console.info(`BumpMesh v${APP_VERSION}`);
 
 initViewer(canvas);
 
@@ -1009,8 +1094,8 @@ document.getElementById('theme-toggle').addEventListener('click', () => {
 wireEvents();
 showWelcomeIfNeeded();
 // Sync scale number inputs with the slider's initial position
-scaleUVal.value = posToScale(parseFloat(scaleUSlider.value));
-scaleVVal.value = posToScale(parseFloat(scaleVSlider.value));
+scaleUVal.value = fmtScaleVal(posToScale(parseFloat(scaleUSlider.value)));
+scaleVVal.value = fmtScaleVal(posToScale(parseFloat(scaleVSlider.value)));
 
 // Load geometry immediately — don't wait for textures
 loadDefaultCube();
@@ -1100,7 +1185,9 @@ async function selectPreset(idx, swatchEl, applyDefaults = true) {
   activeMapName.textContent = entry.name;
   if (applyDefaults) {
     resetTextureSmoothing();
-    if (entry.defaultScale != null) _applyScaleU(entry.defaultScale);
+    // defaultScale is a legacy fraction of the model's largest bbox edge —
+    // convert to the absolute mm tile size that looks the same on this model.
+    if (entry.defaultScale != null) _applyScaleU(_defaultTileMm(entry.defaultScale));
   }
 
   // If full texture is already loaded, use it directly
@@ -1268,8 +1355,29 @@ function wireEvents() {
     const files = [...e.dataTransfer.files];
     const bmFile = files.find(f => /\.bumpmesh$/i.test(f.name));
     if (bmFile) { importProject(bmFile).catch(err => alert(t('alerts.importFailed', { msg: err.message }))); return; }
-    const file = files.find(f => /\.(stl|obj|3mf)$/i.test(f.name));
+    const file = files.find(f => /\.(stl|obj|3mf|step|stp)$/i.test(f.name));
     if (file) handleModelFile(file);
+  });
+
+  // STEP import dialog: preset radios drive the tolerance fields; Import
+  // kicks off (re-)tessellation, Cancel/backdrop/× just closes.
+  for (const radio of document.querySelectorAll('input[name="step-preset"]')) {
+    radio.addEventListener('change', () => _stepUpdateFields());
+  }
+  stepImportGo.addEventListener('click', () => {
+    const file = _stepDialogFile;
+    if (!file) { closeStepDialog(); return; }
+    const preset = _stepSelectedPreset();
+    const settings = preset === 'custom'
+      ? { surfaceDeviation: +stepSurfaceDev.value, normalDeviation: +stepNormalDev.value, maxEdge: +stepMaxEdge.value }
+      : { preset };
+    closeStepDialog();
+    handleModelFile(file, settings);
+  });
+  stepImportCancel.addEventListener('click', closeStepDialog);
+  stepDialogClose.addEventListener('click', closeStepDialog);
+  stepOverlay.addEventListener('click', (e) => {
+    if (e.target === stepOverlay) closeStepDialog();
   });
 
   // Allow clicking the drop zone to open the file picker (except on canvas)
@@ -1332,12 +1440,17 @@ function wireEvents() {
     settings.mappingMode = parseInt(mappingSelect.value, 10);
     capAngleRow.style.display = settings.mappingMode === 3 ? '' : 'none';
     updateCylinderUIVisibility();
+    // The wrap circumference is mode-specific (cylinder vs sphere equator),
+    // so entering a wrap mode with snapping on re-snaps the U scale.
+    if (settings.snapSeamlessWrap && _isSeamlessWrapMode()) {
+      _applyScaleU(settings.scaleU);
+    }
     updatePreview();
   });
 
   cylinderSnapToggle.addEventListener('change', () => {
     settings.snapSeamlessWrap = cylinderSnapToggle.checked;
-    if (settings.snapSeamlessWrap && settings.mappingMode === 3) {
+    if (settings.snapSeamlessWrap && _isSeamlessWrapMode()) {
       // Snap immediately so the user sees the seam fix without dragging first.
       _applyScaleU(settings.scaleU);
     }
@@ -1377,21 +1490,21 @@ function wireEvents() {
   // Scale U — when lock is on, mirror to V
   const applyScaleU = (v) => _applyScaleU(v);
   scaleUSlider.addEventListener('input', () => applyScaleU(posToScale(parseFloat(scaleUSlider.value))));
-  scaleUSlider.addEventListener('dblclick', () => applyScaleU(posToScale(parseFloat(scaleUSlider.defaultValue))));
+  scaleUSlider.addEventListener('dblclick', () => applyScaleU(_defaultTileMm()));
   scaleUVal.addEventListener('change', () => applyScaleU(parseFloat(scaleUVal.value)));
   addFineWheelSupport(scaleUVal, applyScaleU);
 
   // Scale V — when lock is on, mirror to U
   const applyScaleV = (v) => {
-    v = Math.max(0.01, Math.min(10, v));
+    v = Math.max(SCALE_MM_INPUT_MIN, Math.min(SCALE_MM_INPUT_MAX, v));
     settings.scaleV = v;
     scaleVSlider.value = scaleToPos(v);
-    scaleVVal.value = v;
-    if (settings.lockScale) { settings.scaleU = v; scaleUSlider.value = scaleToPos(v); scaleUVal.value = v; }
+    scaleVVal.value = fmtScaleVal(v);
+    if (settings.lockScale) { settings.scaleU = v; scaleUSlider.value = scaleToPos(v); scaleUVal.value = fmtScaleVal(v); }
     clearTimeout(previewDebounce); previewDebounce = setTimeout(updatePreview, 80);
   };
   scaleVSlider.addEventListener('input', () => applyScaleV(posToScale(parseFloat(scaleVSlider.value))));
-  scaleVSlider.addEventListener('dblclick', () => applyScaleV(posToScale(parseFloat(scaleVSlider.defaultValue))));
+  scaleVSlider.addEventListener('dblclick', () => applyScaleV(_defaultTileMm()));
   scaleVVal.addEventListener('change', () => applyScaleV(parseFloat(scaleVVal.value)));
   addFineWheelSupport(scaleVVal, applyScaleV);
 
@@ -1403,7 +1516,7 @@ function wireEvents() {
     if (settings.lockScale) {
       settings.scaleV = settings.scaleU;
       scaleVSlider.value = scaleToPos(settings.scaleU);
-      scaleVVal.value = settings.scaleU;
+      scaleVVal.value = fmtScaleVal(settings.scaleU);
       updatePreview();
     }
   });
@@ -1424,6 +1537,9 @@ function wireEvents() {
     updatePreview();
   });
   linkSlider(boundaryFalloffSlider, boundaryFalloffVal, v => { settings.boundaryFalloff = v; _falloffDirty = true; return v.toFixed(1); });
+  for (const [mode, btn] of Object.entries(falloffCurveButtons)) {
+    btn.addEventListener('click', () => setFalloffCurve(mode));
+  }
   linkSlider(refineLenSlider, refineLenVal, v => {
     settings.refineLength = v;
     checkResolutionWarning();
@@ -1467,31 +1583,11 @@ function wireEvents() {
     if (Number.isFinite(v) && v >= 0) settings.harvestTol = v;
     // No preview rebuild needed — harvesting only affects the final decimation.
   });
-
-  // Regularize (Advanced/Beta) — toggle + 7 debug knobs.  The toggle disables
-  // the entire regularize+resub pipeline; the knobs adjust regularize.js opts.
-  regularizeEnabledChk.checked = settings.regularizeEnabled;
-  regularizeDebugRows.classList.toggle('disabled', !settings.regularizeEnabled);
-  regularizeEnabledChk.addEventListener('change', () => {
-    settings.regularizeEnabled = regularizeEnabledChk.checked;
-    regularizeDebugRows.classList.toggle('disabled', !settings.regularizeEnabled);
-    updatePreview();
+  preserveUntexturedChk.checked = settings.preserveUntextured;
+  preserveUntexturedChk.addEventListener('change', () => {
+    settings.preserveUntextured = preserveUntexturedChk.checked;
+    // Export/bake-time flag only — no preview rebuild needed.
   });
-  // Helper — wire a number input to a settings key, schedule a preview update.
-  const _wireRegNumber = (el, key, parser = parseFloat) => {
-    el.value = settings[key];
-    el.addEventListener('input', () => {
-      const v = parser(el.value);
-      if (Number.isFinite(v)) { settings[key] = v; updatePreview(); }
-    });
-  };
-  _wireRegNumber(regAspectThresholdEl,    'regularizeAspectThreshold');
-  _wireRegNumber(regSlackEl,              'regularizeSlack');
-  _wireRegNumber(regAggressiveSlackEl,    'regularizeAggressiveSlack');
-  _wireRegNumber(regExtremeAspectEl,      'regularizeExtremeAspect');
-  _wireRegNumber(regNormalDegEl,          'regularizeNormalDeg');
-  _wireRegNumber(regAggressiveNormalDegEl,'regularizeAggressiveNormalDeg');
-  _wireRegNumber(regSecondPassMulEl,      'regularizeSecondPassMul');
 
   dispPreviewToggle.addEventListener('change', () => {
     toggleDisplacementPreview(dispPreviewToggle.checked);
@@ -1697,8 +1793,22 @@ function wireEvents() {
     refreshExclusionOverlay();
   });
 
-  exclModeExcludeBtn.addEventListener('click', () => setSelectionMode(false));
-  exclModeIncludeBtn.addEventListener('click', () => setSelectionMode(true));
+  // Clicking a mask-mode button pre-selects the fill tool so painting can
+  // start without an extra click (an already-active brush is kept). Only the
+  // buttons do this — programmatic setSelectionMode() calls (project load,
+  // session restore) must not activate a paint tool.
+  exclModeExcludeBtn.addEventListener('click', () => {
+    maskModeChosen = true;
+    setSelectionMode(false);   // early-returns if already exclude…
+    updateMaskModeButtons();   // …so refresh the highlight explicitly
+    if (!exclusionTool) setExclusionTool('bucket');
+  });
+  exclModeIncludeBtn.addEventListener('click', () => {
+    maskModeChosen = true;
+    setSelectionMode(true);
+    updateMaskModeButtons();
+    if (!exclusionTool) setExclusionTool('bucket');
+  });
 
   // ── Precision masking wiring ──────────────────────────────────────────────
   precisionMaskingToggle.addEventListener('change', () => {
@@ -1829,6 +1939,7 @@ function wireEvents() {
       if (exclusionTool) setExclusionTool(null);
       licenseOverlay.classList.add('hidden');
       imprintOverlay.classList.add('hidden');
+      closeStepDialog();
       _clearShiftLinePreview();
     }
   });
@@ -1843,10 +1954,11 @@ function wireEvents() {
 function setSelectionMode(include) {
   if (selectionMode === include) return;
   selectionMode = include;
-  exclModeExcludeBtn.classList.toggle('active', !selectionMode);
-  exclModeIncludeBtn.classList.toggle('active', selectionMode);
-  exclModeExcludeBtn.setAttribute('aria-pressed', String(!selectionMode));
-  exclModeIncludeBtn.setAttribute('aria-pressed', String(selectionMode));
+  // Include-only is never the implicit default, so entering it always counts
+  // as engaging the masking UI. Exclude can be entered programmatically as a
+  // reset-to-default; those call sites manage maskModeChosen themselves.
+  if (include) maskModeChosen = true;
+  updateMaskModeButtons();
   if (exclusionTool) setExclusionTool(null);
   exclSectionHeading.textContent = selectionMode ? t('sections.surfaceSelection') : t('sections.surfaceMasking');
   exclHint.textContent = selectionMode
@@ -1858,6 +1970,18 @@ function setSelectionMode(include) {
   refreshExclusionOverlay();
 }
 
+// Neither mode button is highlighted until masking is engaged (maskModeChosen)
+// — Exclude is still the effective default internally, but the user should
+// deliberately pick a mode (or a tool) before it lights up.
+function updateMaskModeButtons() {
+  const excludeOn = maskModeChosen && !selectionMode;
+  const includeOn = maskModeChosen && selectionMode;
+  exclModeExcludeBtn.classList.toggle('active', excludeOn);
+  exclModeIncludeBtn.classList.toggle('active', includeOn);
+  exclModeExcludeBtn.setAttribute('aria-pressed', String(excludeOn));
+  exclModeIncludeBtn.setAttribute('aria-pressed', String(includeOn));
+}
+
 function setExclusionTool(tool) {
   // Clicking the active tool toggles it off; passing null always deactivates
   exclusionTool = (exclusionTool === tool) ? null : tool;
@@ -1865,6 +1989,13 @@ function setExclusionTool(tool) {
   // Deactivate place-on-face and rotate if an exclusion tool is being activated
   if (exclusionTool && placeOnFaceActive) togglePlaceOnFace(false);
   if (exclusionTool && rotateActive) toggleRotateMode(false);
+
+  // Activating any masking tool engages the masking UI — highlight the mode
+  // the paint will apply under (exclude unless include-only was chosen).
+  if (exclusionTool && !maskModeChosen) {
+    maskModeChosen = true;
+    updateMaskModeButtons();
+  }
 
   // Exit 3D displacement preview when a masking tool is activated
   if (exclusionTool && settings.useDisplacement) {
@@ -2602,12 +2733,16 @@ function updateBrushCursor(e) {
     brushCursorEl.style.display = 'none';
     return;
   }
+  // Hide the OS cursor only while the circle overlay is drawn on the model;
+  // off-model the default cursor returns, so the pointer never vanishes and
+  // painting vs. orbiting stays visually distinct (#52).
   const mesh = getCurrentMesh();
-  if (!mesh) { brushCursorEl.style.display = 'none'; return; }
+  if (!mesh) { brushCursorEl.style.display = 'none'; canvas.style.cursor = ''; return; }
   _raycaster.setFromCamera(_canvasNDC(e), getCamera());
   const hits = _raycaster.intersectObject(mesh);
   const frontHit = getFrontFaceHit(hits, mesh);
-  if (!frontHit) { brushCursorEl.style.display = 'none'; return; }
+  if (!frontHit) { brushCursorEl.style.display = 'none'; canvas.style.cursor = ''; return; }
+  canvas.style.cursor = 'none';
 
   const hitPt = frontHit.point;
   const cam   = getCamera();
@@ -2858,6 +2993,10 @@ function loadDefaultCube() {
   exclusionTool     = null;
   eraseMode         = false;
   isPainting        = false;
+  // Exclude reverts to the neutral (unhighlighted) default; include-only
+  // persists across loads and stays highlighted.
+  maskModeChosen    = selectionMode;
+  updateMaskModeButtons();
   if (placeOnFaceActive) togglePlaceOnFace(false);
   if (rotateActive) toggleRotateMode(false);
   rotateAngles = { x: 0, y: 0, z: 0 };
@@ -2878,8 +3017,11 @@ function loadDefaultCube() {
   triangleCentroids = adjData.centroids;
   triangleFaceNormals = adjData.faceNormals;
 
-  settings.scaleU  = 0.5; scaleUSlider.value = scaleToPos(0.5); scaleUVal.value = 0.5;
-  settings.scaleV  = 0.5; scaleVSlider.value = scaleToPos(0.5); scaleVVal.value = 0.5;
+  // Pre-calculate an initial tile size that looks nice on this model; from
+  // here on the value is absolute (mm) and independent of the model bounds.
+  const tileMm = _defaultTileMm();
+  settings.scaleU  = tileMm; scaleUSlider.value = scaleToPos(tileMm); scaleUVal.value = fmtScaleVal(tileMm);
+  settings.scaleV  = tileMm; scaleVSlider.value = scaleToPos(tileMm); scaleVVal.value = fmtScaleVal(tileMm);
   settings.offsetU = 0; offsetUSlider.value = 0; offsetUVal.value = 0;
   settings.offsetV = 0; offsetVSlider.value = 0; offsetVVal.value = 0;
   triLimitWarning.classList.add('hidden');
@@ -2905,10 +3047,90 @@ function loadDefaultCube() {
   updatePreview();
 }
 
-async function handleModelFile(file) {
+// Import-progress bar (STEP tessellation runs in a worker and can take a
+// while on real CAD parts; every other format parses too fast to need this).
+function _setImportProgress(stage, fraction) {
+  const pct = Math.round(fraction * 100);
+  importProgBar.style.width = `${pct}%`;
+  importProgPct.textContent = `${pct}%`;
+  importProgLbl.textContent = t(stage === 'parse' ? 'progress.stepParse' : 'progress.stepTessellate');
+}
+
+// ── STEP import dialog ──────────────────────────────────────────────────────
+// Dropping a .step file opens a settings popup first: quality presets that
+// scale meshStep's size-adaptive auto tolerances, or Custom with the three
+// main tolerances exposed (Fusion-style naming). To change the settings
+// later, reload the file — the dialog opens on every STEP import.
+
+let _stepDialogFile = null; // File pending import while the dialog is open
+let _stepAutoTol    = null; // { surfaceDeviation, maxEdge } from the worker's size estimate
+let _stepEstimateSeq = 0;   // ignores stale estimate responses after reopen/close
+
+function _stepSelectedPreset() {
+  return document.querySelector('input[name="step-preset"]:checked').value;
+}
+
+// Reflect the effective tolerances into the fields; editable only for Custom.
+function _stepUpdateFields() {
+  const preset = _stepSelectedPreset();
+  const custom = preset === 'custom';
+  stepSurfaceDev.disabled = stepNormalDev.disabled = stepMaxEdge.disabled = !custom;
+  if (!custom) {
+    const tol = resolveStepSettings(_stepAutoTol, { preset });
+    stepSurfaceDev.value = +tol.surfaceDeviation.toPrecision(3);
+    stepNormalDev.value  = +tol.normalDeviation.toPrecision(3);
+    stepMaxEdge.value    = +tol.maxEdge.toPrecision(3);
+  }
+}
+
+function openStepDialog(file) {
+  _stepDialogFile = file;
+  _stepAutoTol = null;
+  stepModelSize.textContent = '';
+  document.querySelector('input[name="step-preset"][value="standard"]').checked = true;
+  _stepUpdateFields();
+  stepOverlay.classList.remove('hidden');
+  trapFocus(stepOverlay);
+
+  // Probe the model size in the worker (also warms it up for the import) and
+  // fill in the real auto tolerances once known.
+  const mySeq = ++_stepEstimateSeq;
+  file.text()
+    .then((text) => estimateStep(text))
+    .then((r) => {
+      if (mySeq !== _stepEstimateSeq || !r) return;
+      _stepAutoTol = r.auto;
+      if (r.est) stepModelSize.textContent = t('step.modelSize', { d: r.est.diag.toFixed(1) });
+      if (_stepSelectedPreset() !== 'custom') _stepUpdateFields();
+    })
+    .catch(() => {});
+}
+
+function closeStepDialog() {
+  _stepEstimateSeq++;
+  _stepDialogFile = null;
+  stepOverlay.classList.add('hidden');
+}
+
+let _importSeq = 0; // guards the shared progress bar against superseded imports
+
+async function handleModelFile(file, stepSettings = null) {
+  const isStep = /\.(step|stp)$/i.test(file.name);
+  // A STEP file without chosen settings goes through the import dialog first;
+  // the dialog's Import button re-enters here with settings resolved.
+  if (isStep && !stepSettings) {
+    openStepDialog(file);
+    return;
+  }
   _undoApplyDepth++;
+  const mySeq = ++_importSeq;
+  if (isStep) {
+    _setImportProgress('parse', 0);
+    importProgress.classList.remove('hidden');
+  }
   try {
-    const { geometry, bounds, nanCount, degenerateCount, originOffset } = await loadModelFile(file);
+    const { geometry, bounds, nanCount, degenerateCount, originOffset, step } =
+      await loadModelFile(file, { settings: stepSettings, onProgress: _setImportProgress });
 
     // Invalidate any in-flight async operations tied to the previous model
     precisionToken++;
@@ -2920,10 +3142,18 @@ async function handleModelFile(file) {
     currentBounds   = bounds;
     currentPoseRot   = new THREE.Quaternion();
     currentPoseTrans = originOffset ? originOffset.clone().negate() : new THREE.Vector3(); // mem = orig − centre
-    currentStlName  = file.name.replace(/\.(stl|obj|3mf)$/i, '');
-    const _extMatch = file.name.match(/\.(stl|obj|3mf)$/i);
+    currentStlName  = file.name.replace(/\.(stl|obj|3mf|step|stp)$/i, '');
+    const _extMatch = file.name.match(/\.(stl|obj|3mf|step|stp)$/i);
     currentStlExt   = _extMatch ? _extMatch[0].toLowerCase() : '';
     checkAmplitudeWarning();
+
+    // Surface the STEP conversion verdict without blocking the user.
+    if (step && step.diagnostics && !step.diagnostics.ok) {
+      const d = step.diagnostics;
+      console.warn(
+        `STEP conversion imperfect: ${d.openEdges} open edges, ${d.nonManifoldEdges} non-manifold edges, ` +
+        `${d.facesDropped} faces dropped, ${d.facesSkipped} faces skipped`, d.warnings);
+    }
 
     // Log (but don't block the user with an alert) if bad triangles were
     // silently removed during load — this is non-critical; the all-invalid
@@ -3000,6 +3230,10 @@ async function handleModelFile(file) {
     exclusionTool     = null;
     eraseMode         = false;
     isPainting        = false;
+    // Exclude reverts to the neutral (unhighlighted) default; include-only
+    // persists across loads and stays highlighted.
+    maskModeChosen    = selectionMode;
+    updateMaskModeButtons();
     if (placeOnFaceActive) togglePlaceOnFace(false);
     if (rotateActive) toggleRotateMode(false);
     rotateAngles = { x: 0, y: 0, z: 0 };
@@ -3049,9 +3283,14 @@ async function handleModelFile(file) {
     updateSmartResBtnState();
     updatePreview();
   } catch (err) {
-    console.error('Failed to load model:', err);
-    alert(t('alerts.loadFailed', { msg: err.message }));
+    // A superseded STEP import (user dropped another file mid-tessellation)
+    // is not a failure — the newer load owns the UI now.
+    if (!err || !err.stepCancelled) {
+      console.error('Failed to load model:', err);
+      alert(t('alerts.loadFailed', { msg: err.message }));
+    }
   } finally {
+    if (isStep && mySeq === _importSeq) importProgress.classList.add('hidden');
     _undoApplyDepth--;
     // Mask indices reference the freshly-loaded triangle set, so any prior
     // history is meaningless for the new geometry.
@@ -3190,7 +3429,7 @@ function renderFastDiag(diag) {
       meshDiagFast.appendChild(makeDiagLine(t('diag.multipleShells', { n: diag.shellCount }), 'shells'));
     const tip = document.createElement('div');
     tip.style.cssText = 'margin-top:4px;opacity:0.8;font-size:10px';
-    tip.innerHTML = t('diag.recommendFix');
+    tip.innerHTML = tHtml('diag.recommendFix');
     meshDiagFast.appendChild(tip);
   }
   applyDiagSeverity();
@@ -3208,7 +3447,7 @@ function renderAdvancedDiag(results) {
       meshDiagAdvanced.appendChild(makeDiagLine(t('diag.overlappingTris', { n: results.overlappingPairs }), 'overlaps'));
     const tip = document.createElement('div');
     tip.style.cssText = 'margin-top:4px;opacity:0.8;font-size:10px';
-    tip.innerHTML = t('diag.recommendFix');
+    tip.innerHTML = tHtml('diag.recommendFix');
     meshDiagAdvanced.appendChild(tip);
   }
   applyDiagSeverity();
@@ -3277,7 +3516,7 @@ function applySmartResolution() {
   const clampedNote = d.budgetClamped
     ? ` <span class="clamped">[${t('ui.smartResBudgetCapped')}]</span>`
     : '';
-  smartResInfo.innerHTML = t('ui.smartResInfo', {
+  smartResInfo.innerHTML = tHtml('ui.smartResInfo', {
     edge: result.edge.toFixed(2),
     ppe:  d.pixelsPerEdge.toFixed(1),
     pix:  d.pixMm.toFixed(3),
@@ -3376,6 +3615,30 @@ function updateFaceMask(geometry) {
   }
   syncBoundaryEdgeUniforms();
   requestRender();
+}
+
+/**
+ * Set the boundary-falloff transition curve, sync the segmented buttons, and
+ * refresh the preview. Mirrors displacement.js and the fragment shader in
+ * previewMaterial.js — all three must use the same curve definitions.
+ */
+function setFalloffCurve(mode) {
+  if (!(mode in falloffCurveButtons)) mode = 'linear';
+  settings.boundaryFalloffCurve = mode;
+  for (const [m, btn] of Object.entries(falloffCurveButtons)) {
+    btn.classList.toggle('active', m === mode);
+    btn.setAttribute('aria-pressed', String(m === mode));
+  }
+  _falloffDirty = true;
+  updatePreview();
+}
+
+/** Shape the linear 0→1 falloff ramp per settings.boundaryFalloffCurve. */
+function applyFalloffCurve(t) {
+  const mode = settings.boundaryFalloffCurve;
+  if (mode === 'scurve') return t * t * (3 - 2 * t);
+  if (mode === 'ease')   return t * t;
+  return t;
 }
 
 /**
@@ -3575,7 +3838,7 @@ function computeBoundaryFalloffAttr(geometry, userMaskArr) {
     const dist = Math.sqrt(minDist2);
     const factor = Math.min(1, dist / falloff);
     if (factor < 1) {
-      falloffById[id] = factor;
+      falloffById[id] = applyFalloffCurve(factor);
       maskTypeById[id] = nearestType;
     }
   }
@@ -3885,6 +4148,9 @@ function _regularizeOpts() {
     extremeSliverAspect:       settings.regularizeExtremeAspect,
     maxNormalDeltaCos:         Math.cos(settings.regularizeNormalDeg          * Math.PI / 180),
     aggressiveNormalDeltaCos:  Math.cos(settings.regularizeAggressiveNormalDeg * Math.PI / 180),
+    // Preserve-untextured beta: freezes excludeWeight-marked faces. Inert on
+    // geometry without the attribute (e.g. the displacement-preview path).
+    preserveExcluded:          settings.preserveUntextured,
   };
 }
 
@@ -4079,6 +4345,7 @@ function estimateSubdivisionTriCount(geometry, targetEdge) {
 
 /** Deactivate precision masking and bake the refined mesh as the new base geometry. */
 function deactivatePrecisionMasking() {
+  const promoted = !!precisionGeometry;
   if (precisionGeometry) {
     // Bake: the precision geometry becomes the new currentGeometry
     if (currentGeometry && currentGeometry !== precisionGeometry) {
@@ -4095,6 +4362,7 @@ function deactivatePrecisionMasking() {
     excludedFaces = precisionExcludedFaces;
 
     // Update mesh info display
+    const triCount = getTriangleCount(currentGeometry);
     const mb = ((currentGeometry.attributes.position.array.byteLength) / 1024 / 1024).toFixed(2);
     const sx = currentBounds.size.x.toFixed(2);
     const sy = currentBounds.size.y.toFixed(2);
@@ -4128,6 +4396,12 @@ function deactivatePrecisionMasking() {
     if (excludedFaces.size > 0) refreshExclusionOverlay();
     else setExclusionOverlay(null);
   }
+
+  // Promoting the precision mesh re-tessellates currentGeometry, so undo
+  // snapshots reference the pre-promotion triangle set. Applying one of them
+  // afterwards scatters the mask across the new tessellation (issue #61) —
+  // clear the history, same as bake does.
+  if (promoted) _clearUndoStacks();
 }
 
 /** Refresh (or initially build) the precision mesh from current brush size. */
@@ -4496,15 +4770,16 @@ async function handleExport(format = 'stl') {
   export3mfBtn.classList.add('busy');
   exportProgress.classList.remove('hidden');
 
-  // If precision masking is active, bake the refined mesh before exporting
-  if (precisionMaskingEnabled) {
-    deactivatePrecisionMasking();
-  }
-
   let finalGeometry   = null;
   let exportSucceeded = false; // set true only after exportSTL so finally can clean up on abort/error
 
   try {
+    // If precision masking is active, bake the refined mesh before exporting.
+    // Inside the try so a failure here still releases the busy state in finally.
+    if (precisionMaskingEnabled) {
+      deactivatePrecisionMasking();
+    }
+
     setProgress(0.02, t('progress.subdividing'));
     await yieldFrame();
     if (exportToken !== myToken) return;
@@ -4537,8 +4812,11 @@ async function handleExport(format = 'stl') {
     }, _onExportPipelineEvent, isStale);
     if (!result || isStale()) return;
 
-    triLimitWarning.classList.toggle('hidden', !result.safetyCapHit);
-    triLimitWarning.textContent = t('warnings.safetyCapHit');
+    const exportWarnings = [];
+    if (result.safetyCapHit) exportWarnings.push(t('warnings.safetyCapHit'));
+    if (result.lockedOverBudget) exportWarnings.push(t('warnings.preserveOverBudget'));
+    triLimitWarning.classList.toggle('hidden', exportWarnings.length === 0);
+    triLimitWarning.textContent = exportWarnings.join(' ');
 
     // Map the pipeline output back to the model's original position and
     // orientation (issue #82) — in-app rotation is a texturing aid and is
@@ -4992,6 +5270,10 @@ function adoptBakedGeometry(geometry, bounds, opts = {}) {
   // Refresh exclusion overlay using the new geometry + new mask.
   if (excludedFaces.size > 0) refreshExclusionOverlay();
   else setExclusionOverlay(null);
+  // A seeded post-bake mask means masking is actively in play (exclude mode
+  // was forced above); no seed = back to the neutral default.
+  maskModeChosen = excludedFaces.size > 0;
+  updateMaskModeButtons();
   const maskCount = excludedFaces.size;
   exclCount.textContent = maskCount === 0
     ? t('excl.initExcluded')
@@ -5042,8 +5324,8 @@ const PERSISTED_KEYS = [
   'mappingMode', 'scaleU', 'scaleV', 'lockScale',
   'offsetU', 'offsetV', 'rotation',
   'amplitude', 'textureHeight', 'invertDisplacement',
-  'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'harvestFlatFaces', 'harvestTol', 'textureSmoothing',
-  'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff',
+  'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'harvestFlatFaces', 'harvestTol', 'preserveUntextured', 'textureSmoothing',
+  'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff', 'boundaryFalloffCurve',
   'bottomAngleLimit', 'topAngleLimit',
   'refineLength', 'maxTriangles',
   // Cylindrical-mode controls. cylinderCenterX/Y/radius are nullable —
@@ -5055,6 +5337,9 @@ const PERSISTED_KEYS = [
 function getSettingsSnapshot() {
   const snap = {};
   for (const k of PERSISTED_KEYS) snap[k] = settings[k];
+  // scaleU/scaleV are absolute mm since July 2026; older snapshots without
+  // this marker carry legacy relative fractions and are converted on apply.
+  snap.scaleUnit = 'mm';
   if (activeMapEntry) {
     snap.activeMapName = activeMapEntry.name;
   } else {
@@ -5069,12 +5354,41 @@ function getSettingsSnapshot() {
 }
 
 /**
+ * Convert a legacy snapshot (scaleU/scaleV as fractions of the mode's
+ * reference length) to absolute mm. New snapshots carry scaleUnit:'mm' and
+ * pass through untouched. Uses the currently-loaded model's bounds — for
+ * project files the bundled model is loaded before settings are applied, so
+ * the conversion reproduces the file's original appearance exactly.
+ */
+function _migrateSnapshotScaleToMm(snap) {
+  if (!snap || snap.scaleUnit === 'mm') return snap;
+  if (snap.scaleU == null && snap.scaleV == null) return snap;
+  const out = { ...snap, scaleUnit: 'mm' };
+  const b = currentBounds || { size: { x: 50, y: 50, z: 50 } };
+  const mode = out.mappingMode ?? settings.mappingMode;
+  const { refU, refV } = getScaleReferenceLengths(mode, { cylinderRadius: out.cylinderRadius ?? null }, b);
+  // Short-lived fixed-reference feature (July 2026): its reference overrode
+  // the bbox extent for planar/triplanar/cubic modes.
+  const isAngular = mode === 3 /* CYLINDRICAL */ || mode === 4 /* SPHERICAL */;
+  const legacyRef = !isAngular && out.fixedWorldTextureScale && Number(out.referenceExtentMm) > 0
+    ? Number(out.referenceExtentMm) : null;
+  const rU = legacyRef ?? refU;
+  const rV = legacyRef ?? refV;
+  if (out.scaleU != null) out.scaleU = parseFloat((out.scaleU * rU).toPrecision(4));
+  if (out.scaleV != null) out.scaleV = parseFloat((out.scaleV * rV).toPrecision(4));
+  delete out.fixedWorldTextureScale;
+  delete out.referenceExtentMm;
+  return out;
+}
+
+/**
  * Apply a settings snapshot to the live UI. Drives each control through the
  * same event it fires on user input (via dispatchEvent), so linkSlider's
  * clamp/display/preview flow runs unchanged.
  */
 function applySettingsSnapshot(snap) {
   if (!snap) return;
+  snap = _migrateSnapshotScaleToMm(snap);
 
   // Mapping mode first — changes cap-angle row visibility and triggers preview.
   if (snap.mappingMode != null) {
@@ -5111,6 +5425,10 @@ function applySettingsSnapshot(snap) {
   setLinkedVal(seamBandWidthVal,    snap.seamBandWidth);
   setLinkedVal(capAngleVal,         snap.capAngle);
   setLinkedVal(boundaryFalloffVal,  snap.boundaryFalloff);
+  // Older snapshots predate the curve setting and were authored with the
+  // then-only linear ramp — fall back to 'linear' rather than keeping the
+  // current UI choice, so loaded projects reproduce their original look.
+  setFalloffCurve(snap.boundaryFalloffCurve ?? 'linear');
   setLinkedVal(bottomAngleLimitVal, snap.bottomAngleLimit);
   setLinkedVal(topAngleLimitVal,    snap.topAngleLimit);
   setLinkedVal(refineLenVal,        snap.refineLength);
@@ -5148,6 +5466,10 @@ function applySettingsSnapshot(snap) {
   if (snap.harvestTol != null) {
     harvestTolInput.value = snap.harvestTol;
     harvestTolInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  if (snap.preserveUntextured != null) {
+    preserveUntexturedChk.checked = snap.preserveUntextured;
+    preserveUntexturedChk.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   // Cylindrical-mode state. cylinderCenterX/Y/radius pass through unchanged
@@ -5219,17 +5541,25 @@ if (_settingsPanel) {
 }
 // The lock-scale button doesn't emit input/change — catch it separately.
 lockScaleBtn.addEventListener('click', _autoSaveSettings);
+// Same for the falloff-curve segmented buttons.
+for (const btn of Object.values(falloffCurveButtons)) {
+  btn.addEventListener('click', _autoSaveSettings);
+}
 
 // ── Reset to defaults ───────────────────────────────────────────────────────
 // Frozen snapshot of the initial `settings` object plus the default preset
 // name, so the reset button restores exactly what a fresh session starts with.
 
+// NOTE: no scaleUnit marker — scaleU/scaleV are deliberately legacy fractions
+// so applySettingsSnapshot's migration turns them into "0.5 × largest bbox
+// edge" mm for whatever model is currently loaded (the per-model default).
 const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   mappingMode: 5, scaleU: 0.5, scaleV: 0.5, lockScale: true,
   offsetU: 0, offsetV: 0, rotation: 0,
   amplitude: 0.5, textureHeight: 0.5, invertDisplacement: false,
-  symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, harvestFlatFaces: true, harvestTol: 0.005, textureSmoothing: 0,
+  symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, harvestFlatFaces: true, harvestTol: 0.005, preserveUntextured: true, textureSmoothing: 0,
   mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
+  boundaryFalloffCurve: 'ease',
   bottomAngleLimit: 5, topAngleLimit: 0,
   refineLength: 1, maxTriangles: 750000,
   snapSeamlessWrap: true,
@@ -5269,6 +5599,8 @@ function resetSettingsToDefaults() {
     if (selectionMode) setSelectionMode(false);
     excludedFaces          = new Set();
     precisionExcludedFaces = new Set();
+    maskModeChosen         = false;
+    updateMaskModeButtons();
     if (currentGeometry) refreshExclusionOverlay();
 
     const defaultIdx = IMAGE_PRESETS.findIndex(p => p.name === DEFAULT_PRESET_NAME);
@@ -5445,6 +5777,8 @@ function _restoreMask(mask) {
     if (selectionMode) setSelectionMode(false); // also clears the face sets
     excludedFaces = new Set();
     precisionExcludedFaces = new Set();
+    maskModeChosen = false;
+    updateMaskModeButtons();
     refreshExclusionOverlay();
     return;
   }
@@ -5457,6 +5791,10 @@ function _restoreMask(mask) {
     .filter(i => Number.isInteger(i) && i >= 0 && i < triCount);
   excludedFaces = new Set(valid);
   precisionExcludedFaces = new Set(); // precision rebuilds from this on demand
+  // A non-null mask always carries painted faces or include-only mode, so
+  // masking is engaged and its mode button should light up.
+  maskModeChosen = true;
+  updateMaskModeButtons();
   refreshExclusionOverlay();
 }
 
