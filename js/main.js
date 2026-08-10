@@ -14,7 +14,7 @@ import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js'
 import { estimateStep } from './stepLoader.js';
 import { resolveStepSettings } from './stepConvert.js';
 import { computeSmartResolution } from './smartResolution.js';
-import { loadAllThumbnails, loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextures.js';
+import { loadAllThumbnails, loadFullPreset, loadCustomTexture, IMAGE_PRESETS, getTextureCap, setTextureCap, fitDimensions }  from './presetTextures.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { regularizeMesh }     from './regularize.js';
@@ -105,6 +105,7 @@ const settings = {
   mappingBlend:     1,
   seamBandWidth:    0.5,
   textureSmoothing: 0,
+  textureResolution: 'auto',
   // Laplacian smoothing iterations applied to the per-vertex blend normal
   // (only the normal that drives projection-direction blend weights — not
   // the displacement direction). 0 = off, 4–8 = noticeable seam smoothing,
@@ -220,6 +221,9 @@ function blurCanvas(canvas, sigma) {
     ctx.putImageData(imgData, 0, 0);
   }
 }
+
+// Cap the smoothing *working* resolution so the 3×3 tiling stays memory-safe.
+const SMOOTH_MAX_RES = 2048;
 
 // ── Precision masking state ────────────────────────────────────────────────────
 let precisionMaskingEnabled = false;
@@ -345,6 +349,7 @@ const seamBandWidthSlider    = document.getElementById('seam-band-width');
 const seamBandWidthVal       = document.getElementById('seam-band-width-val');
 const textureSmoothingSlider = document.getElementById('texture-smoothing');
 const textureSmoothingVal    = document.getElementById('texture-smoothing-val');
+const textureResolutionSel   = document.getElementById('texture-resolution');
 const capAngleSlider         = document.getElementById('cap-angle');
 const capAngleVal            = document.getElementById('cap-angle-val');
 const capAngleRow            = document.getElementById('cap-angle-row');
@@ -1533,11 +1538,31 @@ function wireEvents() {
   }, false);
   refineLenVal.addEventListener('change', checkResolutionWarning);
   linkSlider(maxTriSlider, maxTriVal, v => { settings.maxTriangles = v; return formatM(v); }, false);
+  linkSlider(textureSmoothingSlider, textureSmoothingVal, v => { settings.textureSmoothing = v; return v.toFixed(1); });
+  textureResolutionSel.addEventListener('change', async () => {
+    const value = textureResolutionSel.value;
+    settings.textureResolution = value;
+    setTextureCap(value);
+    if (activeMapEntry) {
+      if (activeMapEntry.isCustom) {
+        const e = await loadCustomTexture(_lastCustomMap.file);
+        e.isCustom = true;
+        _lastCustomMap = e;
+        activeMapEntry = e;
+        _showCustomMapThumb(e);
+      } else {
+        const idx = IMAGE_PRESETS.findIndex(p => p.name === activeMapEntry.name);
+        const full = await loadFullPreset(idx);
+        PRESETS[idx] = { ...PRESETS[idx], ...full };
+        activeMapEntry = PRESETS[idx];
+      }
+      updatePreview();
+    }
+  });
   linkSlider(bottomAngleLimitSlider, bottomAngleLimitVal, v => { settings.bottomAngleLimit = v; _falloffDirty = true; return v; });
   linkSlider(topAngleLimitSlider,    topAngleLimitVal,    v => { settings.topAngleLimit    = v; _falloffDirty = true; return v; });
   linkSlider(seamBlendSlider,        seamBlendVal,        v => { settings.mappingBlend     = v; return v.toFixed(2); });
   linkSlider(seamBandWidthSlider,    seamBandWidthVal,    v => { settings.seamBandWidth    = v; return v.toFixed(2); });
-  linkSlider(textureSmoothingSlider, textureSmoothingVal, v => { settings.textureSmoothing = v; return v.toFixed(1); });
   linkSlider(capAngleSlider,          capAngleVal,          v => { settings.capAngle         = v; return Math.round(v); });
   symmetricDispToggle.addEventListener('change', () => {
     settings.symmetricDisplacement = symmetricDispToggle.checked;
@@ -4089,33 +4114,40 @@ function getEffectiveMapEntry() {
   if (_effectiveMapCacheKey === cacheKey && _effectiveMapCache) {
     return _effectiveMapCache;
   }
+  // Cap the smoothing *working* resolution so the 3×3 tiling stays memory-safe.
+  const { w: workW, h: workH } = fitDimensions(width, height, SMOOTH_MAX_RES);
+  // Draw the source into a workW×workH canvas first.
+  const work = document.createElement('canvas');
+  work.width  = workW;
+  work.height = workH;
+  work.getContext('2d').drawImage(fullCanvas, 0, 0, workW, workH);
   // Tile the source 3×3 before blurring so edge pixels have correct
   // neighbours and the blurred centre tile is seamlessly tileable.
   const tiled = document.createElement('canvas');
-  tiled.width  = width  * 3;
-  tiled.height = height * 3;
+  tiled.width  = workW * 3;
+  tiled.height = workH * 3;
   const tc = tiled.getContext('2d');
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 3; col++) {
-      tc.drawImage(fullCanvas, col * width, row * height);
+      tc.drawImage(work, col * workW, row * workH);
     }
   }
   // Blur the 3×3 canvas, then crop out only the centre tile.
   const blurred = document.createElement('canvas');
-  blurred.width  = width  * 3;
-  blurred.height = height * 3;
+  blurred.width  = workW * 3;
+  blurred.height = workH * 3;
   blurred.getContext('2d').drawImage(tiled, 0, 0);
   blurCanvas(blurred, settings.textureSmoothing);
   const offscreen = document.createElement('canvas');
-  offscreen.width  = width;
-  offscreen.height = height;
-  offscreen.getContext('2d').drawImage(blurred, width, height, width, height, 0, 0, width, height);
-  const imageData = offscreen.getContext('2d').getImageData(0, 0, width, height);
+  offscreen.width  = workW;
+  offscreen.height = workH;
+  offscreen.getContext('2d').drawImage(blurred, workW, workH, workW, workH, 0, 0, workW, workH);
+  const imageData = offscreen.getContext('2d').getImageData(0, 0, workW, workH);
   const texture   = new THREE.CanvasTexture(offscreen);
   texture.wrapS   = texture.wrapT = THREE.RepeatWrapping;
   if (_lastEffectiveTexture) _lastEffectiveTexture.dispose();
   _lastEffectiveTexture = texture;
-  _effectiveMapCache    = { ...activeMapEntry, imageData, texture };
+  _effectiveMapCache    = { ...activeMapEntry, imageData, texture, width: workW, height: workH };
   _effectiveMapCacheKey = cacheKey;
   return _effectiveMapCache;
 }
@@ -5306,7 +5338,7 @@ const PERSISTED_KEYS = [
   'mappingMode', 'scaleU', 'scaleV', 'lockScale',
   'offsetU', 'offsetV', 'rotation',
   'amplitude', 'textureHeight', 'invertDisplacement',
-  'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'harvestFlatFaces', 'harvestTol', 'preserveUntextured', 'textureSmoothing',
+  'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'harvestFlatFaces', 'harvestTol', 'preserveUntextured', 'textureSmoothing', 'textureResolution',
   'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff', 'boundaryFalloffCurve',
   'bottomAngleLimit', 'topAngleLimit',
   'refineLength', 'maxTriangles',

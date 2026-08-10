@@ -242,6 +242,16 @@
           <input type="range" id="texture-smoothing" min="0" max="20" step="any" value="0" />
           <input type="number" class="val" id="texture-smoothing-val" value="0" min="0" max="20" step="any" data-wheel-decimals="1" />
         </div>
+        <div class="form-row">
+          <label for="texture-resolution" data-i18n="labels.textureResolution" data-i18n-title="tooltips.textureResolution" title="Resolution of the displacement map. Auto picks a memory-safe cap; Native uses the image's own size (may use lots of memory).">Texture Resolution ⓘ</label>
+          <select id="texture-resolution">
+            <option value="auto" selected data-i18n-opt="res.auto">Auto</option>
+            <option value="1024" data-i18n-opt="res.1024">1024</option>
+            <option value="2048" data-i18n-opt="res.2048">2048</option>
+            <option value="4096" data-i18n-opt="res.4096">4096</option>
+            <option value="native" data-i18n-opt="res.native">Native</option>
+          </select>
+        </div>
       </section>
 
       <!-- Projection -->

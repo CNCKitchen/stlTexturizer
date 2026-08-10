@@ -5,7 +5,17 @@
 
 import * as THREE from 'three';
 
-const SIZE  = 512; // texture resolution for both preview and sampling
+const RES_OPTIONS = { auto: null, '1024': 1024, '2048': 2048, '4096': 4096, native: Infinity };
+const HARD_CAP = 8192; // absolute safety cap for 'native'
+let _resMode = 'auto';
+
+export function getTextureCap() {
+  if (_resMode === 'auto') return (typeof navigator !== 'undefined' && navigator.deviceMemory >= 8) ? 4096 : 2048;
+  if (_resMode === 'native') return HARD_CAP;
+  return RES_OPTIONS[_resMode] ?? 2048;
+}
+export function setTextureCap(mode) { _resMode = RES_OPTIONS[mode] != null ? mode : 'auto'; }
+
 const THUMB = 80;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -17,11 +27,12 @@ function makeCanvas(w, h = w) {
   return c;
 }
 
-/** Return { w, h } capped at SIZE on the longest side, preserving aspect ratio. */
-function fitDimensions(imgW, imgH) {
-  const scale = Math.min(SIZE / imgW, SIZE / imgH, 1);
+/** Return { w, h } capped at `cap` on the longest side, preserving aspect ratio. */
+function fitDimensions(imgW, imgH, cap) {
+  const scale = Math.min(cap / imgW, cap / imgH, 1);
   return { w: Math.round(imgW * scale), h: Math.round(imgH * scale) };
 }
+export { fitDimensions };
 
 // ── Image-based presets ───────────────────────────────────────────────────────
 
@@ -77,13 +88,14 @@ function loadPresetThumbnail(preset) {
  * Returns the full entry: { name, thumbCanvas, fullCanvas, texture, imageData, width, height, defaultScale }.
  * Results are cached so repeated calls for the same index return instantly.
  */
-export function loadFullPreset(idx) {
-  if (_fullPresetCache.has(idx)) return Promise.resolve(_fullPresetCache.get(idx));
+export function loadFullPreset(idx, cap = getTextureCap()) {
+  const cacheKey = `${idx}:${cap}`;
+  if (_fullPresetCache.has(cacheKey)) return Promise.resolve(_fullPresetCache.get(cacheKey));
   const preset = IMAGE_PRESETS[idx];
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const { w, h } = fitDimensions(img.width, img.height);
+      const { w, h } = fitDimensions(img.width, img.height, cap);
       const full = makeCanvas(w, h);
       full.getContext('2d').drawImage(img, 0, 0, w, h);
 
@@ -92,8 +104,8 @@ export function loadFullPreset(idx) {
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.name = preset.name;
 
-      const entry = { name: preset.name, fullCanvas: full, texture, imageData, width: w, height: h, defaultScale: preset.defaultScale };
-      _fullPresetCache.set(idx, entry);
+      const entry = { name: preset.name, fullCanvas: full, texture, imageData, width: w, height: h, defaultScale: preset.defaultScale, sourceImg: img };
+      _fullPresetCache.set(cacheKey, entry);
       resolve(entry);
     };
     img.onerror = () => reject(new Error(`Failed to load preset image: ${preset.url}`));
@@ -116,13 +128,13 @@ export { IMAGE_PRESETS };
 /**
  * Build a THREE.CanvasTexture + ImageData from a user-uploaded image File.
  */
-export function loadCustomTexture(file) {
+export function loadCustomTexture(file, cap = getTextureCap()) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const { w, h } = fitDimensions(img.width, img.height);
+      const { w, h } = fitDimensions(img.width, img.height, cap);
       const canvas = makeCanvas(w, h);
       const ctx    = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, w, h);
@@ -130,7 +142,7 @@ export function loadCustomTexture(file) {
       const texture   = new THREE.CanvasTexture(canvas);
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
       texture.name = file.name;
-      resolve({ name: file.name, fullCanvas: canvas, texture, imageData, width: w, height: h });
+      resolve({ name: file.name, fullCanvas: canvas, texture, imageData, width: w, height: h, file });
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Failed to load image')); };
     img.src = url;

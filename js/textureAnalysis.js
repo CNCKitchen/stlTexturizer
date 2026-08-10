@@ -43,20 +43,21 @@ export function analyzeTexture(imageData) {
     return fallback;
   }
 
-  const stride = width * 4;
+  const stride = Math.max(1, Math.round(Math.sqrt(width * height) / 1_000_000));
+  const stride4 = width * 4;
   let sumGrad = 0;
   let sharpCount = 0;
   let pixelCount = 0;
 
   // Central differences on the red channel; skip the 1-pixel border.
-  for (let y = 1; y < height - 1; y++) {
-    const rowOff = y * stride;
-    for (let x = 1; x < width - 1; x++) {
+  for (let y = stride; y < height - stride; y += stride) {
+    const rowOff = y * stride4;
+    for (let x = stride; x < width - stride; x += stride) {
       const i = rowOff + x * 4;
-      const left  = data[i - 4];
-      const right = data[i + 4];
-      const up    = data[i - stride];
-      const down  = data[i + stride];
+      const left  = data[i - stride * 4];
+      const right = data[i + stride * 4];
+      const up    = data[i - stride * stride4];
+      const down  = data[i + stride * stride4];
       const dx = (right - left) * 0.5;
       const dy = (down  - up)   * 0.5;
       const mag = Math.sqrt(dx * dx + dy * dy);

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+  SPDX-License-Identifier: AGPL-3.0-only
+-->
+<!-- Browser smoke test for the configurable texture resolution (issue #89).
+     Verifies getTextureCap()/setTextureCap()/fitDimensions() from
+     js/presetTextures.js produce the expected canvas sizes per mode.
+     Headless: playwright-cli open <url>; wait; eval result textContent. -->
+<html>
+<head><meta charset="utf-8"><title>RUNNING</title>
+<script type="importmap">
+  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="result">RUNNING</div>
+<script type="module">
+import { getTextureCap, setTextureCap, fitDimensions } from './js/presetTextures.js';
+
+const out = (s) => { document.getElementById('result').textContent = s; document.title = s; };
+
+const checks = [];
+const eq = (label, actual, expected) => {
+  const ok = actual === expected;
+  checks.push({ label, ok, actual, expected });
+  return ok;
+};
+
+// Explicit modes cap the longest side exactly.
+setTextureCap('1024');
+eq('1024', fitDimensions(8192, 8192, getTextureCap()).w, 1024);
+setTextureCap('2048');
+eq('2048', fitDimensions(8192, 8192, getTextureCap()).w, 2048);
+setTextureCap('4096');
+eq('4096', fitDimensions(8192, 8192, getTextureCap()).w, 4096);
+
+// Native is hard-capped at 8192 (OOM safety).
+setTextureCap('native');
+eq('native-cap', fitDimensions(16384, 16384, getTextureCap()).w, 8192);
+
+// Auto is memory-aware: 4096 or 2048.
+setTextureCap('auto');
+const autoCap = getTextureCap();
+eq('auto-valid', autoCap === 4096 || autoCap === 2048, true);
+
+// Aspect ratio preserved when only one side exceeds the cap.
+setTextureCap('2048');
+const r = fitDimensions(4096, 2048, getTextureCap());
+eq('aspect-w', r.w, 2048);
+eq('aspect-h', r.h, 1024);
+
+// Small textures are never upscaled.
+setTextureCap('4096');
+const s = fitDimensions(600, 600, getTextureCap());
+eq('no-upscale', s.w, 600);
+
+const failed = checks.filter(c => !c.ok);
+const ok = failed.length === 0;
+out(ok ? 'RESULT: PASS' : 'RESULT: FAIL ' + JSON.stringify(failed));
+</script>
+</body>
+</html>
