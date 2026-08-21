@@ -36,7 +36,7 @@ dist/plugin-hub-0.1.0/
 | Description | Contents of `description.md` |
 | Version | `0.1.0` |
 | Type | Plugin Page, when that type is available in Orca Cloud |
-| Compatible OrcaSlicer version | First tested build containing Plugin Pages |
+| Compatible OrcaSlicer version | Windows x64 nightly at `f05444dc94bc325a4eef1ec1dafc33e1331caec9`; later stable version after validation |
 | Changelog | The matching version section from `CHANGELOG.md` |
 | Suggested tags | `modeling`, `textures`, `utility` |
 
@@ -51,5 +51,6 @@ The image is a PNG under the Plugin Hub 2 MB limit.
 4. Verify page creation, model transfer, restart and disable/re-enable lifecycle.
 5. Make the listing public only after the complete check passes.
 
-The Plugin Pages API is currently a draft. Do not claim compatibility with a
-stable OrcaSlicer release until the capability is included there.
+Plugin Pages is merged into OrcaSlicer main. Do not claim compatibility with a
+stable OrcaSlicer release until the capability is included and the complete
+workflow is validated there.

@@ -94,7 +94,7 @@ current OrcaSlicer project into BumpMesh. The normal website remains unchanged;
 the bridge is enabled only inside the plugin's embedded page.
 
 The return trip is currently manual: export STL or 3MF from BumpMesh and import
-it into OrcaSlicer. OrcaSlicer's draft plugin API exposes model meshes as
+it into OrcaSlicer. OrcaSlicer's current plugin API exposes model meshes as
 read-only snapshots and does not yet provide a supported model import or
 replacement hook.
 

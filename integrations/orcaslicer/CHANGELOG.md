@@ -10,3 +10,4 @@ Plugin Hub release.
 - Preserved object and volume transforms, including mirrored geometry.
 - Added OrcaSlicer language and initial theme integration.
 - Made the embedded application tolerate unavailable persistent WebView storage.
+- Validated packaging against the merged OrcaSlicer Plugin Pages API.

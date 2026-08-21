@@ -7,7 +7,8 @@ unless it is opened by the plugin with the explicit integration parameters.
 
 ## Requirements
 
-- OrcaSlicer with the Plugin Pages capability from
+- an OrcaSlicer main/nightly build containing the Plugin Pages capability
+  merged in
   [OrcaSlicer/OrcaSlicer#14992](https://github.com/OrcaSlicer/OrcaSlicer/pull/14992),
   or an older plugin-enabled build with `orca.host.ui.create_window()` for the
   window fallback;
@@ -65,6 +66,6 @@ For safety, the override accepts loopback HTTP(S) URLs only.
 
 ## Development status
 
-The Plugin Pages API is still a draft upstream feature. Keep the window
-fallback until Pages is merged and available in the minimum supported
+Plugin Pages is available in OrcaSlicer main/nightly builds. Keep the window
+fallback until the capability is available in the minimum supported stable
 OrcaSlicer release.

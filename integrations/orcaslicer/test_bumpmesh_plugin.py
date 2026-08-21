@@ -18,11 +18,20 @@ PLUGIN_PATH = pathlib.Path(__file__).with_name("bumpmesh_plugin.py")
 
 
 def load_plugin():
+    registered_capabilities = []
+
+    class PagesCapabilityBase:
+        def __init__(self):
+            self.posted_messages = []
+
+        def post_message(self, message):
+            self.posted_messages.append(message)
+
     fake_orca = types.ModuleType("orca")
     fake_orca.base = object
     fake_orca.plugin = lambda cls: cls
-    fake_orca.register_capability = lambda capability: None
-    fake_orca.pages = types.SimpleNamespace(PagesPluginCapabilityBase=object)
+    fake_orca.register_capability = registered_capabilities.append
+    fake_orca.pages = types.SimpleNamespace(PagesPluginCapabilityBase=PagesCapabilityBase)
     fake_orca.script = types.SimpleNamespace(ScriptPluginCapabilityBase=object)
     fake_orca.host = types.SimpleNamespace(
         app_language=lambda: "en_US",
@@ -40,6 +49,7 @@ def load_plugin():
     assert spec.loader is not None
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    module._registered_capabilities = registered_capabilities
     return module
 
 
@@ -82,6 +92,16 @@ class BumpMeshPluginTest(unittest.TestCase):
 
         self.assertEqual(icon.suffix, ".png")
         self.assertTrue(icon.is_file())
+
+    def test_merged_pages_capability_is_registered(self):
+        plugin = self.plugin.BumpMeshPlugin()
+
+        plugin.register_capabilities()
+
+        self.assertEqual(self.plugin._registered_capabilities, [self.plugin.BumpMeshPage])
+        page = self.plugin.BumpMeshPage()
+        self.assertIn("BumpMesh", page.get_ui())
+        self.assertTrue(pathlib.Path(page.get_icon()).is_file())
 
     def test_binary_stl_applies_volume_transform(self):
         vertices = np.array(

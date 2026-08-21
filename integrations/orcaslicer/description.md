@@ -19,6 +19,6 @@ the current OrcaSlicer plugin API exposes model geometry as read-only snapshots.
 **Requirements:** An OrcaSlicer build containing the Plugin Pages API and an
 internet connection to `bumpmesh.com`.
 
-**Development status:** Experimental integration for the draft Plugin Pages
-API. Publish compatibility only for an OrcaSlicer build on which the complete
-workflow has been tested.
+**Development status:** Experimental integration for the Plugin Pages API now
+available in OrcaSlicer main/nightly builds. Publish compatibility only for an
+OrcaSlicer build on which the complete workflow has been tested.
