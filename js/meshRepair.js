@@ -24,6 +24,14 @@
  *        T-junctions slipped through. 20µm catches them with margin while staying far
  *        too small to wrongly split unrelated geometry (the weld grid is 100µm).
  * @param {number} [opts.maxIters=16]    cascade-split iteration cap
+ * @param {Float32Array|null} [heightSrc]  per-vertex-copy scalar (e.g.
+ *   multicolor displacement height) parallel to `geometry`'s position
+ *   attribute. Splitting only ever reuses vertices that already exist (never
+ *   synthesizes new points), so carrying this through needs no interpolation
+ *   — each split face's height values are just looked up by the same vertex
+ *   id used for its position. Returned as a `displacementHeight` attribute
+ *   on the output geometry when provided; omitted (default) leaves the
+ *   non-multicolor repair path unchanged.
  * @returns {THREE.BufferGeometry}  repaired non-indexed geometry
  */
 import { THREE } from './threeCompat.js';
@@ -77,7 +85,7 @@ export function countAreaSlivers(geometry) {
   return s;
 }
 
-export function resolveTJunctions(geometry, opts = {}) {
+export function resolveTJunctions(geometry, opts = {}, heightSrc = null) {
   const Q       = opts.weldQuant ?? 1e4;
   const onTol   = opts.onSegTol  ?? 0.02;
   const maxIters = opts.maxIters ?? 16;
@@ -95,12 +103,14 @@ export function resolveTJunctions(geometry, opts = {}) {
   // what the export will write, and makes the export's rounding a no-op.
   const vmap = new QuantizedPointMap(Q, Math.min(nTri * 3, 1 << 22));
   const vx = [], vy = [], vz = [];
+  const vh = heightSrc ? [] : null;
   const vid = new Int32Array(nTri * 3);
   for (let i = 0; i < nTri * 3; i++) {
     const x = pos[i*3], y = pos[i*3+1], z = pos[i*3+2];
     const id = vmap.getOrSet(x, y, z, vx.length);
     if (vmap.inserted) {
       vx.push(Math.round(x*Q)/Q); vy.push(Math.round(y*Q)/Q); vz.push(Math.round(z*Q)/Q);
+      if (vh) vh.push(heightSrc[i]);
     }
     vid[i] = id;
   }
@@ -197,6 +207,7 @@ export function resolveTJunctions(geometry, opts = {}) {
   // ── Rebuild non-indexed soup with flat normals ──────────────────────────────
   const out = new Float32Array(faces.length * 9);
   const nrm = new Float32Array(faces.length * 9);
+  const outH = vh ? new Float32Array(faces.length * 3) : null;
   for (let i = 0; i < faces.length; i++) {
     const f = faces[i];
     const ax = vx[f[0]], ay = vy[f[0]], az = vz[f[0]];
@@ -205,6 +216,7 @@ export function resolveTJunctions(geometry, opts = {}) {
     out[i*9]   = ax; out[i*9+1] = ay; out[i*9+2] = az;
     out[i*9+3] = bx; out[i*9+4] = by; out[i*9+5] = bz;
     out[i*9+6] = cx; out[i*9+7] = cy; out[i*9+8] = cz;
+    if (outH) { outH[i*3] = vh[f[0]]; outH[i*3+1] = vh[f[1]]; outH[i*3+2] = vh[f[2]]; }
     const ux = bx-ax, uy = by-ay, uz = bz-az, vvx = cx-ax, vvy = cy-ay, vvz = cz-az;
     let nxx = uy*vvz - uz*vvy, nyy = uz*vvx - ux*vvz, nzz = ux*vvy - uy*vvx;
     const len = Math.sqrt(nxx*nxx + nyy*nyy + nzz*nzz) || 1;
@@ -214,5 +226,6 @@ export function resolveTJunctions(geometry, opts = {}) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(out, 3));
   g.setAttribute('normal',   new THREE.BufferAttribute(nrm, 3));
+  if (outH) g.setAttribute('displacementHeight', new THREE.BufferAttribute(outH, 1));
   return g;
 }

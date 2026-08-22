@@ -41,10 +41,8 @@ const sharedGLSL = /* glsl */`
   uniform int       symmetricDisplacement;
   uniform int       noDownwardZ;
   uniform int       useDisplacement;
-  uniform float     multicolorOutwardThreshold;
-  uniform float     multicolorInwardThreshold;
-  uniform int       multicolorOutwardActive;
-  uniform int       multicolorInwardActive;
+  uniform int       multicolorEnabled;
+  uniform sampler2D multicolorRamp;
   uniform vec2      textureAspect;
 
   const float PI     = 3.14159265358979;
@@ -304,6 +302,10 @@ const fragmentShader = /* glsl */`
     // Flip normal for back faces so flipped-winding geometry still lights correctly.
     vec3 N = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
     float h = getHeight();
+    // Multicolor painting maps the RAW grayscale sample (before centering) to a
+    // color, matching the CPU-side grey value used for export — must be
+    // captured before the symmetricDisplacement centering below.
+    float rawGrey = h;
     if (symmetricDisplacement == 1) h = h - 0.5;
 
     // ── Bump mapping via screen-space height derivatives ──────────────────
@@ -337,7 +339,6 @@ const fragmentShader = /* glsl */`
     }
 
     h *= maskBlend;
-    float signedHeightMm = h * amplitude;
     dhx *= maskBlend;
     dhy *= maskBlend;
 
@@ -376,6 +377,16 @@ const fragmentShader = /* glsl */`
     vec3 userMaskColor = vec3(0.85, 0.40, 0.15);
     vec3 angleMaskColor = vec3(0.45, 0.48, 0.50);
 
+    // When multicolor painting is active, use the ramp colour as the lit
+    // surface base itself (faded toward teal on masked/excluded areas via
+    // maskBlend) rather than blending it as a translucent overlay on top of
+    // the fixed teal base — a 50% overlay muddies every ramp colour toward
+    // teal, which is why reds/other saturated hues looked washed out.
+    if (multicolorEnabled == 1) {
+      vec3 rampColor = texture2D(multicolorRamp, vec2(clamp(rawGrey, 0.0, 1.0), 0.5)).rgb;
+      tealBase = mix(tealBase, rampColor, maskBlend);
+    }
+
     vec3 L1 = normalize(vec3( 0.5,  0.8,  1.0));
     vec3 L2 = normalize(vec3(-0.5, -0.2, -0.6));
     vec3 V  = normalize(-vViewPos);
@@ -403,14 +414,6 @@ const fragmentShader = /* glsl */`
 
     // Blend: 100% mask colour at the boundary, fading to 0% at falloff distance
     vec3 color = mix(litTeal, litMask, maskEffect);
-    vec3 raisedColor = vec3(0.95, 0.33, 0.16);
-    vec3 insetColor  = vec3(0.18, 0.47, 0.85);
-    if (multicolorOutwardActive == 1 && signedHeightMm > multicolorOutwardThreshold) {
-      color = mix(color, raisedColor, 0.45);
-    }
-    if (multicolorInwardActive == 1 && signedHeightMm < multicolorInwardThreshold) {
-      color = mix(color, insetColor, 0.45);
-    }
 
     gl_FragColor = vec4(color, 1.0);
   }
@@ -465,10 +468,7 @@ export function updateMaterial(material, displacementTexture, settings) {
   u.symmetricDisplacement.value   = settings.symmetricDisplacement   ? 1 : 0;
   u.noDownwardZ.value             = settings.noDownwardZ             ? 1 : 0;
   u.useDisplacement.value         = settings.useDisplacement         ? 1 : 0;
-  u.multicolorOutwardThreshold.value = settings.multicolorOutwardThreshold ?? 2.0;
-  u.multicolorInwardThreshold.value  = settings.multicolorInwardThreshold  ?? -2.0;
-  u.multicolorOutwardActive.value    = isMulticolorOutwardActive(settings) ? 1 : 0;
-  u.multicolorInwardActive.value     = isMulticolorInwardActive(settings)  ? 1 : 0;
+  u.multicolorEnabled.value       = settings.multicolorEnabled       ? 1 : 0;
   u.textureAspect.value.set(settings.textureAspectU ?? 1, settings.textureAspectV ?? 1);
   u.boundaryFalloffDist.value       = settings.boundaryFalloff           ?? 0.0;
 }
@@ -504,26 +504,14 @@ function buildUniforms(tex, settings) {
     symmetricDisplacement:    { value: settings.symmetricDisplacement   ? 1 : 0 },
     noDownwardZ:              { value: settings.noDownwardZ             ? 1 : 0 },
     useDisplacement:          { value: settings.useDisplacement         ? 1 : 0 },
-    multicolorOutwardThreshold: { value: settings.multicolorOutwardThreshold ?? 2.0 },
-    multicolorInwardThreshold:  { value: settings.multicolorInwardThreshold  ?? -2.0 },
-    multicolorOutwardActive:    { value: isMulticolorOutwardActive(settings) ? 1 : 0 },
-    multicolorInwardActive:     { value: isMulticolorInwardActive(settings)  ? 1 : 0 },
+    multicolorEnabled:        { value: settings.multicolorEnabled       ? 1 : 0 },
+    multicolorRamp:           { value: createFallbackTexture() },
     textureAspect:            { value: new THREE.Vector2(settings.textureAspectU ?? 1, settings.textureAspectV ?? 1) },
     boundaryEdgeTex:          { value: createFallbackDataTexture() },
     boundaryEdgeCount:        { value: 0 },
     boundaryEdgeTexWidth:     { value: 1.0 },
     boundaryFalloffDist:        { value: settings.boundaryFalloff ?? 0.0 },
   };
-}
-
-function isMulticolorOutwardActive(settings) {
-  const relevant = !!settings.symmetricDisplacement || !settings.invertDisplacement;
-  return relevant && (settings.multicolorOutwardThreshold ?? 2.0) < 2.0 - 1e-6;
-}
-
-function isMulticolorInwardActive(settings) {
-  const relevant = !!settings.symmetricDisplacement || !!settings.invertDisplacement;
-  return relevant && (settings.multicolorInwardThreshold ?? -2.0) > -2.0 + 1e-6;
 }
 
 function createFallbackTexture() {

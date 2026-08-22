@@ -1,9 +1,13 @@
 <!DOCTYPE html>
 <!-- Browser smoke test for multicolor 3MF painting.
      Serve the repo root over HTTP and open this page. It verifies that
-     displacement-threshold geometry is split into painted regions, then
-     intercepts the 3MF download and checks both Prusa/Orca and Bambu/Orca
-     face-paint attributes in 3D/3dmodel.model.
+     per-triangle grayscale classification produces the expected material
+     indices, then intercepts the 3MF download and checks both paint_color
+     (Bambu/Orca/Snapmaker Orca) and slic3rpe:mmu_segmentation (PrusaSlicer)
+     triangle attributes in 3D/Objects/Object_1.model — the mesh now lives in
+     a separate part file referenced by 3D/3dmodel.model via a <component>,
+     since Bambu-family slicers don't recognize paint data in a flat
+     single-file 3MF (confirmed by real-world testing).
      Headless: chrome --headless --dump-dom <url> and grep RESULT. -->
 <html>
 <head>
@@ -29,18 +33,18 @@ import { export3MFPainted } from './js/exporter.js';
 const out = (s) => { document.getElementById('result').textContent = s; document.title = s; beacon(s); };
 const beacon = (s) => { try { fetch('/__test__/' + encodeURIComponent(s)).catch(() => {}); } catch {} };
 
-function makeThresholdTriangle() {
+// 4 flat triangles (12 verts), one per expected material bucket.
+function makeThresholdGeometry() {
+  const positions = [];
+  const heights = [];
+  for (let t = 0; t < 4; t++) {
+    positions.push(t, 0, 0,  t + 1, 0, 0,  t, 1, 0);
+    const h = [0.1, 0.3, 0.6, 0.9][t];
+    heights.push(h, h, h);
+  }
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-    0, 0, 0,
-    1, 0, 0,
-    0, 1, 0,
-  ]), 3));
-  geometry.setAttribute('signedDisplacement', new THREE.BufferAttribute(new Float32Array([
-    0,
-    1,
-    0.25,
-  ]), 1));
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geometry.setAttribute('displacementHeight', new THREE.BufferAttribute(new Float32Array(heights), 1));
   return geometry;
 }
 
@@ -67,40 +71,44 @@ function captureDownload(fn) {
 
 try {
   const settings = {
-    invertDisplacement: false,
-    symmetricDisplacement: false,
-    multicolorOutwardThreshold: 0.5,
-    multicolorInwardThreshold: -2,
+    multicolorEnabled: true,
+    multicolorBaseColor: '#b8bec8',
+    multicolorStops: [
+      { id: 1, value: 20, color: '#ff0000' },
+      { id: 2, value: 50, color: '#00ff00' },
+      { id: 3, value: 80, color: '#0000ff' },
+    ],
   };
-  const painted = buildMulticolorPaintedGeometry(makeThresholdTriangle(), settings);
+  const painted = buildMulticolorPaintedGeometry(makeThresholdGeometry(), settings);
   const triCount = painted.geometry.attributes.position.count / 3;
   const materialList = Array.from(painted.materialIndices).join(',');
-  if (triCount !== 3 || materialList !== '0,0,1') {
+  if (triCount !== 4 || materialList !== '0,1,2,3') {
     throw new Error(`unexpected painted geometry tris=${triCount} materials=${materialList}`);
   }
 
-  const exportGeometry = new THREE.BufferGeometry();
-  exportGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-    0, 0, 0,  1, 0, 0,  0, 1, 0,
-    1, 0, 0,  1, 1, 0,  0, 1, 0,
-    0, 0, 1,  1, 0, 1,  0, 1, 1,
-  ]), 3));
-  const blob = captureDownload(() => export3MFPainted({
-    geometry: exportGeometry,
-    materialIndices: new Uint8Array([0, 1, 2]),
-    materials: painted.materials,
-  }, 'painted-smoke.3mf'));
+  const blob = captureDownload(() => export3MFPainted(painted, 'painted-smoke.3mf'));
   if (!blob) throw new Error('no export blob captured');
 
   const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
-  const xml = strFromU8(files['3D/3dmodel.model']);
+  const rootXml = strFromU8(files['3D/3dmodel.model']);
+  const meshXml = strFromU8(files['3D/Objects/Object_1.model']);
+  const segCount = (meshXml.match(/slic3rpe:mmu_segmentation=/g) || []).length;
+  const paintCount = (meshXml.match(/paint_color=/g) || []).length;
+  // materialIndex 1/2/3 -> extruder 2/3/4 (extruder 1 is reserved for base) -> "8"/"0C"/"1C".
   const checks = [
-    ['slic3rpe:mmu_segmentation="8"', xml.includes('slic3rpe:mmu_segmentation="8"')],
-    ['slic3rpe:mmu_segmentation="0C"', xml.includes('slic3rpe:mmu_segmentation="0C"')],
-    ['paint_color="8"', xml.includes('paint_color="8"')],
-    ['paint_color="0C"', xml.includes('paint_color="0C"')],
-    ['BambuStudio:MmPaintingVersion', xml.includes('BambuStudio:MmPaintingVersion')],
-    ['no malformed quote', !xml.includes('""/>')],
+    ['root model references the mesh part via <component>', /<component\b[^>]*p:path="\/3D\/Objects\/Object_1\.model"/.test(rootXml)],
+    ['root model has no triangle geometry of its own', !/<triangle\b/.test(rootXml)],
+    ['model_settings.config present', !!files['Metadata/model_settings.config']],
+    ['slice_info.config present', !!files['Metadata/slice_info.config']],
+    ['no project_settings.config (avoids fabricated printer profile)', !files['Metadata/project_settings.config']],
+    ['paint_color="8" (material 1)', meshXml.includes('paint_color="8"')],
+    ['paint_color="0C" (material 2)', meshXml.includes('paint_color="0C"')],
+    ['paint_color="1C" (material 3)', meshXml.includes('paint_color="1C"')],
+    ['slic3rpe:mmu_segmentation="8" (material 1)', meshXml.includes('slic3rpe:mmu_segmentation="8"')],
+    ['slic3rpe:mmu_segmentation="0C" (material 2)', meshXml.includes('slic3rpe:mmu_segmentation="0C"')],
+    ['slic3rpe:mmu_segmentation="1C" (material 3)', meshXml.includes('slic3rpe:mmu_segmentation="1C"')],
+    ['base triangle has no paint attributes', segCount === 3 && paintCount === 3],
+    ['no malformed quote', !meshXml.includes('""/>') && !rootXml.includes('""/>')],
   ];
   const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
   if (failed.length) throw new Error('missing: ' + failed.join(', '));

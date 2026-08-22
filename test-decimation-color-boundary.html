@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<!-- Browser smoke test for decimation's optional color-boundary guard.
+     Serve the repo root over HTTP and open this page. Verifies:
+       1. decimate() called the default way (no height args) is unaffected —
+          no displacementHeight attribute appears on its output.
+       2. decimate() called with a height attribute + thresholds never merges
+          two vertices on opposite sides of a threshold — checked directly by
+          confirming every output height stays at one of the two exact input
+          values (0.1 or 0.9), never drifting toward the 0.5 boundary, which
+          would only happen if a cross-boundary collapse were allowed.
+       3. Decimation still meaningfully reduces triangle count within each
+          same-color region despite the guard.
+     Headless: chrome --headless --dump-dom <url> and grep RESULT. -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RUNNING</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+<pre id="result">RUNNING</pre>
+<script type="module">
+import * as THREE from 'three';
+import { decimate } from './js/decimation.js';
+
+const out = (s) => { document.getElementById('result').textContent = s; document.title = s; beacon(s); };
+const beacon = (s) => { try { fetch('/__test__/' + encodeURIComponent(s)).catch(() => {}); } catch {} };
+
+// A flat strip of 20 quads (40 triangles) along X, y in [0,1], z=0. Columns
+// 0-9 get height 0.1, columns 10-19 get height 0.9 — one sharp boundary at
+// x=10, no in-between values anywhere in the source mesh.
+function makeStripGeometry() {
+  const cols = 20;
+  const positions = [];
+  const heights = [];
+  const heightFor = (x) => (x < cols / 2 ? 0.1 : 0.9);
+  for (let x = 0; x < cols; x++) {
+    // Two triangles per quad column [x, x+1] x [0, 1].
+    const h0 = heightFor(x);
+    positions.push(x, 0, 0,  x + 1, 0, 0,  x, 1, 0);
+    heights.push(h0, heightFor(x + 1 === cols ? x : x + 1), h0);
+    positions.push(x + 1, 0, 0,  x + 1, 1, 0,  x, 1, 0);
+    heights.push(heightFor(x + 1 === cols ? x : x + 1), heightFor(x + 1 === cols ? x : x + 1), h0);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  return { geometry, heights: new Float32Array(heights) };
+}
+
+try {
+  const { geometry, heights } = makeStripGeometry();
+  const originalTriCount = geometry.attributes.position.count / 3;
+
+  // 1. Default call path (no height args) — must be completely unaffected.
+  const plainGeo = geometry.clone();
+  const plainResult = await decimate(plainGeo, 4, null, false);
+  if (plainResult.attributes.displacementHeight) {
+    throw new Error('default decimate() call produced a displacementHeight attribute — regression');
+  }
+
+  // 2. Guarded call path — aggressive target, boundary must survive.
+  const guardedGeo = geometry.clone();
+  const guardedResult = await decimate(guardedGeo, 2, null, false, 0.005, heights, [0.5]);
+  const hAttr = guardedResult.attributes.displacementHeight;
+  if (!hAttr) throw new Error('guarded decimate() did not produce a displacementHeight attribute');
+  if (hAttr.count !== guardedResult.attributes.position.count) {
+    throw new Error(`displacementHeight count ${hAttr.count} != position count ${guardedResult.attributes.position.count}`);
+  }
+
+  const finalTriCount = guardedResult.attributes.position.count / 3;
+  let crossedBoundary = 0;
+  let minH = Infinity, maxH = -Infinity;
+  for (let i = 0; i < hAttr.count; i++) {
+    const h = hAttr.getX(i);
+    minH = Math.min(minH, h);
+    maxH = Math.max(maxH, h);
+    // Any value meaningfully between the two source values (0.1/0.9) means a
+    // cross-boundary merge slipped through the guard.
+    if (h > 0.15 && h < 0.85) crossedBoundary++;
+  }
+
+  const checks = [
+    ['default decimate() call unaffected', true], // already asserted above (would have thrown)
+    ['guarded output triangle count is smaller than input', finalTriCount < originalTriCount],
+    ['guarded output triangle count is more than 1 (boundary kept both sides alive)', finalTriCount > 1],
+    ['no output height crosses into the [0.15, 0.85] no-mans-land', crossedBoundary === 0],
+    ['low-side heights stayed near 0.1', minH < 0.15],
+    ['high-side heights stayed near 0.9', maxH > 0.85],
+  ];
+  const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
+  if (failed.length) throw new Error('missing: ' + failed.join(', '));
+
+  out(`RESULT: PASS tris ${originalTriCount}->${finalTriCount} minH=${minH.toFixed(3)} maxH=${maxH.toFixed(3)}`);
+} catch (err) {
+  out('RESULT: FAIL (' + ((err && err.message) || String(err)) + ')');
+}
+</script>
+</body>
+</html>

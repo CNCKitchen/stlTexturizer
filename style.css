@@ -1302,6 +1302,61 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   pointer-events: none;
 }
 
+/* ── Multicolor painting rows ────────────────────────────────────────── */
+#multicolor-config.hidden { display: none; }
+
+.multicolor-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.multicolor-swatch {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: none;
+  cursor: pointer;
+}
+
+.multicolor-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.multicolor-remove-btn {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: var(--radius);
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.multicolor-remove-btn:hover { opacity: 1; }
+
+.multicolor-add-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.multicolor-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+
 /* Debug stats for last picked triangle in masking mode */
 .masking-tri-debug {
   margin: 8px 0 0 0;

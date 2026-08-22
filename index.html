@@ -490,20 +490,20 @@
           <p class="advanced-blurb" data-i18n="ui.advancedBlurb">Experimental tools. Behavior may change between releases.</p>
 
           <h3 class="panel-subsection-heading" data-i18n="ui.multicolorPaintingHeading">Multicolor Painting (3MF)</h3>
-          <p class="advanced-blurb" data-i18n="ui.multicolorPaintingDesc">Export raised or inset texture regions as painted 3MF material regions for slicer filament assignment. A slider at its maximum extent is disabled: +2 mm means no raised region can exceed it, and −2 mm means no inset region can exceed it.</p>
-          <div class="form-row slider-row" id="multicolor-outward-row">
-            <label for="multicolor-outward-threshold" data-i18n="ui.multicolorOutward">Raised paint threshold (mm)</label>
-            <div>
-              <input type="range" id="multicolor-outward-threshold" min="-2" max="2" step="0.01" value="2" />
-              <input type="number" class="val" id="multicolor-outward-threshold-val" value="2" min="-2" max="2" step="0.01" data-wheel-decimals="2" />
-            </div>
+          <p class="advanced-blurb" data-i18n="ui.multicolorPaintingDesc">Map the texture's grayscale value to any number of colors for slicer AMS / multi-toolhead filament assignment. Each color owns everything from its slider position up to the next one; 0% is black, 100% is white.</p>
+          <div class="form-row">
+            <label class="checkbox-label" for="multicolor-enabled-chk">
+              <input type="checkbox" id="multicolor-enabled-chk" />
+              <span data-i18n="ui.multicolorEnabled">Enable multicolor painting</span>
+            </label>
           </div>
-          <div class="form-row slider-row hidden" id="multicolor-inward-row">
-            <label for="multicolor-inward-threshold" data-i18n="ui.multicolorInward">Inset paint threshold (mm)</label>
-            <div>
-              <input type="range" id="multicolor-inward-threshold" min="-2" max="2" step="0.01" value="-2" />
-              <input type="number" class="val" id="multicolor-inward-threshold-val" value="-2" min="-2" max="2" step="0.01" data-wheel-decimals="2" />
+          <div id="multicolor-config" class="hidden">
+            <div class="form-row multicolor-row" id="multicolor-base-row">
+              <input type="color" id="multicolor-base-color" class="multicolor-swatch" value="#b8bec8" />
+              <span data-i18n="ui.multicolorBase">Base</span>
             </div>
+            <div id="multicolor-stops"></div>
+            <button type="button" id="multicolor-add-btn" class="multicolor-add-btn" data-i18n="ui.multicolorAdd">+ Add color</button>
           </div>
 
           <h3 class="panel-subsection-heading" data-i18n="ui.noDownwardZHeading">Overhang Protection</h3>

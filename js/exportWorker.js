@@ -29,9 +29,7 @@ self.onmessage = async (e) => {
     });
     const transfers = [result.positions.buffer];
     if (result.normals) transfers.push(result.normals.buffer);
-    if (result.originalPositions) transfers.push(result.originalPositions.buffer);
-    if (result.displacementNormals) transfers.push(result.displacementNormals.buffer);
-    if (result.signedDisplacements) transfers.push(result.signedDisplacements.buffer);
+    if (result.displacementHeights) transfers.push(result.displacementHeights.buffer);
     if (result.faceParentId) transfers.push(result.faceParentId.buffer);
     self.postMessage({ type: 'done', result }, transfers);
   } catch (err) {

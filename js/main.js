@@ -13,7 +13,7 @@ import { subdivide }          from './subdivision.js';
 import { regularizeMesh }     from './regularize.js';
 import { runExportPipeline }  from './exportPipeline.js';
 import { exportSTL, export3MF, export3MFPainted } from './exporter.js';
-import { buildMulticolorPaintedGeometry, getMulticolorConfig } from './multicolorPainting.js';
+import { buildMulticolorPaintedGeometry, getMulticolorConfig, classifyHeight } from './multicolorPainting.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
@@ -49,6 +49,10 @@ let _boundaryEdgeTex   = null;
 let _boundaryEdgeCount = 0;
 let _falloffDirty      = true;   // recompute falloff on next updateFaceMask
 let _falloffGeometry   = null;   // geometry the falloff was last computed for
+
+// Multicolor painting: grayscale→color ramp texture for live preview
+let _multicolorRampTex = null;
+let _multicolorStopSeq = 0;
 
 // ── Exclusion state ───────────────────────────────────────────────────────────
 let excludedFaces      = new Set();   // triangle indices in currentGeometry
@@ -104,8 +108,9 @@ const settings = {
   smoothBottom: true,
   harvestFlatFaces: true,
   harvestTol: 0.005,
-  multicolorOutwardThreshold: 2.0,
-  multicolorInwardThreshold: -2.0,
+  multicolorEnabled: false,
+  multicolorBaseColor: '#b8bec8',
+  multicolorStops: [],
   useDisplacement: false,
   // Cylindrical-mode controls.
   // null/undefined → derive from bounds (preserves legacy / non-cylindrical behavior).
@@ -332,12 +337,11 @@ const smoothBottomChk        = document.getElementById('smooth-bottom-chk');
 const harvestFlatChk         = document.getElementById('harvest-flat-chk');
 const harvestTolInput        = document.getElementById('harvest-tol');
 const harvestTolRow          = document.getElementById('harvest-tol-row');
-const multicolorOutwardRow      = document.getElementById('multicolor-outward-row');
-const multicolorInwardRow       = document.getElementById('multicolor-inward-row');
-const multicolorOutwardSlider   = document.getElementById('multicolor-outward-threshold');
-const multicolorInwardSlider    = document.getElementById('multicolor-inward-threshold');
-const multicolorOutwardVal      = document.getElementById('multicolor-outward-threshold-val');
-const multicolorInwardVal       = document.getElementById('multicolor-inward-threshold-val');
+const multicolorEnabledChk      = document.getElementById('multicolor-enabled-chk');
+const multicolorConfigEl        = document.getElementById('multicolor-config');
+const multicolorBaseColorInput  = document.getElementById('multicolor-base-color');
+const multicolorStopsContainer  = document.getElementById('multicolor-stops');
+const multicolorAddBtn          = document.getElementById('multicolor-add-btn');
 
 // ── Exclusion panel DOM refs ──────────────────────────────────────────────────
 const exclBrushBtn        = document.getElementById('excl-brush-btn');
@@ -1403,7 +1407,6 @@ function wireEvents() {
   invertDisplacementCheckbox.addEventListener('change', () => {
     settings.invertDisplacement = invertDisplacementCheckbox.checked;
     settings.amplitude = (settings.invertDisplacement ? -1 : 1) * settings.textureHeight;
-    updateMulticolorPaintingRows();
     updatePreview();
   });
   linkSlider(boundaryFalloffSlider, boundaryFalloffVal, v => { settings.boundaryFalloff = v; _falloffDirty = true; return v.toFixed(1); });
@@ -1426,7 +1429,6 @@ function wireEvents() {
   linkSlider(capAngleSlider,          capAngleVal,          v => { settings.capAngle         = v; return Math.round(v); });
   symmetricDispToggle.addEventListener('change', () => {
     settings.symmetricDisplacement = symmetricDispToggle.checked;
-    updateMulticolorPaintingRows();
     updatePreview();
   });
   noDownwardZChk.addEventListener('change', () => {
@@ -1451,15 +1453,23 @@ function wireEvents() {
     if (Number.isFinite(v) && v >= 0) settings.harvestTol = v;
     // No preview rebuild needed — harvesting only affects the final decimation.
   });
-  linkSlider(multicolorOutwardSlider, multicolorOutwardVal, v => {
-    settings.multicolorOutwardThreshold = v;
-    return v.toFixed(2);
+  multicolorEnabledChk.checked = settings.multicolorEnabled;
+  updateMulticolorVisibility();
+  multicolorEnabledChk.addEventListener('change', () => {
+    settings.multicolorEnabled = multicolorEnabledChk.checked;
+    updateMulticolorVisibility();
+    rebuildMulticolorRamp();
+    updatePreview();
   });
-  linkSlider(multicolorInwardSlider, multicolorInwardVal, v => {
-    settings.multicolorInwardThreshold = v;
-    return v.toFixed(2);
+  multicolorBaseColorInput.value = settings.multicolorBaseColor;
+  multicolorBaseColorInput.addEventListener('input', () => {
+    settings.multicolorBaseColor = multicolorBaseColorInput.value;
+    rebuildMulticolorRamp();
+    updatePreview();
   });
-  updateMulticolorPaintingRows();
+  multicolorAddBtn.addEventListener('click', () => addMulticolorStop());
+  renderMulticolorStops();
+  rebuildMulticolorRamp();
 
   dispPreviewToggle.addEventListener('change', () => {
     toggleDisplacementPreview(dispPreviewToggle.checked);
@@ -3038,10 +3048,102 @@ function checkAmplitudeWarning() {
   amplitudeVal.classList.toggle('amp-danger', danger);
 }
 
-function updateMulticolorPaintingRows() {
+function updateMulticolorVisibility() {
+  multicolorConfigEl.classList.toggle('hidden', !settings.multicolorEnabled);
+}
+
+// `settings.multicolorStops` is replaced (never mutated in place) on every
+// change so the undo system's per-key reference-equality check in
+// `_undoSnapshotsEqual` can detect it — a past snapshot holds the array
+// reference from that moment, so in-place push/splice/mutation would silently
+// corrupt already-captured undo history.
+function addMulticolorStop() {
+  const stop = {
+    id: ++_multicolorStopSeq,
+    value: 50,
+    color: '#' + SHELL_COLORS[settings.multicolorStops.length % SHELL_COLORS.length].toString(16).padStart(6, '0'),
+  };
+  settings.multicolorStops = [...settings.multicolorStops, stop];
+  multicolorStopsContainer.appendChild(createMulticolorStopRow(stop));
+  rebuildMulticolorRamp();
+  updatePreview();
+}
+
+function createMulticolorStopRow(initialStop) {
+  let stop = initialStop;
+  const row = document.createElement('div');
+  row.className = 'multicolor-row slider-row';
+
+  function updateStop(patch) {
+    const updated = { ...stop, ...patch };
+    settings.multicolorStops = settings.multicolorStops.map(s => s.id === stop.id ? updated : s);
+    stop = updated;
+    rebuildMulticolorRamp();
+    updatePreview();
+  }
+
+  const colorInput = document.createElement('input');
+  colorInput.type = 'color';
+  colorInput.className = 'multicolor-swatch';
+  colorInput.value = stop.color;
+  colorInput.addEventListener('input', () => updateStop({ color: colorInput.value }));
+
+  const rangeInput = document.createElement('input');
+  rangeInput.type = 'range';
+  rangeInput.min = '0';
+  rangeInput.max = '100';
+  rangeInput.step = '1';
+  rangeInput.value = String(stop.value);
+  rangeInput.addEventListener('input', () => updateStop({ value: parseFloat(rangeInput.value) }));
+
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'multicolor-remove-btn';
+  removeBtn.textContent = '×';
+  removeBtn.addEventListener('click', () => {
+    settings.multicolorStops = settings.multicolorStops.filter(s => s.id !== stop.id);
+    row.remove();
+    rebuildMulticolorRamp();
+    updatePreview();
+  });
+
+  row.appendChild(colorInput);
+  row.appendChild(rangeInput);
+  row.appendChild(removeBtn);
+  return row;
+}
+
+function renderMulticolorStops() {
+  multicolorStopsContainer.innerHTML = '';
+  for (const stop of settings.multicolorStops) {
+    multicolorStopsContainer.appendChild(createMulticolorStopRow(stop));
+  }
+}
+
+/** Regenerate the grayscale→color gradient texture used for live preview. */
+function rebuildMulticolorRamp() {
   const cfg = getMulticolorConfig(settings);
-  if (multicolorOutwardRow) multicolorOutwardRow.classList.toggle('hidden', !cfg.outwardRelevant);
-  if (multicolorInwardRow) multicolorInwardRow.classList.toggle('hidden', !cfg.inwardRelevant);
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 1;
+  const ctx = canvas.getContext('2d');
+  const colors = [cfg.baseColor, ...cfg.stops.map(s => s.color)];
+  for (let x = 0; x < 256; x++) {
+    const materialIndex = classifyHeight(x / 255, cfg);
+    ctx.fillStyle = colors[materialIndex] || cfg.baseColor;
+    ctx.fillRect(x, 0, 1, 1);
+  }
+  if (_multicolorRampTex) _multicolorRampTex.dispose();
+  _multicolorRampTex = new THREE.CanvasTexture(canvas);
+  _multicolorRampTex.minFilter = THREE.NearestFilter;
+  _multicolorRampTex.magFilter = THREE.NearestFilter;
+  _multicolorRampTex.needsUpdate = true;
+  syncMulticolorRampUniform();
+}
+
+function syncMulticolorRampUniform() {
+  if (!previewMaterial || !previewMaterial.uniforms.multicolorRamp || !_multicolorRampTex) return;
+  previewMaterial.uniforms.multicolorRamp.value = _multicolorRampTex;
 }
 
 // Shell colours — evenly spaced hues, high saturation
@@ -3912,6 +4014,7 @@ function updatePreview() {
   }
 
   syncBoundaryEdgeUniforms();
+  syncMulticolorRampUniform();
   exportBtn.disabled = false;
   export3mfBtn.disabled = false;
   bakeBtn.disabled = isBaking;
@@ -4368,6 +4471,7 @@ async function toggleDisplacementPreview(enable) {
     }
     const fullSettings = { ...settings, bounds: currentBounds };
     previewMaterial = createPreviewMaterial(getEffectiveMapEntry().texture, fullSettings);
+    syncMulticolorRampUniform();
     setMeshGeometry(dispPreviewGeometry);
     setMeshMaterial(previewMaterial);
 
@@ -4526,14 +4630,13 @@ async function handleExport(format = 'stl') {
     // must stay after runPipeline — and outside of it, keeping the
     // bench-pipeline fingerprint valid. result arrays are fresh; mutating is safe.
     _restoreOriginalPose(result.positions, result.normals);
-    if (result.originalPositions) _restoreOriginalPose(result.originalPositions, result.displacementNormals);
+    // displacementHeight is a pose-invariant scalar (raw texture grayscale, not
+    // a position or direction), so it needs no pose correction unlike positions/normals.
 
     finalGeometry = new THREE.BufferGeometry();
     finalGeometry.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
     if (result.normals) finalGeometry.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
-    if (result.originalPositions) finalGeometry.setAttribute('originalPosition', new THREE.BufferAttribute(result.originalPositions, 3));
-    if (result.displacementNormals) finalGeometry.setAttribute('displacementNormal', new THREE.BufferAttribute(result.displacementNormals, 3));
-    if (result.signedDisplacements) finalGeometry.setAttribute('signedDisplacement', new THREE.BufferAttribute(result.signedDisplacements, 1));
+    if (result.displacementHeights) finalGeometry.setAttribute('displacementHeight', new THREE.BufferAttribute(result.displacementHeights, 1));
 
     if (result.repairStats) {
       const rs = result.repairStats;
@@ -4588,10 +4691,9 @@ async function handleExport(format = 'stl') {
   } finally {
     // Intermediate geometries live inside the pipeline (worker or inline) and
     // are disposed there; only the reconstructed output remains on this side.
+    // buildMulticolorPaintedGeometry reuses finalGeometry rather than building
+    // a new one, so disposing it here covers the painted case too.
     if (finalGeometry) finalGeometry.dispose();
-    if (multicolorPainted && multicolorPainted.geometry && multicolorPainted.geometry !== finalGeometry) {
-      multicolorPainted.geometry.dispose();
-    }
     // Hide progress immediately on error or stale abort; success hides it after 1500 ms.
     if (!exportSucceeded) exportProgress.classList.add('hidden');
     isExporting = false;
@@ -5035,7 +5137,7 @@ const PERSISTED_KEYS = [
   'offsetU', 'offsetV', 'rotation',
   'amplitude', 'textureHeight', 'invertDisplacement',
   'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'harvestFlatFaces', 'harvestTol', 'textureSmoothing',
-  'multicolorOutwardThreshold', 'multicolorInwardThreshold',
+  'multicolorEnabled', 'multicolorBaseColor', 'multicolorStops',
   'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff',
   'bottomAngleLimit', 'topAngleLimit',
   'refineLength', 'maxTriangles',
@@ -5104,8 +5206,6 @@ function applySettingsSnapshot(snap) {
   setLinkedVal(seamBandWidthVal,    snap.seamBandWidth);
   setLinkedVal(capAngleVal,         snap.capAngle);
   setLinkedVal(boundaryFalloffVal,  snap.boundaryFalloff);
-  setLinkedVal(multicolorOutwardVal, snap.multicolorOutwardThreshold);
-  setLinkedVal(multicolorInwardVal,  snap.multicolorInwardThreshold);
   setLinkedVal(bottomAngleLimitVal, snap.bottomAngleLimit);
   setLinkedVal(topAngleLimitVal,    snap.topAngleLimit);
   setLinkedVal(refineLenVal,        snap.refineLength);
@@ -5144,7 +5244,19 @@ function applySettingsSnapshot(snap) {
     harvestTolInput.value = snap.harvestTol;
     harvestTolInput.dispatchEvent(new Event('input', { bubbles: true }));
   }
-  updateMulticolorPaintingRows();
+  if (snap.multicolorEnabled != null) {
+    multicolorEnabledChk.checked = snap.multicolorEnabled;
+    settings.multicolorEnabled = snap.multicolorEnabled;
+  }
+  if (snap.multicolorBaseColor != null) {
+    multicolorBaseColorInput.value = snap.multicolorBaseColor;
+    settings.multicolorBaseColor = snap.multicolorBaseColor;
+  }
+  settings.multicolorStops = Array.isArray(snap.multicolorStops) ? snap.multicolorStops.slice() : [];
+  renderMulticolorStops();
+  updateMulticolorVisibility();
+  rebuildMulticolorRamp();
+  updatePreview();
 
   // Cylindrical-mode state. cylinderCenterX/Y/radius pass through unchanged
   // (null is meaningful — falls back to AABB defaults during projection).
@@ -5225,7 +5337,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   offsetU: 0, offsetV: 0, rotation: 0,
   amplitude: 0.5, textureHeight: 0.5, invertDisplacement: false,
   symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, harvestFlatFaces: true, harvestTol: 0.005, textureSmoothing: 0,
-  multicolorOutwardThreshold: 2, multicolorInwardThreshold: -2,
+  multicolorEnabled: false, multicolorBaseColor: '#b8bec8', multicolorStops: [],
   mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
   bottomAngleLimit: 5, topAngleLimit: 0,
   refineLength: 1, maxTriangles: 750000,

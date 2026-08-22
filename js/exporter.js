@@ -233,10 +233,23 @@ export function export3MF(geometry, filename = 'textured.3mf') {
 /**
  * Painted 3MF exporter for slicer-visible color/filament assignment.
  *
- * Writes one non-overlapping mesh object and assigns a base material index per
- * triangle. Generic 3MF material properties are retained for viewers, while
- * Prusa/Orca `slic3rpe:mmu_segmentation` and Bambu/Orca `paint_color`
- * attributes are emitted for slicers that ignore core 3MF materials.
+ * A plain single-file 3MF with only `slic3rpe:mmu_segmentation` attributes
+ * (the previous approach here) opens fine in PrusaSlicer but shows no paint at
+ * all in BambuStudio, OrcaSlicer, or Snapmaker Orca — confirmed by real-world
+ * testing. The fix, verified against a real working reference (a genuine
+ * Snapmaker-Orca export, see the hue-da-map project's reverse-engineering
+ * notes), is a multi-file "components" project layout: a root model whose
+ * object is just a `<component>` reference to a separate mesh model, plus
+ * `Metadata/model_settings.config` and `Metadata/slice_info.config`. This is
+ * the same structure PrusaSlicer's own multi-object project 3MFs use, so it
+ * doesn't cost Prusa compatibility. `Metadata/project_settings.config` (a
+ * printer/filament profile) is deliberately omitted: embedding even a minimal
+ * one makes Bambu/Orca fabricate broken default presets on import.
+ *
+ * Each triangle carries BOTH `paint_color` (Bambu/Orca/Snapmaker Orca) and
+ * `slic3rpe:mmu_segmentation` (PrusaSlicer) with the same computed code —
+ * they're independently-named attributes over the same underlying
+ * TriangleSelector whole-face state encoding.
  *
  * @param {{
  *   geometry: THREE.BufferGeometry,
@@ -254,93 +267,10 @@ export function export3MFPainted(painted, filename = 'textured-painted.3mf') {
     throw new Error('Painted 3MF material indices do not match the mesh triangle count');
   }
 
-  const enc = new TextEncoder();
-  const byteChunks = [];
-  let totalBytes = 0;
-  let pending = '';
-  const FLUSH_THRESHOLD = 1 << 20;
-
-  function flush() {
-    if (!pending) return;
-    const b = enc.encode(pending);
-    byteChunks.push(b);
-    totalBytes += b.length;
-    pending = '';
-  }
-  function emit(s) {
-    pending += s;
-    if (pending.length >= FLUSH_THRESHOLD) flush();
-  }
-
-  emit(
-    '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<model unit="millimeter" xml:lang="en-US" ' +
-    'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" ' +
-    'xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06">\n' +
-    '<metadata name="slic3rpe:Version3mf">1</metadata>\n' +
-    '<metadata name="slic3rpe:MmPaintingVersion">1</metadata>\n' +
-    '<metadata name="BambuStudio:3mfVersion">1</metadata>\n' +
-    '<metadata name="BambuStudio:MmPaintingVersion">0</metadata>\n' +
-    // Bambu/Orca only read `paint_color` through their Bambu-project import
-    // path, which is gated by the generator metadata. Keep the real producer in
-    // a namespaced metadata key below rather than losing it completely.
-    '<metadata name="Application">BambuStudio-1.10.0</metadata>\n' +
-    '<metadata name="STLTexturizer:Application">STL Texturizer</metadata>\n' +
-    '<resources>\n' +
-    '<basematerials id="1">\n'
-  );
-  for (const mat of painted.materials) {
-    emit('<base name="' + xmlAttr(mat.name) + '" displaycolor="' + xmlAttr(mat.color || '#cccccc') + '"/>\n');
-  }
-  emit('</basematerials>\n');
-
-  emitPaintedObject(emit, painted.geometry, painted.materialIndices, 2, 1);
-
-  emit('</resources>\n<build>\n');
-  emit('<item objectid="2" printable="1"/>\n');
-  emit('</build>\n</model>\n');
-  flush();
-
-  const modelBytes = new Uint8Array(totalBytes);
-  {
-    let off = 0;
-    for (const b of byteChunks) { modelBytes.set(b, off); off += b.length; }
-  }
-
-  const contentTypesXml =
-    '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n' +
-    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n' +
-    '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n' +
-    '</Types>\n';
-
-  const relsXml =
-    '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n' +
-    '<Relationship Id="rel-1" Target="/3D/3dmodel.model" ' +
-    'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n' +
-    '</Relationships>\n';
-
-  const zipped = zipSync({
-    '[Content_Types].xml': strToU8(contentTypesXml),
-    '_rels/.rels':         strToU8(relsXml),
-    '3D/3dmodel.model':    modelBytes,
-  }, { level: 6 });
-
-  triggerDownload(
-    zipped,
-    filename,
-    'application/vnd.ms-package.3dmanufacturing-3dmodel+xml'
-  );
-}
-
-function emitPaintedObject(emit, geometry, materialIndices, objectId, materialPid) {
-  const posArr = geometry.attributes.position.array;
-  const triCount = (posArr.length / 9) | 0;
+  const posArr = painted.geometry.attributes.position.array;
   const indexMap  = new QuantizedPointMap(1e4, Math.min(triCount * 3, 1 << 22));
   const uniqueXYZ = [];
   const triIdx    = new Uint32Array(triCount * 3);
-
   for (let i = 0; i < triCount; i++) {
     for (let j = 0; j < 3; j++) {
       const b = i * 9 + j * 3;
@@ -353,62 +283,163 @@ function emitPaintedObject(emit, geometry, materialIndices, objectId, materialPi
     }
   }
 
-  emit('<object id="' + objectId + '" type="model" name="Painted Texture" pid="' + materialPid + '" pindex="0">\n<mesh>\n<vertices>\n');
   const fmt = (n) => {
     let s = n.toFixed(4);
     if (s.indexOf('.') !== -1) s = s.replace(/0+$/, '').replace(/\.$/, '');
     return s;
   };
+  const vLines = [];
   for (let i = 0; i < uniqueXYZ.length; i += 3) {
-    emit(
-      '<vertex x="' + fmt(uniqueXYZ[i]) +
-      '" y="'       + fmt(uniqueXYZ[i + 1]) +
-      '" z="'       + fmt(uniqueXYZ[i + 2]) +
-      '"/>\n'
-    );
+    vLines.push('<vertex x="' + fmt(uniqueXYZ[i]) + '" y="' + fmt(uniqueXYZ[i + 1]) + '" z="' + fmt(uniqueXYZ[i + 2]) + '"/>');
   }
-  emit('</vertices>\n<triangles>\n');
+  const tLines = [];
   for (let i = 0; i < triCount; i++) {
     const b = i * 3;
-    const mi = materialIndices[i] || 0;
-    const mmuSegmentation = orcaMmuSegmentationForMaterial(mi);
-    const bambuPaintColor = bambuPaintColorForMaterial(mi);
-    emit(
-      '<triangle v1="' + triIdx[b] +
-      '" v2="'         + triIdx[b + 1] +
-      '" v3="'         + triIdx[b + 2] +
-      '" pid="'        + materialPid +
-      '" p1="'         + mi +
-      '" p2="'         + mi +
-      '" p3="'         + mi + '"' +
-      (mmuSegmentation ? ' slic3rpe:mmu_segmentation="' + mmuSegmentation + '"' : '') +
-      (bambuPaintColor ? ' paint_color="' + bambuPaintColor + '"' : '') +
-      '/>\n'
-    );
+    const mi = painted.materialIndices[i] || 0;
+    const code = paintStateCode(mi);
+    const attrs = code ? ' paint_color="' + code + '" slic3rpe:mmu_segmentation="' + code + '"' : '';
+    tLines.push('<triangle v1="' + triIdx[b] + '" v2="' + triIdx[b + 1] + '" v3="' + triIdx[b + 2] + '"' + attrs + '/>');
   }
-  emit('</triangles>\n</mesh>\n</object>\n');
+
+  const meshObjectId = 1;
+  const rootObjectId = 2;
+
+  const objectsModelXml =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<model unit="millimeter" xml:lang="en-US" ' +
+    'xmlns="' + NS_CORE + '" xmlns:BambuStudio="' + NS_BAMBU + '" ' +
+    'xmlns:slic3rpe="http://schemas.slic3r.org/3mf/2017/06" xmlns:p="' + NS_PROD + '" requiredextensions="p">\n' +
+    '<resources>\n' +
+    '<object id="' + meshObjectId + '" p:UUID="' + uuid() + '" type="model">\n' +
+    '<mesh>\n<vertices>\n' + vLines.join('\n') + '\n</vertices>\n' +
+    '<triangles>\n' + tLines.join('\n') + '\n</triangles>\n</mesh>\n</object>\n' +
+    '</resources>\n<build/>\n</model>\n';
+
+  const rootModelXml =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<model unit="millimeter" xml:lang="en-US" ' +
+    'xmlns="' + NS_CORE + '" xmlns:BambuStudio="' + NS_BAMBU + '" xmlns:p="' + NS_PROD + '" requiredextensions="p">\n' +
+    '<metadata name="Application">STL Texturizer</metadata>\n' +
+    '<metadata name="BambuStudio:3mfVersion">1</metadata>\n' +
+    '<resources>\n' +
+    '<object id="' + rootObjectId + '" p:UUID="' + uuid() + '" type="model">\n' +
+    '<components>\n' +
+    '<component p:path="/3D/Objects/Object_1.model" objectid="' + meshObjectId + '" p:UUID="' + uuid() + '" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n' +
+    '</components>\n</object>\n</resources>\n' +
+    '<build p:UUID="' + uuid() + '">\n' +
+    '<item objectid="' + rootObjectId + '" p:UUID="' + uuid() + '" printable="1"/>\n' +
+    '</build>\n</model>\n';
+
+  const modelSettingsXml =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<config>\n' +
+    '<object id="' + rootObjectId + '">\n' +
+    '<metadata key="name" value="Painted Texture"/>\n' +
+    '<metadata key="extruder" value="0"/>\n' +
+    '<part id="' + meshObjectId + '" subtype="normal_part">\n' +
+    '<metadata key="name" value="Painted Texture"/>\n' +
+    '<metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n' +
+    '<mesh_stat edges_fixed="0" degenerate_facets="0" facets_removed="0" facets_reversed="0" backwards_edges="0"/>\n' +
+    '</part>\n</object>\n' +
+    '<plate>\n' +
+    '<metadata key="plater_id" value="1"/>\n' +
+    '<metadata key="plater_name" value=""/>\n' +
+    '<metadata key="locked" value="false"/>\n' +
+    '<model_instance>\n' +
+    '<metadata key="object_id" value="' + rootObjectId + '"/>\n' +
+    '<metadata key="instance_id" value="0"/>\n' +
+    '<metadata key="identify_id" value="1"/>\n' +
+    '</model_instance>\n</plate>\n' +
+    '<assemble>\n' +
+    '<assemble_item object_id="' + rootObjectId + '" instance_id="0" transform="1 0 0 0 1 0 0 0 1 0 0 0" offset="0 0 0"/>\n' +
+    '</assemble>\n</config>\n';
+
+  const sliceInfoXml =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<config>\n<header>\n' +
+    '<header_item key="X-BBL-Client-Type" value="slicer"/>\n' +
+    '<header_item key="X-BBL-Client-Version" value=""/>\n' +
+    '</header>\n</config>\n';
+
+  // Every part in an OPC package needs a resolvable content type or the whole
+  // package is invalid — Metadata/*.config parts have no declared type below
+  // without this entry. Bambu-family readers apparently don't enforce this
+  // (they resolve those files by well-known path, not content type), but
+  // PrusaSlicer's stricter OPC reader does; omitting it broke Prusa entirely.
+  const contentTypesXml =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n' +
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n' +
+    '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n' +
+    '<Default Extension="config" ContentType="application/octet-stream"/>\n' +
+    '</Types>\n';
+
+  const rootRelsXml =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n' +
+    '<Relationship Id="rel-1" Target="/3D/3dmodel.model" ' +
+    'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n' +
+    '</Relationships>\n';
+
+  const modelRelsXml =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n' +
+    '<Relationship Id="rel-1" Target="/3D/Objects/Object_1.model" ' +
+    'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n' +
+    '</Relationships>\n';
+
+  const zipped = zipSync({
+    '[Content_Types].xml':                strToU8(contentTypesXml),
+    '_rels/.rels':                        strToU8(rootRelsXml),
+    '3D/3dmodel.model':                   strToU8(rootModelXml),
+    '3D/_rels/3dmodel.model.rels':        strToU8(modelRelsXml),
+    '3D/Objects/Object_1.model':          strToU8(objectsModelXml),
+    'Metadata/model_settings.config':     strToU8(modelSettingsXml),
+    'Metadata/slice_info.config':         strToU8(sliceInfoXml),
+  }, { level: 6 });
+
+  triggerDownload(
+    zipped,
+    filename,
+    'application/vnd.ms-package.3dmanufacturing-3dmodel+xml'
+  );
 }
 
-function orcaMmuSegmentationForMaterial(materialIndex) {
-  return filamentPaintingCode(materialIndex);
+const NS_CORE  = 'http://schemas.microsoft.com/3dmanufacturing/core/2015/02';
+const NS_BAMBU = 'http://schemas.bambulab.com/package/2021';
+const NS_PROD  = 'http://schemas.microsoft.com/3dmanufacturing/production/2015/06';
+
+function uuid() {
+  return (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : '00000000-0000-4000-8000-000000000000';
 }
 
-function bambuPaintColorForMaterial(materialIndex) {
-  return filamentPaintingCode(materialIndex);
-}
-
-function filamentPaintingCode(materialIndex) {
-  // Orca/Bambu TriangleSelector whole-face state encoding:
-  // state 2 => extruder 2 => "8"; state 3 => extruder 3 => "0C".
-  if (materialIndex === 1) return '8';
-  if (materialIndex === 2) return '0C';
-  return '';
-}
-
-function xmlAttr(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+/**
+ * Encode a material index as a TriangleSelector whole-face state code, shared
+ * by BambuStudio/OrcaSlicer's `paint_color` and PrusaSlicer's
+ * `slic3rpe:mmu_segmentation` (same underlying encoding, two attribute names).
+ * materialIndex 0 (base) is extruder 1 — the object's implicit default — and
+ * needs no override attribute. materialIndex N (N>=1) is extruder (N+1): slot
+ * 1 is reserved for base, so the first configured color starts at extruder 2
+ * (state 2, code "8"), matching a real reverse-engineered snorca export.
+ *
+ * Nibble math verified against PrusaSlicer/BambuStudio/OrcaSlicer's
+ * TriangleSelector::serialize / FacetsAnnotation::get_triangle_as_string.
+ * Capped at state 16 — OrcaSlicer's (and thus Snapmaker Orca's)
+ * EnforcerBlockerType only defines extruders up to 16; BambuStudio and
+ * PrusaSlicer tolerate more, but 16 is the safe ceiling across all of them.
+ */
+function paintStateCode(materialIndex) {
+  if (materialIndex <= 0) return '';
+  const state = materialIndex + 1;
+  if (state > 16) {
+    throw new Error(`Multicolor export: material index ${materialIndex} exceeds the 16-extruder ceiling shared by OrcaSlicer/Snapmaker Orca.`);
+  }
+  if (state === 1) return '4';
+  if (state === 2) return '8';
+  const rel = state - 3;
+  const numF = Math.floor(rel / 15);
+  const finalDigit = (rel % 15).toString(16).toUpperCase();
+  return finalDigit + 'F'.repeat(numF) + 'C';
 }
