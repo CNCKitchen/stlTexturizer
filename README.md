@@ -79,6 +79,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 
 ### Export
 - Downloads a **binary STL** with displacement baked in
+- Exports **3MF** meshes with optional painted multicolor regions for raised or inset texture areas
 - Progress reporting through subdivision → displacement → decimation → writing stages
 - Configurable edge-length threshold and output triangle limit
 
@@ -93,7 +94,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 3. Select a texture preset from the sidebar (or upload a custom image).
 4. Choose a projection mode and adjust UV scale, offset, rotation, and amplitude.
 5. Optionally mask or exclude surfaces with the angle sliders or paint tools.
-6. Click **Export STL** to download the displaced mesh.
+6. Click **Export STL** or **Export 3MF** to download the displaced mesh.
 
 > **Note:** All processing runs entirely in the browser — no data is uploaded to any server.
 
@@ -113,10 +114,11 @@ js/
   previewMaterial.js  # Three.js material for live & displacement preview
   mapping.js          # UV projection logic (7 modes)
   displacement.js     # Vertex displacement baking
+  multicolorPainting.js # 3MF multicolor threshold painting
   subdivision.js      # Adaptive mesh subdivision
   decimation.js       # QEM mesh decimation
   exclusion.js        # Face exclusion / inclusion painting
-  exporter.js         # Binary STL export
+  exporter.js         # Binary STL and 3MF export
   i18n.js             # Translations (EN / DE)
 ```
 

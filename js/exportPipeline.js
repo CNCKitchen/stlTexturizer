@@ -43,6 +43,7 @@ import { regularizeMesh } from './regularize.js';
 import { applyDisplacement } from './displacement.js';
 import { decimate } from './decimation.js';
 import { resolveTJunctions, countEdgeDefects, countAreaSlivers } from './meshRepair.js';
+import { getMulticolorConfig } from './multicolorPainting.js';
 
 const yieldFrame = () => new Promise(r => setTimeout(r, 0));
 
@@ -285,12 +286,23 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     subdivided = null;
 
     const dispTriCount = displaced.attributes.position.count / 3;
+    const keepDisplacementMetadata = !!settings.includeDisplacementMetadata;
     const needsDecimation = dispTriCount > settings.maxTriangles;
     finalGeometry = displaced;
 
+    // Multicolor's threshold cutoffs (0-1 grayscale), when active — passed to
+    // decimate() so it never collapses an edge across a color boundary, and
+    // carries the surviving per-vertex height through so classification after
+    // decimation is still exact rather than approximated.
+    const heightThresholds = keepDisplacementMetadata
+      ? getMulticolorConfig(settings).stops.map(s => s.value / 100)
+      : null;
+
     // Decimation runs only in export mode (bake keeps the parent-face map,
     // which decimate drops): when over the target OR when flat-face harvesting
-    // alone is wanted.
+    // alone is wanted. Previously also skipped whenever multicolor metadata was
+    // requested (decimate had no way to preserve it) — decimate's optional
+    // color-boundary guard now makes that unnecessary.
     const runDecimation = mode === 'export' && (needsDecimation || settings.harvestFlatFaces);
     let lockedOverBudget = false;
     if (runDecimation) {
@@ -302,6 +314,8 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
         (p) => onEvent('decimate', p, { from: dispTriCount, needsDecimation }),
         settings.harvestFlatFaces,
         settings.harvestTol,
+        keepDisplacementMetadata ? displaced.attributes.displacementHeight.array : null,
+        heightThresholds,
         lockedFaces
       );
       // Capture before repair replaces the geometry (userData isn't carried over).
@@ -327,7 +341,13 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       onEvent('repair', 0);
       await yieldFrame();
       const beforeSlivers = countAreaSlivers(finalGeometry);
-      const repaired = resolveTJunctions(finalGeometry);
+      const repaired = resolveTJunctions(
+        finalGeometry,
+        {},
+        keepDisplacementMetadata && finalGeometry.attributes.displacementHeight
+          ? finalGeometry.attributes.displacementHeight.array
+          : null
+      );
       finalGeometry.dispose();
       finalGeometry = repaired;
       const after = countEdgeDefects(finalGeometry);
@@ -345,6 +365,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     return {
       positions: finalGeometry.attributes.position.array,
       normals: finalGeometry.attributes.normal ? finalGeometry.attributes.normal.array : null,
+      displacementHeights: finalGeometry.attributes.displacementHeight ? finalGeometry.attributes.displacementHeight.array : null,
       safetyCapHit,
       lockedOverBudget,
       runDecimation,

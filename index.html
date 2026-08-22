@@ -509,6 +509,23 @@
         <div class="advanced-content" id="advanced-content">
           <p class="advanced-blurb" data-i18n="ui.advancedBlurb">Experimental tools. Behavior may change between releases.</p>
 
+          <h3 class="panel-subsection-heading" data-i18n="ui.multicolorPaintingHeading">Multicolor Painting (3MF)</h3>
+          <p class="advanced-blurb" data-i18n="ui.multicolorPaintingDesc">Map the texture's grayscale value to any number of colors for slicer AMS / multi-toolhead filament assignment. Each color owns everything from its slider position up to the next one; 0% is black, 100% is white.</p>
+          <div class="form-row">
+            <label class="checkbox-label" for="multicolor-enabled-chk">
+              <input type="checkbox" id="multicolor-enabled-chk" />
+              <span data-i18n="ui.multicolorEnabled">Enable multicolor painting</span>
+            </label>
+          </div>
+          <div id="multicolor-config" class="hidden">
+            <div class="form-row multicolor-row" id="multicolor-base-row">
+              <input type="color" id="multicolor-base-color" class="multicolor-swatch" value="#b8bec8" />
+              <span data-i18n="ui.multicolorBase">Base</span>
+            </div>
+            <div id="multicolor-stops"></div>
+            <button type="button" id="multicolor-add-btn" class="multicolor-add-btn" data-i18n="ui.multicolorAdd">+ Add color</button>
+          </div>
+
           <h3 class="panel-subsection-heading" data-i18n="ui.noDownwardZHeading">Overhang Protection</h3>
           <p class="advanced-blurb" data-i18n="ui.noDownwardZDesc">Some textures push surface vertices downward, creating new overhangs. When enabled, vertices are never moved in the âˆ’Z direction during texturing. X and Y movement is unaffected.</p>
           <div class="form-row">

@@ -44,6 +44,19 @@
  *   collapse the remaining near-zero-cost (flat) edges (default true)
  * @param {number}               [harvestTol]    absolute per-collapse surface-
  *   deviation tolerance in mm for harvesting; harvestCeil = harvestTol²
+ * @param {Float32Array|null}    [heightAttr]    per-vertex-copy scalar (e.g.
+ *   grayscale displacement height, 0–1) parallel to `geometry`'s position
+ *   attribute. When provided together with `heightThresholds`, edges whose
+ *   endpoints fall on opposite sides of any threshold are never collapsed —
+ *   this keeps multicolor paint boundaries aligned to undecimated geometry
+ *   while still simplifying freely within each color region — and the
+ *   surviving per-vertex height (averaged on collapse; provably stays within
+ *   the same threshold bucket since bucket ranges are convex intervals) is
+ *   returned as a `displacementHeight` attribute on the output geometry.
+ *   Omit for the default position-only behavior (used everywhere else).
+ * @param {number[]|null}        [heightThresholds] sorted ascending 0–1 cutoffs
+ *   (see multicolorPainting.js `getMulticolorConfig().stops`), required
+ *   alongside `heightAttr` to activate the boundary guard.
  * @param {Uint8Array|null}      [lockedFaces]   per-face lock flags in the input's
  *   face order (preserve-untextured beta); locked faces and every vertex they
  *   touch are left completely untouched. If locked faces alone reach the
@@ -113,12 +126,30 @@ function _yieldFrame() {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL, lockedFaces = null) {
-  const { positions, faces, vertCount, faceCount } = buildIndexed(geometry);
+export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL, heightAttr = null, heightThresholds = null, lockedFaces = null) {
+  const { positions, faces, vertCount, faceCount, heights } = buildIndexed(geometry, heightAttr);
+
+  // Color-boundary guard: only active when a height attribute was supplied.
+  // Bucket = which threshold interval a vertex's height falls in (same
+  // half-open-interval logic as multicolorPainting.js's classifyHeight, kept
+  // independent here so decimation.js has no dependency on that module).
+  const guardActive = !!heights;
+  let buckets = null;
+  if (guardActive) {
+    const thresholds = heightThresholds || [];
+    buckets = new Uint8Array(vertCount);
+    for (let v = 0; v < vertCount; v++) {
+      let b = 0;
+      for (let i = 0; i < thresholds.length; i++) {
+        if (heights[v] >= thresholds[i]) b = i + 1; else break;
+      }
+      buckets[v] = b;
+    }
+  }
 
   // Already at/under the target: nothing to decimate. But if harvesting is on we
   // still run — there may be flat faces collapsible for free even below the limit.
-  if (faceCount <= targetTriangles && !harvestFlat) return buildOutput(positions, faces, faceCount);
+  if (faceCount <= targetTriangles && !harvestFlat) return buildOutput(positions, faces, faceCount, heights);
 
   // Preserve-untextured (beta): a vertex touching any locked (untextured) face
   // may neither move nor be removed, so edges with a locked endpoint are never
@@ -146,7 +177,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
     && lockedFaceCount >= targetTriangles;
   if (lockedOverBudget && !harvestFlat) {
     if (onProgress) onProgress(1);
-    const out = buildOutput(positions, faces, faceCount);
+    const out = buildOutput(positions, faces, faceCount, heights);
     out.userData.lockedOverBudget = true;
     return out;
   }
@@ -243,7 +274,8 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
     const nsh = sharedFaceCount(faces, vfHead, slotFace, slotNext, v1, v2);
     if (nsh < 2) continue;
 
-    // ── Three safety guards ───────────────────────────────────────────────────
+    // ── Safety guards ─────────────────────────────────────────────────────────
+    if (guardActive && buckets[v1] !== buckets[v2]) continue; // Guard 0: color-boundary protection
     lkEpoch += 2;  // +2 so ep and ep+1 never collide with the next call
     if (hasLinkViolation(faces, vfHead, slotFace, slotNext, v1, v2, lkStamp, lkEpoch)) continue; // Guard 2
     if (checkFlipped(positions, vfHead, slotFace, slotNext, faces, v1, v2, px, py, pz)) continue; // Guard 3a
@@ -253,6 +285,9 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
     positions[v1 * 3]     = px;
     positions[v1 * 3 + 1] = py;
     positions[v1 * 3 + 2] = pz;
+    // Both endpoints share a bucket (guard above), and bucket ranges are convex
+    // intervals, so the average is provably still in-bucket — no reclassification risk.
+    if (guardActive) heights[v1] = (heights[v1] + heights[v2]) / 2;
     mergeQuadric(quadrics, v1, v2);
     version[v1]++;  // v1's quadric and position changed — invalidate old heap entries
 
@@ -303,7 +338,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
   }
 
   if (onProgress) onProgress(1);
-  const out = buildOutput(positions, faces, faceCount);
+  const out = buildOutput(positions, faces, faceCount, heights);
   if (lockedOverBudget) out.userData.lockedOverBudget = true;
   return out;
 }
@@ -674,12 +709,13 @@ function pushEdge(heap, quadrics, positions, version, v1, v2) {
 // (open addressing over typed arrays — no BigInt boxing, no Map overhead).
 // Same 1e6 weld grid as before: QuantizedPointMap keys on Math.round(c*QUANT),
 // which groups identically to the old offset-packed BigInt keys.
-function buildIndexed(geometry) {
+function buildIndexed(geometry, heightAttr = null) {
   const QUANT = QUANT_DEFAULT;
   const posAttr = geometry.attributes.position;
   const n = posAttr.count;
 
   const positions  = new Float64Array(n * 3); // over-allocated, trimmed later
+  const heights    = heightAttr ? new Float64Array(n) : null; // same, per-unique-vertex
   const indexRemap = new Int32Array(n);
   let   vertCount  = 0;
 
@@ -693,6 +729,7 @@ function buildIndexed(geometry) {
       positions[idx * 3]     = x;
       positions[idx * 3 + 1] = y;
       positions[idx * 3 + 2] = z;
+      if (heights) heights[idx] = heightAttr[i];
     }
     indexRemap[i] = idx;
   }
@@ -701,19 +738,24 @@ function buildIndexed(geometry) {
   const faces = new Int32Array(faceCount * 3);
   for (let i = 0; i < n; i++) faces[i] = indexRemap[i];
 
-  return { positions: positions.subarray(0, vertCount * 3), faces, vertCount, faceCount };
+  return {
+    positions: positions.subarray(0, vertCount * 3),
+    heights: heights ? heights.subarray(0, vertCount) : null,
+    faces, vertCount, faceCount,
+  };
 }
 
 // (adjacency helpers replaced by buildLinkedAdj and _unlinkSlot/_moveSlot above)
 
-function buildOutput(positions, faces, faceCount) {
+function buildOutput(positions, faces, faceCount, heights = null) {
   let activeFaces = 0;
   for (let f = 0; f < faceCount; f++) {
     if (faces[f * 3] >= 0) activeFaces++;
   }
 
   const posArray = new Float32Array(activeFaces * 9);
-  let out = 0;
+  const heightArray = heights ? new Float32Array(activeFaces * 3) : null;
+  let out = 0, outH = 0;
   for (let f = 0; f < faceCount; f++) {
     if (faces[f * 3] < 0) continue;
     for (let v = 0; v < 3; v++) {
@@ -721,6 +763,7 @@ function buildOutput(positions, faces, faceCount) {
       posArray[out++] = positions[vi * 3];
       posArray[out++] = positions[vi * 3 + 1];
       posArray[out++] = positions[vi * 3 + 2];
+      if (heightArray) heightArray[outH++] = heights[vi];
     }
   }
 
@@ -744,6 +787,7 @@ function buildOutput(positions, faces, faceCount) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
   geo.setAttribute('normal',   new THREE.BufferAttribute(nrmArray, 3));
+  if (heightArray) geo.setAttribute('displacementHeight', new THREE.BufferAttribute(heightArray, 1));
   return geo;
 }
 

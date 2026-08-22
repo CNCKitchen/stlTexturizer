@@ -34,6 +34,7 @@ self.onmessage = async (e) => {
     });
     const transfers = [result.positions.buffer];
     if (result.normals) transfers.push(result.normals.buffer);
+    if (result.displacementHeights) transfers.push(result.displacementHeights.buffer);
     if (result.faceParentId) transfers.push(result.faceParentId.buffer);
     self.postMessage({ type: 'done', result }, transfers);
   } catch (err) {

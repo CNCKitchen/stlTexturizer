@@ -32,6 +32,8 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
 
   const newPos = new Float32Array(count * 3);
   const newNrm = new Float32Array(count * 3);
+  const needDisplacementMetadata = !!settings.includeDisplacementMetadata;
+  const heightVal = needDisplacementMetadata ? new Float32Array(count) : null;
 
   const tmpPos  = new THREE.Vector3();
   const tmpNrm  = new THREE.Vector3();
@@ -568,6 +570,14 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
       newZ = tmpPos.z;
     }
 
+    if (needDisplacementMetadata) {
+      // Excluded/fully-masked vertices never actually receive displacement, so a
+      // sentinel below every valid 0–1 grey value keeps multicolor painting from
+      // assigning them a color implied by texture detail that was never applied.
+      const isExcludedForPainting = isFaceExcluded || isSealedBoundary || maskedFrac >= 1 - 1e-6;
+      heightVal[i] = isExcludedForPainting ? -1 : grey;
+    }
+
     newPos[i*3]   = newX;
     newPos[i*3+1] = newY;
     newPos[i*3+2] = newZ;
@@ -604,6 +614,9 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.BufferAttribute(newPos, 3));
   out.setAttribute('normal',   new THREE.BufferAttribute(newNrm, 3));
+  if (needDisplacementMetadata) {
+    out.setAttribute('displacementHeight', new THREE.BufferAttribute(heightVal, 1));
+  }
   return out;
 }
 
