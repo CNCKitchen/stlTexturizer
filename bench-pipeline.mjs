@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Full-pipeline benchmark: runs the REAL export pipeline (exportPipeline.js —
 // the exact module handleExport and the export worker execute) and prints
 // per-stage wall time, peak RSS, and an FNV-1a fingerprint of the final
@@ -161,6 +166,13 @@ const currentGeometry = loadSTL(stlPath);
 currentGeometry.computeBoundingBox();
 const bb = currentGeometry.boundingBox;
 const currentBounds = { min: bb.min.clone(), max: bb.max.clone(), size: new THREE.Vector3().subVectors(bb.max,bb.min), center: new THREE.Vector3().addVectors(bb.min,bb.max).multiplyScalar(0.5) };
+// scaleU/scaleV are absolute mm (tile size). 0.5 × maxDim reproduces the
+// historical relative-0.5 fingerprint exactly (power-of-2 factor is lossless).
+{
+  const md = Math.max(currentBounds.size.x, currentBounds.size.y, currentBounds.size.z);
+  settings.scaleU = 0.5 * md;
+  settings.scaleV = 0.5 * md;
+}
 const img = decodePNG(texPath);
 console.log(`model=${stlPath} tris=${currentGeometry.attributes.position.count/3} tex=${img.width}x${img.height} refine=${refineLength} maxTri=${maxTriangles}`);
 stage('load');

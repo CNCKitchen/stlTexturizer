@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 /**
  * exportPipeline.js — the heavy mesh pipeline behind Export and Bake,
  * extracted from main.js so it can run EITHER on the main thread (fallback)
@@ -25,6 +30,7 @@
  * @returns {Promise<null | {
  *   positions: Float32Array, normals: Float32Array|null,
  *   safetyCapHit: boolean, runDecimation: boolean, needsDecimation: boolean,
+ *   lockedOverBudget: boolean,  // preserve-untextured beta: locked faces ≥ triangle target
  *   faceParentId: Int32Array|null,   // bake mode only
  *   repairStats: object|null,        // export mode, when repair ran
  * }>}
@@ -259,6 +265,22 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     );
     if (shouldAbort()) return null;
 
+    // Preserve-untextured (beta): capture the per-face exclusion mask before
+    // the subdivided mesh is freed. Displacement keeps triangle count and
+    // order, so the mask indexes the displaced mesh 1:1 and lets decimation
+    // lock those faces in place.
+    let lockedFaces = null;
+    if (settings.preserveUntextured) {
+      const ew = subdivided.attributes.excludeWeight;
+      if (ew) {
+        const triN = subdivided.attributes.position.count / 3;
+        lockedFaces = new Uint8Array(triN);
+        for (let t = 0; t < triN; t++) {
+          if (ew.array[t * 3] > 0.99) lockedFaces[t] = 1;
+        }
+      }
+    }
+
     // Free subdivided geometry — displacement created a separate copy.
     subdivided.dispose();
     subdivided = null;
@@ -282,6 +304,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     // requested (decimate had no way to preserve it) — decimate's optional
     // color-boundary guard now makes that unnecessary.
     const runDecimation = mode === 'export' && (needsDecimation || settings.harvestFlatFaces);
+    let lockedOverBudget = false;
     if (runDecimation) {
       onEvent('decimate', 0, { from: dispTriCount, needsDecimation });
       await yieldFrame();
@@ -292,8 +315,11 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
         settings.harvestFlatFaces,
         settings.harvestTol,
         keepDisplacementMetadata ? displaced.attributes.displacementHeight.array : null,
-        heightThresholds
+        heightThresholds,
+        lockedFaces
       );
+      // Capture before repair replaces the geometry (userData isn't carried over).
+      lockedOverBudget = !!finalGeometry.userData.lockedOverBudget;
       // Free pre-decimation geometry — decimate created a separate copy.
       displaced.dispose();
       displaced = null;
@@ -341,6 +367,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       normals: finalGeometry.attributes.normal ? finalGeometry.attributes.normal.array : null,
       displacementHeights: finalGeometry.attributes.displacementHeight ? finalGeometry.attributes.displacementHeight.array : null,
       safetyCapHit,
+      lockedOverBudget,
       runDecimation,
       needsDecimation,
       faceParentId: mode === 'bake' ? faceParentId : null,

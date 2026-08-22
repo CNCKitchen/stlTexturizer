@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+
 // Diagnose tiling-seam sources: for every preset texture, measure how well
 // the image wraps at its edges. For a perfectly tileable texture, the jump
 // from the last pixel column back to the first should look like any other
