@@ -237,6 +237,12 @@
           </button>
         </div>
         <div id="active-map-name" class="active-map-name" data-i18n="ui.noMapSelected">No map selected</div>
+        <div class="form-row">
+          <label class="checkbox-label" for="invert-texture">
+            <input type="checkbox" id="invert-texture" />
+            <span data-i18n="labels.invertTexture">Invert texture</span>
+          </label>
+        </div>
         <div class="form-row slider-row">
           <label for="texture-smoothing" data-i18n="labels.textureSmoothing" data-i18n-title="tooltips.textureSmoothing" title="Applies a Gaussian blur to the displacement map. Higher values produce softer, more gradual surface detail. 0 = off.">Texture Smoothing â“˜</label>
           <input type="range" id="texture-smoothing" min="0" max="20" step="any" value="0" />

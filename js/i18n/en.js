@@ -56,6 +56,7 @@ export default {
   "sections.displacement": "Texture Depth",
   "labels.textureHeight": "Texture height (mm)",
   "labels.invertDisplacement": "Invert (push in instead of out)",
+  "labels.invertTexture": "Invert texture",
   "labels.seamBlend": "Seam Blend ⓘ",
   "tooltips.seamBlend": "Softens the hard seam where projection faces meet. Effective for Cubic and Cylindrical modes.",
   "labels.transitionSmoothing": "Transition Smoothing ⓘ",
