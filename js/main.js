@@ -4835,7 +4835,7 @@ async function handleExport(format = 'stl') {
       setProgress(0.97, t('progress.writing3mf'));
       await yieldFrame();
       if (exportToken !== myToken) return;
-      export3MF(finalGeometry, `${baseName}.3mf`);
+      await export3MF(finalGeometry, `${baseName}.3mf`, () => exportToken !== myToken);
     } else {
       setProgress(0.97, t('progress.writingStl'));
       await yieldFrame();
@@ -4850,6 +4850,7 @@ async function handleExport(format = 'stl') {
       setProgress(0, '');
     }, 1500);
   } catch (err) {
+    if (exportToken !== myToken) return;
     console.error('Export failed:', err);
     if (/maximum size|out of memory|alloc/i.test(err.message)) {
       alert(t('alerts.exportOOM'));
