@@ -4130,6 +4130,9 @@ function getEffectiveMapEntry() {
       pixels[i]     = 255 - pixels[i];
       pixels[i + 1] = 255 - pixels[i + 1];
       pixels[i + 2] = 255 - pixels[i + 2];
+      // Height sampling ignores alpha. Keep the processed map opaque so
+      // Canvas2D preserves the same RGB values used by CPU bake/export.
+      pixels[i + 3] = 255;
     }
     ctx.putImageData(imageData, 0, 0);
   }
