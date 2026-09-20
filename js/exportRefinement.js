@@ -142,6 +142,84 @@ function exportSurface(positions, format) {
   return { positions: out, error: error * (1 + 8 * Number.EPSILON) + Number.MIN_VALUE };
 }
 
+function loadAcceleration(deadline) {
+  if (performance.now() >= deadline) {
+    return Promise.resolve(null);
+  }
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(null), Math.min(5000, deadline - performance.now()));
+    acceleration.then(value => {
+      clearTimeout(timer);
+      resolve(value);
+    });
+  });
+}
+
+async function createCandidate(input, lockedFaces, deadline) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(input.positions, 3));
+  const outputCoordinate =
+    input.format === '3mf'
+      ? value => Math.fround(Number(Math.fround(value).toFixed(4)))
+      : Math.fround;
+  let candidate;
+
+  try {
+    candidate = await decimate(
+      geometry,
+      input.positions.length / 9,
+      null,
+      true,
+      0.005,
+      lockedFaces,
+      outputCoordinate,
+      deadline
+    );
+    return {
+      positions: candidate.attributes.position.array,
+      lockedFaces: candidate.userData.lockedFaces
+    };
+  } finally {
+    geometry.dispose();
+    candidate?.dispose();
+  }
+}
+
+function countSurfaceSlivers(positions) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  try {
+    return countAreaSlivers(geometry);
+  } finally {
+    geometry.dispose();
+  }
+}
+
+function validateCandidate(input, candidate, lockedFaces, deadline, MeshBVH) {
+  if (!protectedEqual(input.positions, lockedFaces, candidate.positions, candidate.lockedFaces)) {
+    return false;
+  }
+
+  // Check the surface the file will contain, including the writer's rounding.
+  const originalSurface = exportSurface(input.positions, input.format);
+  const candidateSurface = exportSurface(candidate.positions, input.format);
+  const before = originalSurface.positions;
+  const after = candidateSurface.positions;
+  const preservesStructure =
+    countSurfaceSlivers(after) === countSurfaceSlivers(before) &&
+    inspect(before).signature === inspect(after).signature &&
+    protectedEqual(before, lockedFaces, after, candidate.lockedFaces);
+  if (!preservesStructure) {
+    return false;
+  }
+
+  const remainingToleranceMm = 0.005 - originalSurface.error - candidateSurface.error;
+  return (
+    remainingToleranceMm > 0 &&
+    withinSurfaceTolerance(before, after, remainingToleranceMm, deadline, MeshBVH)
+  );
+}
+
 /** Optimize only a finished, posed export. Rejected candidates retain input buffers. */
 export async function refineExportMesh(
   input,
@@ -153,17 +231,8 @@ export async function refineExportMesh(
   if (shouldAbort()) {
     return null;
   }
-  if (performance.now() >= deadline) {
-    return unchanged();
-  }
 
-  const MeshBVH = await new Promise(resolve => {
-    const timer = setTimeout(() => resolve(null), Math.min(5000, deadline - performance.now()));
-    acceleration.then(value => {
-      clearTimeout(timer);
-      resolve(value);
-    });
-  });
+  const MeshBVH = await loadAcceleration(deadline);
   if (shouldAbort()) {
     return null;
   }
@@ -171,83 +240,26 @@ export async function refineExportMesh(
     return unchanged();
   }
 
-  const original = inspect(input.positions, input.lockedFaces);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(input.positions, 3));
-  let candidate;
-
+  const { locks } = inspect(input.positions, input.lockedFaces);
   try {
-    const outputCoordinate =
-      input.format === '3mf'
-        ? value => Math.fround(Number(Math.fround(value).toFixed(4)))
-        : Math.fround;
-    candidate = await decimate(
-      geometry,
-      before,
-      null,
-      true,
-      0.005,
-      original.locks,
-      outputCoordinate,
-      deadline
-    );
+    const candidate = await createCandidate(input, locks, deadline);
     if (shouldAbort()) {
       return null;
     }
-
-    const positions = candidate.attributes.position.array;
-    const candidateLocks = candidate.userData.lockedFaces;
-    if (positions.length >= input.positions.length || performance.now() >= deadline) {
+    if (candidate.positions.length >= input.positions.length || performance.now() >= deadline) {
       return unchanged();
     }
-    if (!protectedEqual(input.positions, original.locks, positions, candidateLocks)) {
+    if (!validateCandidate(input, candidate, locks, deadline, MeshBVH)) {
       return unchanged();
     }
 
-    const originalSurface = exportSurface(input.positions, input.format);
-    const candidateSurface = exportSurface(positions, input.format);
-    geometry.setAttribute('position', new THREE.BufferAttribute(originalSurface.positions, 3));
-    candidate.setAttribute('position', new THREE.BufferAttribute(candidateSurface.positions, 3));
-
-    if (countAreaSlivers(candidate) !== countAreaSlivers(geometry)) {
-      return unchanged();
-    }
-    if (
-      inspect(originalSurface.positions).signature !== inspect(candidateSurface.positions).signature
-    ) {
-      return unchanged();
-    }
-    if (
-      !protectedEqual(
-        originalSurface.positions,
-        original.locks,
-        candidateSurface.positions,
-        candidateLocks
-      )
-    ) {
-      return unchanged();
-    }
-
-    const remainingToleranceMm = 0.005 - originalSurface.error - candidateSurface.error;
-    if (
-      !(remainingToleranceMm > 0) ||
-      !withinSurfaceTolerance(
-        originalSurface.positions,
-        candidateSurface.positions,
-        remainingToleranceMm,
-        deadline,
-        MeshBVH
-      )
-    ) {
-      return unchanged();
-    }
-
-    return { positions, normals: null, refinement: { before, after: positions.length / 9 } };
+    return {
+      positions: candidate.positions,
+      normals: null,
+      refinement: { before, after: candidate.positions.length / 9 }
+    };
   } catch (error) {
     console.warn('[stlTexturizer] Export optimization skipped:', error);
     return unchanged();
-  } finally {
-    geometry.dispose();
-    candidate?.dispose();
   }
 }
