@@ -116,7 +116,16 @@ function _yieldFrame() {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL, lockedFaces = null, outputCoordinate = null, deadline = Infinity) {
+export async function decimate(
+  geometry,
+  targetTriangles,
+  onProgress,
+  harvestFlat = true,
+  harvestTol = DEFAULT_HARVEST_TOL,
+  lockedFaces = null,
+  outputCoordinate = null,
+  deadline = Infinity
+) {
   const { positions, faces, vertCount, faceCount } = buildIndexed(geometry);
 
   // Already at/under the target: nothing to decimate. But if harvesting is on we
@@ -451,9 +460,15 @@ function checkFlipped(positions, vfHead, slotFace, slotNext, faces, vc, vo, npx,
     else                { nax = oax; nay = oay; naz = oaz; nbx = obx; nby = oby; nbz = obz; ncx = npx; ncy = npy; ncz = npz; }
     // Final export refinement must also survive Float32 / file rounding.
     if (outputCoordinate) {
-      nax=outputCoordinate(nax);nay=outputCoordinate(nay);naz=outputCoordinate(naz);
-      nbx=outputCoordinate(nbx);nby=outputCoordinate(nby);nbz=outputCoordinate(nbz);
-      ncx=outputCoordinate(ncx);ncy=outputCoordinate(ncy);ncz=outputCoordinate(ncz);
+      nax = outputCoordinate(nax);
+      nay = outputCoordinate(nay);
+      naz = outputCoordinate(naz);
+      nbx = outputCoordinate(nbx);
+      nby = outputCoordinate(nby);
+      nbz = outputCoordinate(nbz);
+      ncx = outputCoordinate(ncx);
+      ncy = outputCoordinate(ncy);
+      ncz = outputCoordinate(ncz);
     }
     // Unnormalized new normal
     const nux = nbx-nax, nuy = nby-nay, nuz = nbz-naz;
@@ -461,7 +476,9 @@ function checkFlipped(positions, vfHead, slotFace, slotNext, faces, vc, vo, npx,
     const nnx = nuy*nvz - nuz*nvy;
     const nny = nuz*nvx - nux*nvz;
     const nnz = nux*nvy - nuy*nvx;
-    if (outputCoordinate && nnx*nnx+nny*nny+nnz*nnz < 1e-24) return true;
+    if (outputCoordinate && nnx * nnx + nny * nny + nnz * nnz < 1e-24) {
+      return true;
+    }
     // Squared-dot flip test (avoids sqrt + division)
     const rawDot = onx*nnx + ony*nny + onz*nnz;
     if (rawDot < 0) return true;

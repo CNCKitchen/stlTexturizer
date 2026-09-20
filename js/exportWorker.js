@@ -36,7 +36,8 @@ self.onmessage = async (e) => {
     };
     if (msg.cmd === 'refine') emit('refine', 0);
     const result = msg.cmd === 'refine'
-      ? await refineExportMesh(msg.input) : await runExportPipeline(msg.input, emit);
+      ? await refineExportMesh(msg.input)
+      : await runExportPipeline(msg.input, emit);
     const transfers = [result.positions.buffer];
     if (result.normals) transfers.push(result.normals.buffer);
     if (result.faceParentId) transfers.push(result.faceParentId.buffer);

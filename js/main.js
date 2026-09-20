@@ -4809,10 +4809,17 @@ async function handleExport(format = 'stl') {
     // bench-pipeline fingerprint valid. result arrays are fresh; mutating is safe.
     _restoreOriginalPose(result.positions, result.normals);
 
-    const refined = await runPipeline({
-      positions: result.positions, normals: result.normals,
-      lockedFaces: result.lockedFaces, format,
-    }, _onExportPipelineEvent, isStale, 'refine');
+    const refined = await runPipeline(
+      {
+        positions: result.positions,
+        normals: result.normals,
+        lockedFaces: result.lockedFaces,
+        format,
+      },
+      _onExportPipelineEvent,
+      isStale,
+      'refine'
+    );
     if (!refined || isStale()) return;
 
     finalGeometry = new THREE.BufferGeometry();
@@ -4853,7 +4860,8 @@ async function handleExport(format = 'stl') {
     exportSucceeded = true;
     const { before, after } = refined.refinement;
     summary.textContent = t(before === after ? 'ui.refinementUnchanged' : 'ui.refinementReduced', {
-      before: before.toLocaleString(getLang()), after: after.toLocaleString(getLang()),
+      before: before.toLocaleString(getLang()),
+      after: after.toLocaleString(getLang()),
       percent: (100 * (1 - after / before)).toLocaleString(getLang(), { maximumFractionDigits: 1 }),
     });
 
@@ -5026,9 +5034,15 @@ async function runPipeline(input, onEvent, isStale, cmd = 'run') {
   if (isStale()) return null;
   if (!w) {
     // Optional optimization should not block the UI when workers are unavailable.
-    if (cmd === 'refine') return { ...input, refinement: {
-      before: input.positions.length / 9, after: input.positions.length / 9,
-    } };
+    if (cmd === 'refine') {
+      return {
+        ...input,
+        refinement: {
+          before: input.positions.length / 9,
+          after: input.positions.length / 9,
+        },
+      };
+    }
     return runExportPipeline(input, onEvent, isStale);
   }
   return new Promise((resolve, reject) => {
@@ -5043,7 +5057,8 @@ async function runPipeline(input, onEvent, isStale, cmd = 'run') {
     };
     w.onerror = (e) => { kill(); reject(new Error((e && e.message) || 'export worker crashed')); };
     const transfers = cmd === 'refine'
-      ? [input.positions, input.normals, input.lockedFaces].filter(Boolean).map(a => a.buffer) : [];
+      ? [input.positions, input.normals, input.lockedFaces].filter(Boolean).map(a => a.buffer)
+      : [];
     w.postMessage({ cmd, input }, [...new Set(transfers)]);
   });
 }
