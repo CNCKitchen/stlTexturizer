@@ -90,6 +90,8 @@ export function resolveTJunctions(geometry, opts = {}) {
 
   const pos  = geometry.attributes.position.array;
   const nTri = pos.length / 9;
+  const inputLocks = geometry.userData.lockedFaces;
+  let faceLocks = inputLocks ? [] : null;
 
   // ── Weld vertices at the export grid, SNAPPING coords onto that grid ─────────
   // The export writes coordinates rounded to 1/Q (toFixed(4) for Q=1e4). If we
@@ -131,6 +133,7 @@ export function resolveTJunctions(geometry, opts = {}) {
     const cx = uy*wz - uz*wy, cy = uz*wx - ux*wz, cz = ux*wy - uy*wx;
     if (cx*cx + cy*cy + cz*cz < DEGEN_AREA2) { droppedNeedles++; continue; }
     faces.push([a, b, c]);
+    if (faceLocks) faceLocks.push(inputLocks[t] ? 1 : 0);
   }
 
   const ekey = (a, b) => (a < b ? a * 4294967296 + b : b * 4294967296 + a);
@@ -185,18 +188,27 @@ export function resolveTJunctions(geometry, opts = {}) {
 
     // Apply: replace each split face with a fan from its apex over the split edge.
     const next = [];
+    const nextLocks = faceLocks ? [] : null;
     for (let fi = 0; fi < faces.length; fi++) {
       const sp = splits.get(fi);
-      if (!sp) { next.push(faces[fi]); continue; }
+      if (!sp) {
+        next.push(faces[fi]);
+        if (nextLocks) nextLocks.push(faceLocks[fi]);
+        continue;
+      }
       const f = faces[fi], { a, b, mids } = sp;
       const apex = f[0] !== a && f[0] !== b ? f[0] : f[1] !== a && f[1] !== b ? f[1] : f[2];
       // Preserve winding: walk the base in the direction the face traverses it.
       let dirAB = false;
       for (let e = 0; e < 3; e++) if (f[e] === a && f[(e+1)%3] === b) { dirAB = true; break; }
       const seq = dirAB ? [a, ...mids, b] : [b, ...mids.slice().reverse(), a];
-      for (let s = 0; s < seq.length - 1; s++) next.push([seq[s], seq[s+1], apex]);
+      for (let s = 0; s < seq.length - 1; s++) {
+        next.push([seq[s], seq[s+1], apex]);
+        if (nextLocks) nextLocks.push(faceLocks[fi]);
+      }
     }
     faces = next;
+    faceLocks = nextLocks;
   }
 
   // ── Rebuild non-indexed soup with flat normals ──────────────────────────────
@@ -219,5 +231,6 @@ export function resolveTJunctions(geometry, opts = {}) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(out, 3));
   g.setAttribute('normal',   new THREE.BufferAttribute(nrm, 3));
+  if (faceLocks) g.userData.lockedFaces = Uint8Array.from(faceLocks);
   return g;
 }

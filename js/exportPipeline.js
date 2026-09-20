@@ -287,6 +287,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     const dispTriCount = displaced.attributes.position.count / 3;
     const needsDecimation = dispTriCount > settings.maxTriangles;
     finalGeometry = displaced;
+    if (lockedFaces) displaced.userData.lockedFaces = lockedFaces;
 
     // Decimation runs only in export mode (bake keeps the parent-face map,
     // which decimate drops): when over the target OR when flat-face harvesting
@@ -350,6 +351,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       runDecimation,
       needsDecimation,
       faceParentId: mode === 'bake' ? faceParentId : null,
+      lockedFaces: finalGeometry.userData.lockedFaces || null,
       repairStats,
     };
   } finally {

@@ -16,6 +16,7 @@
  * Protocol:
  *   worker → main: {type:'ready'}                       once imports resolve
  *   main → worker: {cmd:'run', input}                   see exportPipeline.js
+ *   main → worker: {cmd:'refine', input}                optimize posed export buffers
  *   worker → main: {type:'progress', stage, p, info}    forwarded events
  *   worker → main: {type:'done', result}                final buffers (transferred)
  *   worker → main: {type:'error', message}              pipeline threw
@@ -24,17 +25,23 @@
  */
 
 import { runExportPipeline } from './exportPipeline.js';
+import { refineExportMesh } from './exportRefinement.js';
 
 self.onmessage = async (e) => {
   const msg = e.data;
-  if (!msg || msg.cmd !== 'run') return;
+  if (!msg || (msg.cmd !== 'run' && msg.cmd !== 'refine')) return;
   try {
-    const result = await runExportPipeline(msg.input, (stage, p, info) => {
+    const emit = (stage, p, info) => {
       self.postMessage({ type: 'progress', stage, p, info });
-    });
+    };
+    if (msg.cmd === 'refine') emit('refine', 0);
+    const result = msg.cmd === 'refine'
+      ? await refineExportMesh(msg.input)
+      : await runExportPipeline(msg.input, emit);
     const transfers = [result.positions.buffer];
     if (result.normals) transfers.push(result.normals.buffer);
     if (result.faceParentId) transfers.push(result.faceParentId.buffer);
+    if (result.lockedFaces) transfers.push(result.lockedFaces.buffer);
     self.postMessage({ type: 'done', result }, transfers);
   } catch (err) {
     self.postMessage({ type: 'error', message: (err && err.message) || String(err) });
