@@ -49,6 +49,9 @@
  *   touch are left completely untouched. If locked faces alone reach the
  *   triangle target the run degrades to harvest-only and the returned
  *   geometry carries userData.lockedOverBudget = true.
+ * @param {function|null}        [outputCoordinate] map to serialized coordinates
+ *   when checking collapse normals and zero-area triangles (final export only)
+ * @param {number}               [deadline] absolute performance.now() deadline
  * @returns {THREE.BufferGeometry}
  */
 
@@ -113,12 +116,12 @@ function _yieldFrame() {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL, lockedFaces = null) {
+export async function decimate(geometry, targetTriangles, onProgress, harvestFlat = true, harvestTol = DEFAULT_HARVEST_TOL, lockedFaces = null, outputCoordinate = null, deadline = Infinity) {
   const { positions, faces, vertCount, faceCount } = buildIndexed(geometry);
 
   // Already at/under the target: nothing to decimate. But if harvesting is on we
   // still run — there may be flat faces collapsible for free even below the limit.
-  if (faceCount <= targetTriangles && !harvestFlat) return buildOutput(positions, faces, faceCount);
+  if (faceCount <= targetTriangles && !harvestFlat) return buildOutput(positions, faces, faceCount, lockedFaces);
 
   // Preserve-untextured (beta): a vertex touching any locked (untextured) face
   // may neither move nor be removed, so edges with a locked endpoint are never
@@ -146,7 +149,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
     && lockedFaceCount >= targetTriangles;
   if (lockedOverBudget && !harvestFlat) {
     if (onProgress) onProgress(1);
-    const out = buildOutput(positions, faces, faceCount);
+    const out = buildOutput(positions, faces, faceCount, lockedFaces);
     out.userData.lockedOverBudget = true;
     return out;
   }
@@ -204,6 +207,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
   let   reachedTarget = lockedOverBudget; // over-budget lock → harvest-only from the start
 
   while (heap.size() > 0) {
+    if (iterations % 1024 === 0 && performance.now() >= deadline) break;
     // Termination / harvest gate. On reaching the target we either stop (feature
     // off) or enter harvest mode and keep collapsing below the error tolerance.
     if (activeFaces <= targetTriangles) {
@@ -246,8 +250,8 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
     // ── Three safety guards ───────────────────────────────────────────────────
     lkEpoch += 2;  // +2 so ep and ep+1 never collide with the next call
     if (hasLinkViolation(faces, vfHead, slotFace, slotNext, v1, v2, lkStamp, lkEpoch)) continue; // Guard 2
-    if (checkFlipped(positions, vfHead, slotFace, slotNext, faces, v1, v2, px, py, pz)) continue; // Guard 3a
-    if (checkFlipped(positions, vfHead, slotFace, slotNext, faces, v2, v1, px, py, pz)) continue; // Guard 3b
+    if (checkFlipped(positions, vfHead, slotFace, slotNext, faces, v1, v2, px, py, pz, outputCoordinate)) continue; // Guard 3a
+    if (checkFlipped(positions, vfHead, slotFace, slotNext, faces, v2, v1, px, py, pz, outputCoordinate)) continue; // Guard 3b
 
     // ── Collapse: keep v1 at new position, remove v2 ─────────────────────────
     positions[v1 * 3]     = px;
@@ -303,7 +307,7 @@ export async function decimate(geometry, targetTriangles, onProgress, harvestFla
   }
 
   if (onProgress) onProgress(1);
-  const out = buildOutput(positions, faces, faceCount);
+  const out = buildOutput(positions, faces, faceCount, lockedFaces);
   if (lockedOverBudget) out.userData.lockedOverBudget = true;
   return out;
 }
@@ -425,7 +429,7 @@ function hasLinkViolation(faces, vfHead, slotFace, slotNext, v1, v2, lkStamp, ep
 //   dot(on_norm, nn_norm) < FLIP_DOT
 //   ⟺  rawDot < 0  OR  rawDot² < FLIP_DOT² · |on|² · |nn|²
 
-function checkFlipped(positions, vfHead, slotFace, slotNext, faces, vc, vo, npx, npy, npz) {
+function checkFlipped(positions, vfHead, slotFace, slotNext, faces, vc, vo, npx, npy, npz, outputCoordinate) {
   for (let s = vfHead[vc]; s >= 0; s = slotNext[s]) {
     const f = slotFace[s];
     if (faces[f * 3] < 0) continue;
@@ -445,12 +449,19 @@ function checkFlipped(positions, vfHead, slotFace, slotNext, faces, vc, vo, npx,
     if (fa === vc)      { nax = npx; nay = npy; naz = npz; nbx = obx; nby = oby; nbz = obz; ncx = ocx; ncy = ocy; ncz = ocz; }
     else if (fb === vc) { nax = oax; nay = oay; naz = oaz; nbx = npx; nby = npy; nbz = npz; ncx = ocx; ncy = ocy; ncz = ocz; }
     else                { nax = oax; nay = oay; naz = oaz; nbx = obx; nby = oby; nbz = obz; ncx = npx; ncy = npy; ncz = npz; }
+    // Final export refinement must also survive Float32 / file rounding.
+    if (outputCoordinate) {
+      nax=outputCoordinate(nax);nay=outputCoordinate(nay);naz=outputCoordinate(naz);
+      nbx=outputCoordinate(nbx);nby=outputCoordinate(nby);nbz=outputCoordinate(nbz);
+      ncx=outputCoordinate(ncx);ncy=outputCoordinate(ncy);ncz=outputCoordinate(ncz);
+    }
     // Unnormalized new normal
     const nux = nbx-nax, nuy = nby-nay, nuz = nbz-naz;
     const nvx = ncx-nax, nvy = ncy-nay, nvz = ncz-naz;
     const nnx = nuy*nvz - nuz*nvy;
     const nny = nuz*nvx - nux*nvz;
     const nnz = nux*nvy - nuy*nvx;
+    if (outputCoordinate && nnx*nnx+nny*nny+nnz*nnz < 1e-24) return true;
     // Squared-dot flip test (avoids sqrt + division)
     const rawDot = onx*nnx + ony*nny + onz*nnz;
     if (rawDot < 0) return true;
@@ -706,16 +717,18 @@ function buildIndexed(geometry) {
 
 // (adjacency helpers replaced by buildLinkedAdj and _unlinkSlot/_moveSlot above)
 
-function buildOutput(positions, faces, faceCount) {
+function buildOutput(positions, faces, faceCount, lockedFaces = null) {
   let activeFaces = 0;
   for (let f = 0; f < faceCount; f++) {
     if (faces[f * 3] >= 0) activeFaces++;
   }
 
   const posArray = new Float32Array(activeFaces * 9);
+  const outputLocks = lockedFaces ? new Uint8Array(activeFaces) : null;
   let out = 0;
   for (let f = 0; f < faceCount; f++) {
     if (faces[f * 3] < 0) continue;
+    if (outputLocks) outputLocks[out / 9] = lockedFaces[f] ? 1 : 0;
     for (let v = 0; v < 3; v++) {
       const vi = faces[f * 3 + v];
       posArray[out++] = positions[vi * 3];
@@ -744,6 +757,7 @@ function buildOutput(positions, faces, faceCount) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
   geo.setAttribute('normal',   new THREE.BufferAttribute(nrmArray, 3));
+  if (outputLocks) geo.userData.lockedFaces = outputLocks;
   return geo;
 }
 

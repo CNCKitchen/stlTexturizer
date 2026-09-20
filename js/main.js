@@ -4751,6 +4751,8 @@ async function handleExport(format = 'stl') {
   exportBtn.classList.add('busy');
   export3mfBtn.classList.add('busy');
   exportProgress.classList.remove('hidden');
+  const summary = document.getElementById('export-refinement-summary');
+  summary.textContent = '';
 
   let finalGeometry   = null;
   let exportSucceeded = false; // set true only after exportSTL so finally can clean up on abort/error
@@ -4807,9 +4809,15 @@ async function handleExport(format = 'stl') {
     // bench-pipeline fingerprint valid. result arrays are fresh; mutating is safe.
     _restoreOriginalPose(result.positions, result.normals);
 
+    const refined = await runPipeline({
+      positions: result.positions, normals: result.normals,
+      lockedFaces: result.lockedFaces, format,
+    }, _onExportPipelineEvent, isStale, 'refine');
+    if (!refined || isStale()) return;
+
     finalGeometry = new THREE.BufferGeometry();
-    finalGeometry.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
-    if (result.normals) finalGeometry.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
+    finalGeometry.setAttribute('position', new THREE.BufferAttribute(refined.positions, 3));
+    if (refined.normals) finalGeometry.setAttribute('normal', new THREE.BufferAttribute(refined.normals, 3));
 
     if (result.repairStats) {
       const rs = result.repairStats;
@@ -4843,6 +4851,11 @@ async function handleExport(format = 'stl') {
       exportSTL(finalGeometry, `${baseName}.stl`);
     }
     exportSucceeded = true;
+    const { before, after } = refined.refinement;
+    summary.textContent = t(before === after ? 'ui.refinementUnchanged' : 'ui.refinementReduced', {
+      before: before.toLocaleString(getLang()), after: after.toLocaleString(getLang()),
+      percent: (100 * (1 - after / before)).toLocaleString(getLang(), { maximumFractionDigits: 1 }),
+    });
 
     setProgress(1.0, t('progress.done'));
     setTimeout(() => {
@@ -4908,6 +4921,9 @@ function _onExportPipelineEvent(stage, p, info) {
       break;
     case 'repair':
       setProgress(0.96, t('progress.repairingMesh'));
+      break;
+    case 'refine':
+      setProgress(0.96, t('progress.optimizingMesh'));
       break;
   }
 }
@@ -5002,13 +5018,17 @@ function _initPipelineWorker() {
   });
 }
 
-async function runPipeline(input, onEvent, isStale) {
+async function runPipeline(input, onEvent, isStale, cmd = 'run') {
   // Prefer the worker. Fall back to inline ONLY on init failure — a pipeline
   // error inside the worker (e.g. OOM) must propagate to the caller's alert,
   // not silently re-run the same doomed job on the main thread.
   const w = await ensurePipelineWorker();
   if (isStale()) return null;
   if (!w) {
+    // Optional optimization should not block the UI when workers are unavailable.
+    if (cmd === 'refine') return { ...input, refinement: {
+      before: input.positions.length / 9, after: input.positions.length / 9,
+    } };
     return runExportPipeline(input, onEvent, isStale);
   }
   return new Promise((resolve, reject) => {
@@ -5022,7 +5042,9 @@ async function runPipeline(input, onEvent, isStale) {
       else if (m.type === 'error') { cleanup(); reject(new Error(m.message)); }
     };
     w.onerror = (e) => { kill(); reject(new Error((e && e.message) || 'export worker crashed')); };
-    w.postMessage({ cmd: 'run', input });
+    const transfers = cmd === 'refine'
+      ? [input.positions, input.normals, input.lockedFaces].filter(Boolean).map(a => a.buffer) : [];
+    w.postMessage({ cmd, input }, [...new Set(transfers)]);
   });
 }
 
