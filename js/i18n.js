@@ -10,6 +10,7 @@ export const TRANSLATIONS = {
   en: { 'lang.name': 'English' },
   de: { 'lang.name': 'Deutsch' },
   da: { 'lang.name': 'Dansk' },
+  fi: { 'lang.name': 'Suomi' },
   it: { 'lang.name': 'Italiano' },
   es: { 'lang.name': 'Español' },
   pt: { 'lang.name': 'Português' },
