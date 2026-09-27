@@ -434,7 +434,7 @@ const imprintClose   = document.getElementById('imprint-close');
 // ── Welcome / What's New popup ───────────────────────────────────────────────
 // Bump this date whenever the "What's New" bullets in index.html change to
 // re-show the popup to all returning visitors who previously dismissed it.
-const WELCOME_LAST_UPDATED = '2026-07-23';
+const WELCOME_LAST_UPDATED = '2026-09-27';
 const WELCOME_STORAGE_KEY  = 'stlt-welcome-seen';
 const welcomeLink     = document.getElementById('welcome-link');
 const welcomeOverlay  = document.getElementById('welcome-overlay');
