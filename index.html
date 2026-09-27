@@ -219,16 +219,23 @@
       <section class="panel-section">
         <h2 data-i18n="sections.displacementMap">Displacement Map</h2>
 
-        <!-- Preset grid -->
-        <div id="preset-grid" class="preset-grid">
-          <!-- filled by js/presetTextures.js -->
-        </div>
+        <!-- Favourites grid (4 wide, grows by rows), filled by js/textureGallery.js -->
+        <div id="preset-grid" class="preset-grid"></div>
 
-        <!-- Custom upload -->
-        <label class="upload-btn" for="texture-file-input">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <span data-i18n="ui.uploadCustomMap">Upload custom map</span>
-        </label>
+        <div class="map-actions">
+          <!-- Full catalogue -->
+          <button id="texture-gallery-btn" class="upload-btn gallery-open-btn" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <span data-i18n="ui.textureGallery">Texture Gallery</span>
+            <span id="texture-gallery-count" class="gallery-open-count"></span>
+          </button>
+
+          <!-- Custom upload -->
+          <label class="upload-btn" for="texture-file-input">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span data-i18n="ui.uploadCustomMap">Upload custom map</span>
+          </label>
+        </div>
         <input type="file" id="texture-file-input" accept="image/*" hidden />
         <div id="custom-map-row" class="custom-map-row hidden">
           <div id="custom-map-swatch" class="preset-swatch custom-map-swatch" role="button" tabindex="0" data-i18n-title="ui.customMap" title="Custom map"></div>
@@ -463,6 +470,13 @@
           <input type="number" class="val" id="excl-brush-radius-val" value="10" min="0.2" max="100" step="0.2" data-wheel-decimals="1" />
         </div>
 
+        <!-- Hardness slider (shown when Brush + Radius) -->
+        <div id="excl-hardness-row" class="form-row slider-row hidden">
+          <label for="excl-brush-hardness-slider" data-i18n="labels.hardness" data-i18n-title="tooltips.hardness" title="Edge softness of the circle brush, in %. 100 = hard, face-exact mask. Lower values fade the mask out toward the brush rim for smooth borders. Soft paint is stored per mesh vertex, so enable Precision for smooth gradients on coarse meshes. Shift erases softly too.">Hardness %</label>
+          <input type="range" id="excl-brush-hardness-slider" min="0" max="100" step="1" value="100" />
+          <input type="number" class="val" id="excl-brush-hardness-val" value="100" min="0" max="100" step="1" />
+        </div>
+
         <!-- Bucket threshold (shown when Fill is active) -->
         <div id="excl-threshold-row" class="form-row slider-row hidden">
           <label for="excl-threshold-slider" data-i18n="labels.maxAngle" data-i18n-title="tooltips.maxAngle" title="Maximum dihedral angle between adjacent triangles for the fill to cross">Max angle</label>
@@ -661,6 +675,27 @@
     </div>
   </div>
 
+  <!-- Texture gallery popup (filled by js/textureGallery.js) -->
+  <div id="gallery-overlay" class="license-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="gallery-title">
+    <div class="license-modal gallery-modal">
+      <button id="gallery-close" class="license-close-btn" aria-label="Close">&#215;</button>
+      <h2 id="gallery-title" data-i18n="gallery.title">Texture Gallery</h2>
+      <div class="gallery-toolbar">
+        <input type="search" id="gallery-search" class="gallery-search" autocomplete="off" spellcheck="false" />
+        <div id="gallery-chips" class="gallery-chips" role="group" data-i18n-aria-label="gallery.filterLabel" aria-label="Filter by category"></div>
+      </div>
+      <div class="gallery-status">
+        <span class="gallery-hint" data-i18n="gallery.hint">Click a texture to use it. Star your favorites to pin them to the panel.</span>
+        <span class="gallery-fav-tools">
+          <span id="gallery-fav-count"></span>
+          <button id="gallery-fav-reset" class="gallery-link-btn" type="button" data-i18n="gallery.resetFavourites">Reset favourites</button>
+        </span>
+      </div>
+      <div id="gallery-body" class="gallery-body"></div>
+      <p class="gallery-credits" data-i18n-html="gallery.credits">Patterns marked <strong>HP</strong> are based on <a href="https://heropatterns.com/" target="_blank" rel="noopener">Hero Patterns</a> by Steve Schoger, licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> and converted to heightmaps. Textures marked <strong>CC0</strong> come from <a href="https://ambientcg.com/" target="_blank" rel="noopener">ambientCG</a> and <a href="https://polyhaven.com/" target="_blank" rel="noopener">Poly Haven</a> (public domain). All other textures ship with BumpMesh.</p>
+    </div>
+  </div>
+
   <div id="license-overlay" class="license-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="license-title">
     <div class="license-modal">
       <button id="license-close" class="license-close-btn" aria-label="Close">&#215;</button>
@@ -743,6 +778,7 @@
       <ul class="welcome-changelog">
         <li><strong>STEP import</strong> &mdash; load CAD files (.step / .stp) directly: they&rsquo;re converted to a mesh right in your browser by our new open-source <a href="https://github.com/CNCKitchen/meshStep" target="_blank" rel="noopener">meshStep</a> library, with coarse / standard / fine quality presets.</li>
         <li><strong>Smooth Mask transitions</strong> &mdash; choose how the texture fades out at masked boundaries: Linear, S-Curve, or the new default Ease-In for a gentler blend at the mask edge.</li>
+        <li><strong>Texture size in millimeters</strong> &mdash; the texture scale controls now set the tile size as absolute values in mm instead of relative to the model, so the same settings give the same physical texture on any model.</li>
       </ul>
 
       <label class="sponsor-no-show">

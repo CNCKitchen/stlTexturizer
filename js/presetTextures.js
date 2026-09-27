@@ -6,7 +6,6 @@
 import * as THREE from 'three';
 
 const SIZE  = 512; // texture resolution for both preview and sampling
-const THUMB = 80;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,57 +23,114 @@ function fitDimensions(imgW, imgH) {
 }
 
 // ── Image-based presets ───────────────────────────────────────────────────────
+// category: gallery filter group (see PRESET_CATEGORIES).
+// credit:   'hero' = derived from Hero Patterns (CC BY 4.0, attribution required),
+//           'cc0'  = public-domain map from ambientCG / Poly Haven (`source` = asset page).
 
 const IMAGE_PRESETS = [
-  { name: 'Basket',       url: 'textures/basket.png',       thumb: 'textures/thumbs/basket.webp',       defaultScale: 0.5 },
-  { name: 'Brick',        url: 'textures/brick.png',        thumb: 'textures/thumbs/brick.webp',        defaultScale: 0.5 },
-  { name: 'Bubble',       url: 'textures/bubble.png',       thumb: 'textures/thumbs/bubble.webp',       defaultScale: 0.5 },
-  { name: 'Carbon Fiber', url: 'textures/carbonFiber.jpg',  thumb: 'textures/thumbs/carbonFiber.webp',  defaultScale: 0.5 },
-  { name: 'Crystal',      url: 'textures/crystal.png',      thumb: 'textures/thumbs/crystal.webp',      defaultScale: 0.5 },
-  { name: 'Dots',         url: 'textures/dots.png',         thumb: 'textures/thumbs/dots.webp',         defaultScale: 0.1 },
-  { name: 'Grid',         url: 'textures/grid.png',         thumb: 'textures/thumbs/grid.webp',         defaultScale: 1.0 },
-  { name: 'Grip Surface', url: 'textures/gripSurface.jpg',  thumb: 'textures/thumbs/gripSurface.webp',  defaultScale: 0.5 },
-  { name: 'Hexagon',      url: 'textures/hexagon.jpg',      thumb: 'textures/thumbs/hexagon.webp',      defaultScale: 0.5 },
-  { name: 'Hexagons',     url: 'textures/hexagons.jpg',     thumb: 'textures/thumbs/hexagons.webp',     defaultScale: 1.0 },
-  { name: 'Isogrid',      url: 'textures/isogrid.png',      thumb: 'textures/thumbs/isogrid.webp',      defaultScale: 0.5 },
-  { name: 'Knitting',     url: 'textures/knitting.png',     thumb: 'textures/thumbs/knitting.webp',     defaultScale: 0.25 },
-  { name: 'Knurling',     url: 'textures/knurling.jpg',     thumb: 'textures/thumbs/knurling.webp',     defaultScale: 0.15 },
-  { name: 'Leather 2',    url: 'textures/leather2.png',     thumb: 'textures/thumbs/leather2.webp',     defaultScale: 0.5 },
-  { name: 'Noise',        url: 'textures/noise.jpg',        thumb: 'textures/thumbs/noise.webp',        defaultScale: 0.3 },
-  { name: 'Stripes 1',    url: 'textures/stripes.png',      thumb: 'textures/thumbs/stripes.webp',      defaultScale: 0.5 },
-  { name: 'Stripes 2',    url: 'textures/stripes_02.png',   thumb: 'textures/thumbs/stripes_02.webp',   defaultScale: 1.0 },
-  { name: 'Voronoi',      url: 'textures/voronoi.jpg',      thumb: 'textures/thumbs/voronoi.webp',      defaultScale: 0.5 },
-  { name: 'Weave 1',      url: 'textures/weave.png',        thumb: 'textures/thumbs/weave.webp',        defaultScale: 0.5 },
-  { name: 'Weave 2',      url: 'textures/weave_02.jpg',     thumb: 'textures/thumbs/weave_02.webp',     defaultScale: 0.5 },
-  { name: 'Weave 3',      url: 'textures/weave_03.jpg',     thumb: 'textures/thumbs/weave_03.webp',     defaultScale: 0.5 },
-  { name: 'Wood 1',       url: 'textures/wood.jpg',         thumb: 'textures/thumbs/wood.webp',         defaultScale: 0.5 },
-  { name: 'Wood 2',       url: 'textures/woodgrain_02.jpg', thumb: 'textures/thumbs/woodgrain_02.webp', defaultScale: 1.0 },
-  { name: 'Wood 3',       url: 'textures/woodgrain_03.jpg', thumb: 'textures/thumbs/woodgrain_03.webp', defaultScale: 1.0 },
+  { name: 'Armor',                url: 'textures/armor.png',                      thumb: 'textures/thumbs/armor.webp',                      defaultScale: 0.5,  category: 'natural' },
+  { name: 'Art Deco',             url: 'textures/artDeco.png',                    thumb: 'textures/thumbs/artDeco.webp',                    defaultScale: 0.5,  category: 'patterns' },
+  { name: 'Autumn',               url: 'textures/hero-autumn.png',                thumb: 'textures/thumbs/hero-autumn.webp',                defaultScale: 0.75, category: 'patterns', credit: 'hero' },
+  { name: 'Aztec',                url: 'textures/hero-aztec.png',                 thumb: 'textures/thumbs/hero-aztec.webp',                 defaultScale: 0.5,  category: 'patterns', credit: 'hero' },
+  { name: 'Bamboo',               url: 'textures/hero-bamboo.png',                thumb: 'textures/thumbs/hero-bamboo.webp',                defaultScale: 0.25, category: 'patterns', credit: 'hero' },
+  { name: 'Bank Note',            url: 'textures/hero-bank-note.png',             thumb: 'textures/thumbs/hero-bank-note.webp',             defaultScale: 0.8,  category: 'patterns', credit: 'hero' },
+  { name: 'Bark',                 url: 'textures/bark.png',                       thumb: 'textures/thumbs/bark.webp',                       defaultScale: 0.5,  category: 'natural', credit: 'cc0', source: 'https://ambientcg.com/view?id=Bark001' },
+  { name: 'Basket',               url: 'textures/basket.png',                     thumb: 'textures/thumbs/basket.webp',                     defaultScale: 0.5,  category: 'fabric' },
+  { name: 'Basket 2',             url: 'textures/basket_02.png',                  thumb: 'textures/thumbs/basket_02.webp',                  defaultScale: 0.5,  category: 'fabric' },
+  { name: 'Brick',                url: 'textures/brick.png',                      thumb: 'textures/thumbs/brick.webp',                      defaultScale: 0.5,  category: 'geometric' },
+  { name: 'Brick 2',              url: 'textures/brick_02.png',                   thumb: 'textures/thumbs/brick_02.webp',                   defaultScale: 0.5,  category: 'geometric' },
+  { name: 'Bubble',               url: 'textures/bubble.png',                     thumb: 'textures/thumbs/bubble.webp',                     defaultScale: 0.5,  category: 'organic' },
+  { name: 'Bubbles',              url: 'textures/hero-bubbles.png',               thumb: 'textures/thumbs/hero-bubbles.webp',               defaultScale: 0.8,  category: 'patterns', credit: 'hero' },
+  { name: 'Cage',                 url: 'textures/hero-cage.png',                  thumb: 'textures/thumbs/hero-cage.webp',                  defaultScale: 0.25, category: 'geometric', credit: 'hero' },
+  { name: 'Carbon Fiber',         url: 'textures/carbonFiber.jpg',                thumb: 'textures/thumbs/carbonFiber.webp',                defaultScale: 0.5,  category: 'fabric' },
+  { name: 'Carbon Twill',         url: 'textures/carbonTwill.png',                thumb: 'textures/thumbs/carbonTwill.webp',                defaultScale: 0.75, category: 'fabric' },
+  { name: 'Chainmail',            url: 'textures/chainmail.png',                  thumb: 'textures/thumbs/chainmail.webp',                  defaultScale: 0.4,  category: 'fabric' },
+  { name: 'Chevron',              url: 'textures/chevron.png',                    thumb: 'textures/thumbs/chevron.webp',                    defaultScale: 0.5,  category: 'geometric' },
+  { name: 'Circles',              url: 'textures/circles.png',                    thumb: 'textures/thumbs/circles.webp',                    defaultScale: 0.35, category: 'geometric' },
+  { name: 'Connections',          url: 'textures/hero-connections.png',           thumb: 'textures/thumbs/hero-connections.webp',           defaultScale: 0.3,  category: 'patterns', credit: 'hero' },
+  { name: 'Crystal',              url: 'textures/crystal.png',                    thumb: 'textures/thumbs/crystal.webp',                    defaultScale: 0.5,  category: 'organic' },
+  { name: 'Cubes',                url: 'textures/cubes.png',                      thumb: 'textures/thumbs/cubes.webp',                      defaultScale: 0.5,  category: 'geometric' },
+  { name: 'Current',              url: 'textures/hero-current.png',               thumb: 'textures/thumbs/hero-current.webp',               defaultScale: 0.6,  category: 'patterns', credit: 'hero' },
+  { name: 'Curtain',              url: 'textures/hero-curtain.png',               thumb: 'textures/thumbs/hero-curtain.webp',               defaultScale: 0.4,  category: 'patterns', credit: 'hero' },
+  { name: 'Death Star',           url: 'textures/hero-death-star.png',            thumb: 'textures/thumbs/hero-death-star.webp',            defaultScale: 1.0,  category: 'patterns', credit: 'hero' },
+  { name: 'Dots',                 url: 'textures/dots.png',                       thumb: 'textures/thumbs/dots.webp',                       defaultScale: 0.1,  category: 'geometric' },
+  { name: 'Endless Clouds',       url: 'textures/hero-endless-clouds.png',        thumb: 'textures/thumbs/hero-endless-clouds.webp',        defaultScale: 0.45, category: 'patterns', credit: 'hero' },
+  { name: 'Eyes',                 url: 'textures/hero-eyes.png',                  thumb: 'textures/thumbs/hero-eyes.webp',                  defaultScale: 0.3,  category: 'patterns', credit: 'hero' },
+  { name: 'Falling Triangles',    url: 'textures/hero-falling-triangles.png',     thumb: 'textures/thumbs/hero-falling-triangles.webp',     defaultScale: 0.55, category: 'geometric', credit: 'hero' },
+  { name: 'Fish Scales',          url: 'textures/fishScales.png',                 thumb: 'textures/thumbs/fishScales.webp',                 defaultScale: 0.4,  category: 'natural' },
+  { name: 'Flipped Diamonds',     url: 'textures/hero-flipped-diamonds.png',      thumb: 'textures/thumbs/hero-flipped-diamonds.webp',      defaultScale: 0.5,  category: 'geometric', credit: 'hero' },
+  { name: 'Floating Cogs',        url: 'textures/hero-floating-cogs.png',         thumb: 'textures/thumbs/hero-floating-cogs.webp',         defaultScale: 1.0,  category: 'patterns', credit: 'hero' },
+  { name: 'Formal Invitation',    url: 'textures/hero-formal-invitation.png',     thumb: 'textures/thumbs/hero-formal-invitation.webp',     defaultScale: 0.85, category: 'patterns', credit: 'hero' },
+  { name: 'Four Point Stars',     url: 'textures/hero-four-point-stars.png',      thumb: 'textures/thumbs/hero-four-point-stars.webp',      defaultScale: 0.2,  category: 'geometric', credit: 'hero' },
+  { name: 'Grid',                 url: 'textures/grid.png',                       thumb: 'textures/thumbs/grid.webp',                       defaultScale: 1.0,  category: 'geometric' },
+  { name: 'Grip Surface',         url: 'textures/gripSurface.png',                thumb: 'textures/thumbs/gripSurface.webp',                defaultScale: 0.5,  category: 'grip' },
+  { name: 'Groovy',               url: 'textures/hero-groovy.png',                thumb: 'textures/thumbs/hero-groovy.webp',                defaultScale: 0.6,  category: 'patterns', credit: 'hero' },
+  { name: 'Happy Intersection',   url: 'textures/hero-happy-intersection.png',    thumb: 'textures/thumbs/hero-happy-intersection.webp',    defaultScale: 0.7,  category: 'patterns', credit: 'hero' },
+  { name: 'Hexagon',              url: 'textures/hexagon.png',                    thumb: 'textures/thumbs/hexagon.webp',                    defaultScale: 0.5,  category: 'geometric' },
+  { name: 'Hexagon Outline',      url: 'textures/hero-hexagons.png',              thumb: 'textures/thumbs/hero-hexagons.webp',              defaultScale: 0.45, category: 'geometric', credit: 'hero' },
+  { name: 'Hexagons',             url: 'textures/hexagons.png',                   thumb: 'textures/thumbs/hexagons.webp',                   defaultScale: 1.0,  category: 'geometric' },
+  { name: 'Intersecting Circles', url: 'textures/hero-intersecting-circles.png',  thumb: 'textures/thumbs/hero-intersecting-circles.webp',  defaultScale: 0.25, category: 'geometric', credit: 'hero' },
+  { name: 'Isogrid',              url: 'textures/isogrid.png',                    thumb: 'textures/thumbs/isogrid.webp',                    defaultScale: 0.5,  category: 'grip' },
+  { name: 'Knitting',             url: 'textures/knitting.png',                   thumb: 'textures/thumbs/knitting.webp',                   defaultScale: 0.25, category: 'fabric' },
+  { name: 'Knurling',             url: 'textures/knurling.png',                   thumb: 'textures/thumbs/knurling.webp',                   defaultScale: 0.15, category: 'grip' },
+  { name: 'Labyrinth',            url: 'textures/labyrinth.png',                  thumb: 'textures/thumbs/labyrinth.webp',                  defaultScale: 0.75, category: 'organic' },
+  { name: 'Leather 2',            url: 'textures/leather2.png',                   thumb: 'textures/thumbs/leather2.webp',                   defaultScale: 0.5,  category: 'natural' },
+  { name: 'Leaves',               url: 'textures/leaves.png',                     thumb: 'textures/thumbs/leaves.webp',                     defaultScale: 0.5,  category: 'natural', credit: 'cc0', source: 'https://ambientcg.com/view?id=ScatteredLeaves007' },
+  { name: 'Lips',                 url: 'textures/hero-lips.png',                  thumb: 'textures/thumbs/hero-lips.webp',                  defaultScale: 0.9,  category: 'patterns', credit: 'hero' },
+  { name: 'Lisbon',               url: 'textures/hero-lisbon.png',                thumb: 'textures/thumbs/hero-lisbon.webp',                defaultScale: 0.6,  category: 'patterns', credit: 'hero' },
+  { name: 'Melt',                 url: 'textures/hero-melt.png',                  thumb: 'textures/thumbs/hero-melt.webp',                  defaultScale: 0.2,  category: 'patterns', credit: 'hero' },
+  { name: 'Noise',                url: 'textures/noise.png',                      thumb: 'textures/thumbs/noise.webp',                      defaultScale: 0.3,  category: 'organic' },
+  { name: 'Pine Bark',            url: 'textures/pineBark.png',                   thumb: 'textures/thumbs/pineBark.webp',                   defaultScale: 0.75, category: 'natural', credit: 'cc0', source: 'https://polyhaven.com/a/pine_bark' },
+  { name: 'Plain Weave',          url: 'textures/plainWeave.png',                 thumb: 'textures/thumbs/plainWeave.webp',                 defaultScale: 0.5,  category: 'fabric' },
+  { name: 'Plus',                 url: 'textures/plus.png',                       thumb: 'textures/thumbs/plus.webp',                       defaultScale: 0.5,  category: 'geometric' },
+  { name: 'Rain',                 url: 'textures/hero-rain.png',                  thumb: 'textures/thumbs/hero-rain.webp',                  defaultScale: 0.4,  category: 'geometric', credit: 'hero' },
+  { name: 'Roof Tiles',           url: 'textures/roofTiles.png',                  thumb: 'textures/thumbs/roofTiles.webp',                  defaultScale: 0.5,  category: 'natural', credit: 'cc0', source: 'https://ambientcg.com/view?id=RoofingTiles002' },
+  { name: 'Roof Tiles 2',         url: 'textures/roofTiles_02.png',               thumb: 'textures/thumbs/roofTiles_02.webp',               defaultScale: 0.75, category: 'natural', credit: 'cc0', source: 'https://ambientcg.com/view?id=RoofingTiles004' },
+  { name: 'Shingles',             url: 'textures/shingles.png',                   thumb: 'textures/thumbs/shingles.webp',                   defaultScale: 0.5,  category: 'natural', credit: 'cc0', source: 'https://ambientcg.com/view?id=RoofingTiles001' },
+  { name: 'Signal',               url: 'textures/hero-signal.png',                thumb: 'textures/thumbs/hero-signal.webp',                defaultScale: 0.75, category: 'geometric', credit: 'hero' },
+  { name: 'Speckle',              url: 'textures/hero-texture.png',               thumb: 'textures/thumbs/hero-texture.webp',               defaultScale: 0.1,  category: 'geometric', credit: 'hero' },
+  { name: 'Straw',                url: 'textures/straw.png',                      thumb: 'textures/thumbs/straw.webp',                      defaultScale: 0.5,  category: 'natural', credit: 'cc0', source: 'https://polyhaven.com/a/thatch_roof_angled' },
+  { name: 'Stripes 1',            url: 'textures/stripes.png',                    thumb: 'textures/thumbs/stripes.webp',                    defaultScale: 0.5,  category: 'geometric' },
+  { name: 'Stripes 2',            url: 'textures/stripes_02.png',                 thumb: 'textures/thumbs/stripes_02.webp',                 defaultScale: 1.0,  category: 'geometric' },
+  { name: 'Tiles',                url: 'textures/tiles.png',                      thumb: 'textures/thumbs/tiles.webp',                      defaultScale: 0.5,  category: 'geometric' },
+  { name: 'Tiny Checkers',        url: 'textures/hero-tiny-checkers.png',         thumb: 'textures/thumbs/hero-tiny-checkers.webp',         defaultScale: 0.1,  category: 'geometric', credit: 'hero' },
+  { name: 'Twill',                url: 'textures/twill.png',                      thumb: 'textures/thumbs/twill.webp',                      defaultScale: 0.75, category: 'fabric', credit: 'cc0', source: 'https://ambientcg.com/view?id=Fabric004' },
+  { name: 'Twill 2',              url: 'textures/twill_02.png',                   thumb: 'textures/thumbs/twill_02.webp',                   defaultScale: 1.0,  category: 'fabric', credit: 'cc0', source: 'https://ambientcg.com/view?id=Fabric015' },
+  { name: 'Voronoi',              url: 'textures/voronoi.png',                    thumb: 'textures/thumbs/voronoi.webp',                    defaultScale: 0.5,  category: 'organic' },
+  { name: 'Weave 1',              url: 'textures/weave.png',                      thumb: 'textures/thumbs/weave.webp',                      defaultScale: 0.5,  category: 'fabric' },
+  { name: 'Weave 2',              url: 'textures/weave_02.png',                   thumb: 'textures/thumbs/weave_02.webp',                   defaultScale: 0.5,  category: 'fabric' },
+  { name: 'Weave 3',              url: 'textures/weave_03.png',                   thumb: 'textures/thumbs/weave_03.webp',                   defaultScale: 0.5,  category: 'fabric' },
+  { name: 'Wicker',               url: 'textures/wicker.png',                     thumb: 'textures/thumbs/wicker.webp',                     defaultScale: 1.0,  category: 'fabric', credit: 'cc0', source: 'https://ambientcg.com/view?id=Wicker001' },
+  { name: 'Wicker 2',             url: 'textures/wicker_02.png',                  thumb: 'textures/thumbs/wicker_02.webp',                  defaultScale: 0.5,  category: 'fabric', credit: 'cc0', source: 'https://ambientcg.com/view?id=Wicker009A' },
+  { name: 'Wood 1',               url: 'textures/wood.png',                       thumb: 'textures/thumbs/wood.webp',                       defaultScale: 0.5,  category: 'natural' },
+  { name: 'Wood 2',               url: 'textures/woodgrain_02.jpg',               thumb: 'textures/thumbs/woodgrain_02.webp',               defaultScale: 1.0,  category: 'natural' },
+  { name: 'Wood 3',               url: 'textures/woodgrain_03.png',               thumb: 'textures/thumbs/woodgrain_03.webp',               defaultScale: 1.0,  category: 'natural' },
+  { name: 'YYY',                  url: 'textures/hero-yyy.png',                   thumb: 'textures/thumbs/hero-yyy.webp',                   defaultScale: 1.0,  category: 'patterns', credit: 'hero' },
+];
+
+// Gallery filter groups, in display order. Labels are i18n keys.
+const PRESET_CATEGORIES = [
+  { id: 'geometric', label: 'gallery.catGeometric' },
+  { id: 'patterns',  label: 'gallery.catPatterns' },
+  { id: 'organic',   label: 'gallery.catOrganic' },
+  { id: 'fabric',    label: 'gallery.catFabric' },
+  { id: 'natural',   label: 'gallery.catNatural' },
+  { id: 'grip',      label: 'gallery.catGrip' },
+];
+
+// Default panel favourites (a 4×3 grid); users star their own in the gallery, and each extra 4
+// favourites add another row.
+const DEFAULT_FAVOURITES = [
+  'Crystal', 'Knurling', 'Carbon Fiber', 'Hexagons', 'Voronoi', 'Leather 2',
+  'Wood 2', 'Weave 1', 'Grip Surface', 'Fish Scales', 'Aztec', 'Labyrinth',
 ];
 
 // Cache for full-resolution preset data (keyed by index)
 const _fullPresetCache = new Map();
 
 /**
- * Load only the pre-computed thumbnail for a preset.
- * Returns { name, thumbCanvas, defaultScale }.
- */
-function loadPresetThumbnail(preset) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const thumb = makeCanvas(THUMB);
-      thumb.getContext('2d').drawImage(img, 0, 0, THUMB, THUMB);
-      resolve({ name: preset.name, thumbCanvas: thumb, defaultScale: preset.defaultScale });
-    };
-    img.onerror = () => reject(new Error(`Failed to load thumbnail: ${preset.thumb}`));
-    img.src = preset.thumb;
-  });
-}
-
-/**
  * Load the full-resolution texture for a preset (on demand).
- * Returns the full entry: { name, thumbCanvas, fullCanvas, texture, imageData, width, height, defaultScale }.
+ * Returns the full entry: { name, fullCanvas, texture, imageData, width, height, defaultScale }.
  * Results are cached so repeated calls for the same index return instantly.
  */
 export function loadFullPreset(idx) {
@@ -101,16 +157,7 @@ export function loadFullPreset(idx) {
   });
 }
 
-/**
- * Load all thumbnails. Returns Promise<Array<{ name, thumbCanvas, defaultScale }|null>>.
- */
-export function loadAllThumbnails() {
-  return Promise.all(IMAGE_PRESETS.map(p =>
-    loadPresetThumbnail(p).catch(() => null)
-  ));
-}
-
-export { IMAGE_PRESETS };
+export { IMAGE_PRESETS, PRESET_CATEGORIES, DEFAULT_FAVOURITES };
 
 
 /**

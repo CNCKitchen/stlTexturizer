@@ -25,7 +25,8 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 ## Features
 
 ### Textures
-- **24 built-in seamless textures** — basket, brick, bubble, carbon fiber, crystal, dots, grid, grip surface, hexagon, hexagons, isogrid, knitting, knurling, leather 2, noise, stripes (×2 variants), voronoi, weave (×3 variants), wood (×3 variants)
+- **78 built-in seamless textures** in six categories (geometric, patterns, organic, fabric, natural, grip): weaves, knurling, carbon twill, chainmail, scales, bark, wood grain, Hero Patterns and more
+- **Texture Gallery** — browse, search and filter the full catalogue; star favorites to pin them in the panel grid, which grows by a row per 4 (saved in the browser)
 - **Custom textures** — upload your own image as a displacement map
 - **Texture smoothing** — configurable blur to soften the displacement map before applying
 
@@ -104,12 +105,13 @@ index.html            # Main entry point
 style.css             # Styles (light / dark theme)
 logo.png              # Favicon & header logo
 CNAME                 # Custom domain (bumpmesh.com)
-textures/             # Built-in JPG/PNG displacement map images (24 textures)
+textures/             # Built-in JPG/PNG displacement map images (78 textures) + thumbs/
 js/
   main.js             # App bootstrap & UI wiring
   viewer.js           # Three.js scene / camera / controls
   stlLoader.js        # Binary & ASCII STL parser
-  presetTextures.js   # Built-in texture presets + custom upload
+  presetTextures.js   # Built-in texture presets (categories, credits, default favorites) + custom upload
+  textureGallery.js   # Favorites grid + Texture Gallery popup
   previewMaterial.js  # Three.js material for live & displacement preview
   mapping.js          # UV projection logic (7 modes)
   displacement.js     # Vertex displacement baking
@@ -176,6 +178,11 @@ Loaded via CDN ([jsDelivr](https://www.jsdelivr.com/)) — no build step or npm 
 | [fflate](https://github.com/101arrowz/fflate) | 0.8.2 | MIT | ZIP compression & decompression for 3MF import/export |
 
 All dependencies are MIT-licensed.
+
+## Texture Credits
+
+- Textures marked **HP** in the gallery are based on [Hero Patterns](https://heropatterns.com/) by Steve Schoger, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The SVG patterns were rasterised and converted to seamless heightmaps.
+- Textures marked **CC0** come from [ambientCG](https://ambientcg.com/) and [Poly Haven](https://polyhaven.com/) and are in the public domain (CC0 1.0). Thank you to both projects.
 
 ## License
 

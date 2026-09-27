@@ -121,6 +121,13 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   // Positions that belong to at least one user-excluded face (replaces excludedPosSet).
   const excludedPos = ewAttr ? new Uint8Array(uniqueCount) : null;
 
+  // Optional soft-brush exclusion amount per corner (softMask.js). Copies of
+  // one position can disagree where hard mask meets soft paint; the most-
+  // masked copy wins (same rule as the seal below), so every copy is
+  // displaced identically and the result stays watertight.
+  const seAttr = geometry.attributes.softExclude || null;
+  const softExclMax = seAttr ? new Float32Array(uniqueCount) : null;
+
   // Displacement cache: one sample per unique vertex (replaces dispCache Map)
   const dispCacheVal = new Float64Array(uniqueCount);
   const dispCacheSet = new Uint8Array(uniqueCount);
@@ -176,6 +183,10 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     for (let v = 0; v < 3; v++) {
       const vid = vertexId[t + v];
       if (userExcluded && excludedPos) excludedPos[vid] = 1;
+      if (softExclMax) {
+        const se = seAttr.getX(t + v);
+        if (se > softExclMax[vid]) softExclMax[vid] = se;
+      }
       // Use the buffer normal (from subdivision) weighted by face area.
       // The subdivision pipeline splits indexed vertices at sharp dihedral
       // edges (>30Â°), so the interpolated buffer normals are smooth across
@@ -536,7 +547,8 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
     const maskedFrac = mfTotal > 0 ? maskedFracMasked[vid] / mfTotal : 0;
     const centeredGrey = settings.symmetricDisplacement ? (grey - 0.5) : grey;
     const falloffFactor = falloffArr ? falloffArr[vid] : 1.0;
-    const disp = (isFaceExcluded || isSealedBoundary) ? 0 : falloffFactor * (1 - maskedFrac) * centeredGrey * settings.amplitude;
+    let disp = (isFaceExcluded || isSealedBoundary) ? 0 : falloffFactor * (1 - maskedFrac) * centeredGrey * settings.amplitude;
+    if (softExclMax) disp *= 1 - softExclMax[vid];
 
     const newX = tmpPos.x + smoothNrmX[vid] * disp;
     const newY = tmpPos.y + smoothNrmY[vid] * disp;

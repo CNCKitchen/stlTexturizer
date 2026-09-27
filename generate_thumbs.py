@@ -1,23 +1,19 @@
 # Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
 # SPDX-License-Identifier: AGPL-3.0-only
 
-"""Generate 80×80 WebP thumbnails for preset textures (cover-crop, center)."""
+"""Generate 160×160 WebP thumbnails for preset textures (cover-crop, center)."""
+import re
 from pathlib import Path
 from PIL import Image
 
-THUMB = 80
+THUMB = 160  # 2x the ~80 px swatch size so thumbnails stay sharp on HiDPI screens
 SRC = Path(__file__).parent / "textures"
 DST = SRC / "thumbs"
 DST.mkdir(exist_ok=True)
 
-PRESETS = [
-    "basket.png", "brick.png", "bubble.png", "carbonFiber.jpg",
-    "crystal.png", "dots.png", "grid.png", "gripSurface.jpg",
-    "hexagon.jpg", "hexagons.jpg", "isogrid.png", "knitting.png",
-    "knurling.jpg", "leather2.png", "noise.jpg", "stripes.png",
-    "stripes_02.png", "voronoi.jpg", "weave.png", "weave_02.jpg",
-    "weave_03.jpg", "wood.jpg", "woodgrain_02.jpg", "woodgrain_03.jpg",
-]
+# The preset list lives in js/presetTextures.js; take every texture file it references.
+_presets_js = (Path(__file__).parent / "js" / "presetTextures.js").read_text(encoding="utf-8")
+PRESETS = re.findall(r"url: 'textures/([^']+)'", _presets_js)
 
 total = 0
 for fname in PRESETS:

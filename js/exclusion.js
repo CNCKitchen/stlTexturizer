@@ -30,7 +30,9 @@ const QUANT = 1e4;
  *   adjacency:   Array<Array<{neighbor:number, angle:number}>>,
  *   centroids:   Float32Array   (triCount × 3, geometry-local centroid per triangle),
  *   boundRadii:  Float32Array   (triCount, max vertex-to-centroid distance per triangle),
- *   faceNormals: Float32Array   (triCount × 3, geometry-local unit face normal per triangle)
+ *   faceNormals: Float32Array   (triCount × 3, geometry-local unit face normal per triangle),
+ *   vertId:      Uint32Array    (triCount × 3, welded vertex id per corner),
+ *   vertCount:   number         (welded vertex count)
  * }}
  */
 export function buildAdjacency(geometry) {
@@ -122,7 +124,7 @@ export function buildAdjacency(geometry) {
     adjacency[b].push({ neighbor: a, angle: angleDeg });
   }
 
-  return { adjacency, centroids, boundRadii, faceNormals, openEdgeCount, nonManifoldEdgeCount };
+  return { adjacency, centroids, boundRadii, faceNormals, openEdgeCount, nonManifoldEdgeCount, vertId, vertCount: nextId };
 }
 
 // ── Bucket fill ───────────────────────────────────────────────────────────────
@@ -225,9 +227,13 @@ export function buildExclusionOverlayGeo(geometry, faceSet, invert = false) {
  *
  * @param {THREE.BufferGeometry} geometry
  * @param {Set<number>}          excludedFaces
+ * @param {boolean}              [invert=false]  include-only mode
+ * @param {Uint8Array|null}      [softFaces]     include-only mode: faces touched
+ *   by soft-brush paint (softMask.js) are partially textured, so they must not
+ *   be hard-excluded either
  * @returns {Float32Array}  length = geometry.attributes.position.count
  */
-export function buildFaceWeights(geometry, excludedFaces, invert = false) {
+export function buildFaceWeights(geometry, excludedFaces, invert = false, softFaces = null) {
   const count   = geometry.attributes.position.count;
   const weights = new Float32Array(count); // default 0.0 (included)
   if (invert) {
@@ -237,6 +243,14 @@ export function buildFaceWeights(geometry, excludedFaces, invert = false) {
       weights[t * 3]     = 0.0;
       weights[t * 3 + 1] = 0.0;
       weights[t * 3 + 2] = 0.0;
+    }
+    if (softFaces) {
+      for (let t = 0; t < softFaces.length; t++) {
+        if (!softFaces[t]) continue;
+        weights[t * 3]     = 0.0;
+        weights[t * 3 + 1] = 0.0;
+        weights[t * 3 + 2] = 0.0;
+      }
     }
   } else {
     for (const t of excludedFaces) {

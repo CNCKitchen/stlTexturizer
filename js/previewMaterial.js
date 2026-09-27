@@ -227,7 +227,7 @@ const vertexShader = /* glsl */`
   varying vec3  vNormal;      // view-space normal → lighting
   varying vec3  vSmoothNormal; // view-space smooth normal → smooth shading on masked faces
   varying float vFaceMask;    // combined mask (angle + user exclusion + boundary falloff)
-  varying float vUserMask;    // raw user-exclusion mask (0 = user-excluded, 1 = included)
+  varying float vUserMask;    // raw user-exclusion mask (0 = user-excluded, 1 = included, between = soft brush)
   varying float vMaskType;    // boundary mask type (0 = user mask, 1 = angle mask)
 
   void main() {
@@ -401,7 +401,9 @@ const fragmentShader = /* glsl */`
 
     // Mask tint: pick colour by mask type, compute same lighting with that base
     float maskEffect = 1.0 - maskBlend; // 0 = fully textured, 1 = fully masked
-    float effectiveMaskType = mix(vMaskType, 0.0, step(0.5, 1.0 - vUserMask));
+    // Any user-mask coverage (hard 0 or soft-brush fractions) tints in the
+    // user colour; only fully unmasked pixels defer to the boundary type.
+    float effectiveMaskType = mix(vMaskType, 0.0, step(0.001, 1.0 - vUserMask));
     vec3 maskBase = mix(userMaskColor, angleMaskColor, effectiveMaskType);
     vec3 litMask = maskBase * 0.55
                  + maskBase * diff1 * vec3(1.00, 0.96, 0.88) * 0.55

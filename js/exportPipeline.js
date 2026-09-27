@@ -18,6 +18,8 @@
  * @param {object} input
  *   positions     Float32Array  non-indexed triangle soup (xyz per vertex)
  *   faceWeights   Float32Array|null  per-vertex exclusion weights
+ *   softExclude   Float32Array|null  per-vertex soft-brush exclusion amount
+ *                 (softMask.js), interpolated onto the refined mesh
  *   imageData     ImageData-like {data, width, height}
  *   imgWidth, imgHeight  texture dimensions
  *   settings      plain settings snapshot (structured-clone safe)
@@ -43,6 +45,7 @@ import { regularizeMesh } from './regularize.js';
 import { applyDisplacement } from './displacement.js';
 import { decimate } from './decimation.js';
 import { resolveTJunctions, countEdgeDefects, countAreaSlivers } from './meshRepair.js';
+import { interpolateFromParents } from './softMask.js';
 
 const yieldFrame = () => new Promise(r => setTimeout(r, 0));
 
@@ -220,13 +223,18 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     ));
     if (shouldAbort()) return null;
 
+    // Soft-brush paint reaches the refined mesh through the parent-face map,
+    // so it needs real parents in export mode too.
+    const trackParents = mode === 'bake' || !!input.softExclude;
+
     // Regularize sub-slivers, then re-subdivide stretched edges. Skipped when
-    // the Advanced toggle is off. Export mode passes a zero parent map (it
-    // doesn't consume parents); bake mode threads + composes the real one.
+    // the Advanced toggle is off. Without parent tracking a zero parent map
+    // is passed (nothing consumes it); otherwise the real one is threaded
+    // through and composed.
     if (settings.regularizeEnabled) {
       onEvent('regularize', 0);
       await yieldFrame();
-      const regParents = mode === 'bake'
+      const regParents = trackParents
         ? faceParentId
         : new Int32Array(subdivided.attributes.position.count / 3);
       const reg = regularizeMesh(subdivided, regParents, settings.refineLength, regularizeOpts);
@@ -239,7 +247,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
         secondPassWeights, { fast: false }
       );
       reg.geometry.dispose();
-      if (mode === 'bake') {
+      if (trackParents) {
         const composed = new Int32Array(resubParents.length);
         for (let i = 0; i < resubParents.length; i++) {
           composed[i] = reg.faceParentId[resubParents[i]];
@@ -249,6 +257,12 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       subdivided = resub;
     }
     if (shouldAbort()) return null;
+
+    if (input.softExclude) {
+      subdivided.setAttribute('softExclude', new THREE.BufferAttribute(interpolateFromParents(
+        subdivided.attributes.position.array, faceParentId, input.positions, input.softExclude
+      ), 1));
+    }
 
     const subTriCount = subdivided.attributes.position.count / 3;
     onEvent('displace', 0, { triCount: subTriCount });

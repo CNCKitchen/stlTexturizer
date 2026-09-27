@@ -192,6 +192,20 @@ main {
   transform: translate(0, 0);
 }
 
+/* Soft brush: the dashed ring marks the hardness core — full strength inside,
+   fading out toward the outer rim. */
+#brush-cursor.soft::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--brush-hardness, 1) * 100%);
+  height: calc(var(--brush-hardness, 1) * 100%);
+  transform: translate(-50%, -50%);
+  border: 1px dashed rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+}
+
 #viewport-section {
   flex: 1 1 0;
   min-width: 0;
@@ -510,12 +524,24 @@ main {
   cursor: pointer;
 }
 
-/* ── Preset grid ─────────────────────────────────────────────────────── */
+/* ── Preset grid (favourites, 4 wide, grows by rows) ─────────────────── */
 .preset-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 3px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
   margin-bottom: 10px;
+}
+
+.preset-grid-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 14px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.5;
 }
 
 .preset-swatch {
@@ -531,11 +557,12 @@ main {
 .preset-swatch:hover { border-color: var(--text-muted); transform: scale(1.04); }
 .preset-swatch.active { border-color: var(--accent); }
 
-.preset-swatch canvas {
+.preset-swatch canvas,
+.preset-swatch img {
   width: 100%;
   height: 100%;
   display: block;
-  image-rendering: pixelated;
+  object-fit: cover;
 }
 
 .preset-swatch .preset-label {
@@ -545,9 +572,12 @@ main {
   right: 0;
   background: rgba(0,0,0,0.6);
   color: #fff;
-  font-size: 8px;
+  font-size: 10px;
   text-align: center;
-  padding: 1px 0;
+  padding: 2px 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -562,7 +592,7 @@ main {
   100% { opacity: .15; }
 }
 
-.preset-swatch.preset-loading canvas {
+.preset-swatch.preset-loading {
   background: var(--border);
   animation: preset-swatch-shimmer 1.2s ease-in-out infinite;
 }
@@ -611,6 +641,210 @@ main {
 .upload-btn:hover {
   background: var(--border);
   border-color: var(--accent);
+}
+
+.map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gallery-open-btn { font: inherit; font-size: 12px; }
+
+.gallery-open-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+/* ── Texture gallery popup ───────────────────────────────────────────── */
+/* .license-modal (shared popup chrome) is declared later with the same specificity, so qualify it. */
+.license-modal.gallery-modal {
+  max-width: 920px;
+  width: calc(100% - 32px);
+  height: min(86vh, 900px);
+  padding: 22px 24px 16px;
+  gap: 10px;
+}
+
+.gallery-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-right: 28px; /* clear the close button */
+}
+
+.gallery-search {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.gallery-search:focus { outline: none; border-color: var(--accent); }
+
+.gallery-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.gallery-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.gallery-chip:hover { color: var(--text); border-color: var(--text-muted); }
+
+.gallery-chip[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.gallery-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.gallery-fav-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gallery-link-btn {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.gallery-link-btn:hover { text-decoration: underline; }
+
+.gallery-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.gallery-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 14px 0 6px;
+}
+
+.gallery-section-title:first-child { margin-top: 2px; }
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px 8px;
+}
+
+.gallery-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gallery-name {
+  font-size: 11px;
+  color: var(--text);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gallery-star {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  font-size: 14px;
+  line-height: 24px;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.gallery-star:hover { transform: scale(1.12); }
+.gallery-star[aria-pressed="true"] { color: #ffc940; }
+
+/* Unstarred stars only appear on hover/focus where hovering exists; touch keeps them visible. */
+@media (hover: hover) {
+  .gallery-star[aria-pressed="false"] { opacity: 0; }
+  .gallery-tile:hover .gallery-star,
+  .gallery-star:focus-visible { opacity: 1; }
+}
+
+.gallery-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  pointer-events: none;
+}
+
+.gallery-empty {
+  margin: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.gallery-credits {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.gallery-credits strong { color: var(--text); }
+.gallery-credits a { color: var(--accent); text-decoration: none; }
+.gallery-credits a:hover { text-decoration: underline; }
+
+@media (max-width: 520px) {
+  .license-modal.gallery-modal { padding: 18px 14px 12px; height: 92vh; }
+  .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
 }
 
 .active-map-name {
