@@ -27,7 +27,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 ### Textures
 - **78 built-in seamless textures** in six categories (geometric, patterns, organic, fabric, natural, grip): weaves, knurling, carbon twill, chainmail, scales, bark, wood grain, Hero Patterns and more
 - **Texture Gallery** — browse, search and filter the full catalogue; star favorites to pin them in the panel grid, which grows by a row per 4 (saved in the browser)
-- **Custom textures** — upload your own image as a displacement map
+- **Custom textures** — upload your own image as a displacement map, or an ideaMaker `.texture` file
 - **Texture smoothing** — configurable blur to soften the displacement map before applying
 
 ### Projection Modes

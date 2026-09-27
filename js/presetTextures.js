@@ -167,9 +167,26 @@ export { IMAGE_PRESETS, PRESET_CATEGORIES, DEFAULT_FAVOURITES };
 
 
 /**
- * Build a THREE.CanvasTexture + ImageData from a user-uploaded image File.
+ * ideaMaker .texture files are JSON with the heightmap as a base64 PNG in
+ * `image_data` (white = raised, same as ours). Their repeat/rotation/offset
+ * settings don't map onto our mm-based scale, so only the image is used.
+ * The result is named after the embedded image (never *.texture), because
+ * project export saves that name and re-imports the PNG under it.
  */
-export function loadCustomTexture(file) {
+async function unwrapIdeaMakerTexture(file) {
+  const json = JSON.parse(await file.text());
+  if (typeof json?.image_data !== 'string') throw new Error('No image data in .texture file');
+  const bytes = Uint8Array.from(atob(json.image_data), c => c.charCodeAt(0));
+  const name  = (json.header?.texture_name || file.name).replace(/\.texture$/i, '.png');
+  return new File([bytes], name);
+}
+
+/**
+ * Build a THREE.CanvasTexture + ImageData from a user-uploaded image File
+ * (or an ideaMaker .texture file).
+ */
+export async function loadCustomTexture(file) {
+  if (/\.texture$/i.test(file.name)) file = await unwrapIdeaMakerTexture(file);
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);

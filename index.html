@@ -240,7 +240,7 @@
             <span data-i18n="ui.uploadCustomMap">Upload custom map</span>
           </label>
         </div>
-        <input type="file" id="texture-file-input" accept="image/*" hidden />
+        <input type="file" id="texture-file-input" accept="image/*,.texture" hidden />
         <div id="custom-map-row" class="custom-map-row hidden">
           <div id="custom-map-swatch" class="preset-swatch custom-map-swatch" role="button" tabindex="0" data-i18n-title="ui.customMap" title="Custom map"></div>
           <button id="custom-map-remove" class="custom-map-remove" data-i18n-title="ui.removeCustomMap" data-i18n-aria-label="ui.removeCustomMap" title="Remove custom map" aria-label="Remove custom map">
@@ -782,6 +782,7 @@
       <ul class="welcome-changelog">
         <li><strong>New textures &amp; Texture Gallery</strong> &mdash; 54 new textures, from knurling and carbon twill to chainmail, bark and dozens of Hero Patterns. Browse them all in the new Texture Gallery with search and categories, and star your favorites to pin them to the panel.</li>
         <li><strong>Smooth masking brush</strong> &mdash; the circle brush now has a Hardness setting: lower it to fade the mask out toward the brush rim for soft, gradual texture borders instead of hard triangle edges. Enable Precision for smooth gradients on coarse meshes.</li>
+        <li><strong>ideaMaker textures</strong> &mdash; load .texture files from the <a href="https://www.ideamaker.io/texture" target="_blank" rel="noopener">ideaMaker texture library</a> directly with Upload custom map.</li>
         <li><strong>Fixes in v1.3.1</strong> &mdash; custom textures now load at up to 2048&nbsp;px instead of 512, so high-res heightmaps stay sharp; no more faceted &ldquo;crystal&rdquo; spots on fillets and rounded edges; Bottom faces&nbsp;=&nbsp;0 really textures the bed face; no false mesh warnings for multi-part files or tiny CAD edges; clear messages for unsupported files; Firefox slider layout fixed.</li>
       </ul>
 

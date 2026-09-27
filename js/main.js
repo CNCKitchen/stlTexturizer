@@ -1429,7 +1429,7 @@ function wireEvents() {
       activeMapEntry = await loadCustomTexture(file);
       activeMapEntry.isCustom = true;
       _lastCustomMap = activeMapEntry;
-      activeMapName.textContent = file.name;
+      activeMapName.textContent = activeMapEntry.name;
       _clearPresetActive();
       _showCustomMapThumb(activeMapEntry);
       customMapSwatch.classList.add('active');
