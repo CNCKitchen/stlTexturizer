@@ -1533,7 +1533,23 @@ function wireEvents() {
   }, false);
   refineLenVal.addEventListener('change', checkResolutionWarning);
   linkSlider(maxTriSlider, maxTriVal, v => { settings.maxTriangles = v; return formatM(v); }, false);
-  linkSlider(bottomAngleLimitSlider, bottomAngleLimitVal, v => { settings.bottomAngleLimit = v; _falloffDirty = true; return v; });
+  // Bottom faces = 0 textures the bed-contact face too, and the bottom snap
+  // would flatten that texture again — so switch the snap off. If the limit
+  // goes back above 0 before the user touches the checkbox, restore it.
+  let smoothBottomAutoOff = false;
+  linkSlider(bottomAngleLimitSlider, bottomAngleLimitVal, v => {
+    const wasMasked = settings.bottomAngleLimit > 0;
+    settings.bottomAngleLimit = v; _falloffDirty = true;
+    if (v <= 0 && wasMasked && smoothBottomChk.checked) {
+      smoothBottomChk.checked = settings.smoothBottom = false;
+      smoothBottomAutoOff = true;
+    } else if (v > 0 && smoothBottomAutoOff) {
+      smoothBottomChk.checked = settings.smoothBottom = true;
+      smoothBottomAutoOff = false;
+    }
+    return v;
+  });
+  smoothBottomChk.addEventListener('change', () => { smoothBottomAutoOff = false; });
   linkSlider(topAngleLimitSlider,    topAngleLimitVal,    v => { settings.topAngleLimit    = v; _falloffDirty = true; return v; });
   linkSlider(seamBlendSlider,        seamBlendVal,        v => { settings.mappingBlend     = v; return v.toFixed(2); });
   linkSlider(seamBandWidthSlider,    seamBandWidthVal,    v => { settings.seamBandWidth    = v; return v.toFixed(2); });
