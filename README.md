@@ -10,6 +10,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 
 ## Recent Updates
 
+- Roughly 2× more triangles for the same memory — pipeline peak cut from ~660 to ~330 bytes per subdivided triangle, with bit-identical output
 - STEP import (`.step` / `.stp`) via [meshStep](https://github.com/CNCKitchen/meshStep)
 - Save / load project files (`.bumpmesh`)
 - Undo / redo history
@@ -117,6 +118,7 @@ js/
   displacement.js     # Vertex displacement baking
   subdivision.js      # Adaptive mesh subdivision
   decimation.js       # QEM mesh decimation
+  meshIndex.js        # Shared vertex welding + integer-pair hash maps
   exclusion.js        # Face exclusion / inclusion painting
   exporter.js         # Binary STL export
   i18n.js             # Translations (EN / DE)
