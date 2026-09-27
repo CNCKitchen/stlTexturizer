@@ -94,8 +94,15 @@ export function buildAdjacency(geometry) {
   const edgeMap = new Map();
   const edgePairs = [0, 1, 0, 2, 1, 2]; // vertex-index pairs within triangle
 
+  // A triangle whose corners the weld merged (an edge shorter than the grid)
+  // has no real edges. Kept in, its doubled edge reads as non-manifold and
+  // it splits off a phantom shell — "2 non-manifold, 2 shells" on a closed
+  // CAD solid (#109) — and it steals the link between its two real neighbours.
+  const collapsed = new Uint8Array(triCount);
   for (let t = 0; t < triCount; t++) {
     const base = t * 3;
+    const a = vertId[base], b = vertId[base + 1], c = vertId[base + 2];
+    if (a === b || b === c || a === c) { collapsed[t] = 1; continue; }
     for (let e = 0; e < 6; e += 2) {
       const ek = numEdgeKey(vertId[base + edgePairs[e]], vertId[base + edgePairs[e + 1]]);
       const entry = edgeMap.get(ek);
@@ -112,7 +119,22 @@ export function buildAdjacency(geometry) {
   let openEdgeCount = 0;
   let nonManifoldEdgeCount = 0;
 
+  // Shells via union-find over EVERY face on an edge. The adjacency below
+  // links only the first two faces of a non-manifold edge (what bucket fill
+  // wants), so counting shells on it split off phantom shells (#109, #125).
+  const shellRoot = new Int32Array(triCount);
+  for (let t = 0; t < triCount; t++) shellRoot[t] = t;
+  const findRoot = (x) => {
+    while (shellRoot[x] !== x) { shellRoot[x] = shellRoot[shellRoot[x]]; x = shellRoot[x]; }
+    return x;
+  };
+
   for (const [, tris] of edgeMap) {
+    const r0 = findRoot(tris[0]);
+    for (let i = 1; i < tris.length; i++) {
+      const r = findRoot(tris[i]);
+      if (r !== r0) shellRoot[r] = r0;
+    }
     if (tris.length === 1) { openEdgeCount++; continue; }
     if (tris.length > 2) nonManifoldEdgeCount++;
     const [a, b] = tris;
@@ -124,7 +146,19 @@ export function buildAdjacency(geometry) {
     adjacency[b].push({ neighbor: a, angle: angleDeg });
   }
 
-  return { adjacency, centroids, boundRadii, faceNormals, openEdgeCount, nonManifoldEdgeCount, vertId, vertCount: nextId };
+  // 0-based shell index per triangle; weld-collapsed triangles get -1 and
+  // don't count as shells of their own.
+  // (A collapsed triangle has no edges, so it is never a root of a real shell.)
+  const shellId = new Int32Array(triCount).fill(-1);
+  let shellCount = 0;
+  for (let t = 0; t < triCount; t++) {
+    if (!collapsed[t] && findRoot(t) === t) shellId[t] = shellCount++;
+  }
+  for (let t = 0; t < triCount; t++) {
+    if (!collapsed[t]) shellId[t] = shellId[findRoot(t)];
+  }
+
+  return { adjacency, centroids, boundRadii, faceNormals, openEdgeCount, nonManifoldEdgeCount, shellCount, shellId, vertId, vertCount: nextId };
 }
 
 // ── Bucket fill ───────────────────────────────────────────────────────────────

@@ -156,7 +156,7 @@ php -S localhost:8000
 
 Open http://localhost:8000 in your browser and you're ready to go.
 
-> **Tip:** Any static server will work — the app has no server-side dependencies.
+> **Tip:** Any static server will work — the app has no server-side dependencies. After updating a local copy, hard-reload once (Ctrl+F5 / Cmd+Shift+R): most simple servers don't send cache headers, so the browser may otherwise mix new and old files.
 
 **Docker / Podman**
 ```bash

@@ -20,7 +20,7 @@
 import { THREE } from './threeCompat.js';
 import { QuantizedPointMap } from './meshIndex.js';
 
-// 10 µm vertex-dedup cells. Below 1e5 (= 100 µm) small-fillet meshes have
+// 10 nm vertex-dedup cells. Below 1e5 (1e4 = 0.1 µm) small-fillet meshes have
 // distinct fillet vertices that round to the same key and merge incorrectly,
 // producing zero-length edges and non-manifold artifacts after displacement.
 // 1e5 still tolerates float32 round-trip noise (~1e-4 mm worst case at metre

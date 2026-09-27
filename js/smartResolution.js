@@ -18,7 +18,7 @@
  * the "Smart" button next to the resolution slider.
  */
 
-import { analyzeTexture } from './textureAnalysis.js';
+import { analyzeTextureAtRef } from './textureAnalysis.js';
 import { computeSurfaceArea } from './stlLoader.js';
 
 // Conservative BASE of subdivision.js's SAFETY_CAP (which is adaptive since
@@ -263,14 +263,14 @@ export function computeSmartResolution({ geometry, bounds, settings, texture }) 
     return null;
   }
 
-  // 1. Texture detail → pixels-per-edge.
-  const { meanGrad, sharpFrac, pixelsPerEdge } = analyzeTexture(texture.imageData);
+  // 1. Texture detail → pixels-per-edge, judged at the 512 px reference size
+  // the heuristic was tuned at (custom maps can be up to 2048 px, #89).
+  const { meanGrad, sharpFrac, pixelsPerEdge, width: texW, height: texH } =
+    analyzeTextureAtRef(texture.imageData);
 
-  // 2. World-space pixel size.
+  // 2. World-space pixel size (reference pixels, matching step 1).
   const { periodU_mm, periodV_mm } = computeWorldPeriod(settings, bounds);
   const period_mm = Math.min(periodU_mm, periodV_mm);
-  const texW = texture.imageData.width || texture.width || 512;
-  const texH = texture.imageData.height || texture.height || 512;
   // Use the smaller pixel size across U/V so we resolve the densest direction.
   const pixUmm = periodU_mm / texW;
   const pixVmm = periodV_mm / texH;

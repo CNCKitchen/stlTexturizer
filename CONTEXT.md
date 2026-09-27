@@ -17,9 +17,11 @@ watertightness behaviour:
 
 | Grid | Cell    | Used by | Why |
 |------|---------|---------|-----|
-| 1e4  | 100 µm  | export (3MF), meshRepair, meshValidation, exclusion/adjacency, main.js masking | matches the 4-decimal precision exports are written with |
-| 1e5  | 10 µm   | subdivision, regularize, displacement | fine enough to keep small fillet vertices distinct (1e4 merged them → needle artifacts); coarse enough to absorb float32 noise |
-| 1e6  | 1 µm    | decimation (own packed-key welder in decimation.js) | collapse positioning needs the finest grid |
+| 1e4  | 0.1 µm  | export (3MF), meshRepair, meshValidation, exclusion/adjacency, main.js masking | matches the 4-decimal precision exports are written with |
+| 1e5  | 10 nm   | subdivision, regularize, displacement | fine enough to keep small fillet vertices distinct (1e4 merged them → needle artifacts); coarse enough to absorb float32 noise |
+| 1e6  | 1 nm    | decimation (own packed-key welder in decimation.js) | collapse positioning needs the finest grid |
+
+(Cell = 1/quant mm: positions are keyed by `Math.round(x * quant)`.)
 
 `resolveTJunctions` (meshRepair.js) **snaps** coordinates onto the 1e4 grid
 before export, so the exporter's weld only merges grid-identical points and the

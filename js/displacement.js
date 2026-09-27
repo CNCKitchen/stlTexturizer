@@ -50,9 +50,9 @@ export function applyDisplacement(geometry, imageData, imgWidth, imgHeight, sett
   const aspectV = tmax / Math.max(imgHeight, 1);
   const settingsWithAspect = { ...settings, textureAspectU: aspectU, textureAspectV: aspectV };
 
-  // 10 Âµm vertex-dedup cells. Must match subdivision.js QUANTISE so the
+  // 10 nm vertex-dedup cells. Must match subdivision.js QUANTISE so the
   // displacement pipeline sees the same vertex-uniqueness that subdivision
-  // produced â€” coarser cells (1e4) collapsed real fillet vertices on small
+  // produced — coarser cells (1e4) collapsed real fillet vertices on small
   // models, creating needle artifacts and non-manifold edges.
   const QUANT = 1e5;
 

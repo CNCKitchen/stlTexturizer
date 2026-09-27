@@ -91,6 +91,13 @@ export function regularizeMesh(geometry, faceParentId, maxEdgeLength, opts = {})
   // a-larger-fillet-face shape, so fine fillets keep their tight gate.
   const maxNormalDeltaCos        = opts.maxNormalDeltaCos        ?? Math.cos(15 * Math.PI / 180);
   const aggressiveNormalDeltaCos = opts.aggressiveNormalDeltaCos ?? Math.cos(25 * Math.PI / 180);
+  // Geometric-deviation cap (mm): a collapse's merged vertex must stay within
+  // this distance of the ORIGINAL plane of every triangle it ends up in. The
+  // normal-swing gate alone let collapses across narrow CAD fillet strips
+  // drop whole rows of fillet vertices onto the chord — random facets up to
+  // ~0.2 mm deep, the "crystal" look of #85 (it showed even at amplitude 0).
+  // Coplanar slivers deviate 0, so flat-face cleanup is unaffected.
+  const maxPlaneDev = opts.maxPlaneDev ?? 0.03;
   // Vertices on edges with dihedral > sharpEdgeAngle are frozen: they cannot
   // be collapse endpoints, so 45°/90° feature edges keep every original
   // vertex.  Slivers in the interior of a flat face are still collapsible.
@@ -159,6 +166,12 @@ export function regularizeMesh(geometry, faceParentId, maxEdgeLength, opts = {})
   const origNrmX = new Float32Array(triNrmX);
   const origNrmY = new Float32Array(triNrmY);
   const origNrmZ = new Float32Array(triNrmZ);
+  // Matching original plane offsets (n·p = d), frozen too, for maxPlaneDev.
+  const origD = new Float64Array(triCount);
+  for (let t = 0; t < triCount; t++) {
+    const a = corners[t*3];
+    origD[t] = origNrmX[t]*vertX[a] + origNrmY[t]*vertY[a] + origNrmZ[t]*vertZ[a];
+  }
 
   // vertex → incident triangles, as intrusive doubly-linked lists of corner
   // slots over typed arrays (replaces one JS Set per vertex — far lighter on
@@ -269,7 +282,7 @@ export function regularizeMesh(geometry, faceParentId, maxEdgeLength, opts = {})
   // Per-rejection counters — surfaced in the return value so the caller (and
   // diagnostic harnesses) can see exactly which gate is blocking residual
   // sliver chains.  Useful when the user reports "this region didn't merge."
-  const rejectStats = { frozen: 0, wingCount: 0, linkCondition: 0, edgeCap: 0, normalChange: 0, degenerate: 0, foldedApex: 0 };
+  const rejectStats = { frozen: 0, wingCount: 0, linkCondition: 0, edgeCap: 0, normalChange: 0, planeDev: 0, degenerate: 0, foldedApex: 0 };
 
   // Scratch buffers for the per-candidate edge ordering (no per-candidate
   // object allocation; stable 3-element insertion sort preserves the exact
@@ -483,6 +496,9 @@ export function regularizeMesh(geometry, faceParentId, maxEdgeLength, opts = {})
 
     // Validate every affected triangle's post-collapse state
     for (const t of affected) {
+      if (Math.abs(origNrmX[t]*mx + origNrmY[t]*my + origNrmZ[t]*mz - origD[t]) > maxPlaneDev) {
+        rejectStats.planeDev++; return false;
+      }
       let a = corners[t*3], b = corners[t*3+1], c = corners[t*3+2];
       if (a === u || a === v) a = -1;
       if (b === u || b === v) b = -1;

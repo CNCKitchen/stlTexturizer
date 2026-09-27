@@ -171,7 +171,8 @@ function buildDimensions(box, groundZ, scale) {
 
 export function initViewer(canvas) {
   // Renderer
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+  // 'high-performance' asks hybrid-GPU laptops for the discrete GPU (#75).
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -658,6 +659,29 @@ function fitCamera(sphere) {
   perspCamera.lookAt(sphere.center);
 
   controls.update();
+}
+
+/**
+ * True when WebGL runs on a CPU rasteriser (SwiftShader, WARP, llvmpipe):
+ * hardware acceleration off, GPU blocklisted, or the GPU process crashed —
+ * the viewer then crawls at a few fps (#75). failIfMajorPerformanceCaveat is
+ * the reliable signal; the renderer string is a fallback and may be masked
+ * by privacy settings (Brave).
+ */
+export function isSoftwareRendering() {
+  try {
+    const probe = document.createElement('canvas');
+    const hw = probe.getContext('webgl2', { failIfMajorPerformanceCaveat: true })
+            || probe.getContext('webgl',  { failIfMajorPerformanceCaveat: true });
+    if (!hw) return true;
+    hw.getExtension('WEBGL_lose_context')?.loseContext();
+    const gl = renderer.getContext();
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    return /swiftshader|llvmpipe|softpipe|basic render|\bwarp\b/i.test(name);
+  } catch {
+    return false;
+  }
 }
 
 export function requestRender() { _needsRender = true; }

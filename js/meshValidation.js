@@ -17,48 +17,22 @@ const yieldFrame = () => new Promise(r => setTimeout(r, 0));
 // ── Fast diagnostics ─────────────────────────────────────────────────────────
 
 /**
- * Count disconnected mesh shells via BFS on the adjacency graph.
- * @param {Array<Array<{neighbor:number}>>} adjacency - from buildAdjacency
- * @param {number} triCount
- * @returns {number} number of disconnected components
- */
-function countShells(adjacency, triCount) {
-  const visited = new Uint8Array(triCount);
-  let shellCount = 0;
-  for (let seed = 0; seed < triCount; seed++) {
-    if (visited[seed]) continue;
-    shellCount++;
-    const queue = [seed];
-    visited[seed] = 1;
-    let head = 0;
-    while (head < queue.length) {
-      const cur = queue[head++];
-      const neighbors = adjacency[cur];
-      if (!neighbors) continue;
-      for (const { neighbor } of neighbors) {
-        if (!visited[neighbor]) {
-          visited[neighbor] = 1;
-          queue.push(neighbor);
-        }
-      }
-    }
-  }
-  return shellCount;
-}
-
-/**
  * Run all fast mesh diagnostics (synchronous, negligible cost on top of
- * buildAdjacency which the caller already performed).
+ * buildAdjacency which the caller already performed — it also computes the
+ * shells, over every face of each edge).
  *
- * @param {{ adjacency, openEdgeCount:number, nonManifoldEdgeCount:number }} adjData
+ * @param {{ openEdgeCount:number, nonManifoldEdgeCount:number, shellCount:number, shellId:Int32Array }} adjData
  * @param {number} triCount
- * @returns {{ openEdges:number, nonManifoldEdges:number, shellCount:number }}
+ * @returns {{ openEdges:number, nonManifoldEdges:number, shellCount:number, shellIds:Int32Array, triCount:number }}
+ *   shellIds[t] = 0-based shell of triangle t (-1 for weld-collapsed slivers)
  */
 export function runFastDiagnostics(adjData, triCount) {
   return {
     openEdges: adjData.openEdgeCount,
     nonManifoldEdges: adjData.nonManifoldEdgeCount,
-    shellCount: countShells(adjData.adjacency, triCount),
+    shellCount: adjData.shellCount,
+    shellIds: adjData.shellId,
+    triCount,
   };
 }
 
@@ -71,9 +45,12 @@ export function runFastDiagnostics(adjData, triCount) {
  *
  * @param {THREE.BufferGeometry} geometry
  * @param {{ get:() => number }} token  - abort when token.get() !== startValue
- * @returns {Promise<number>} count of intersecting triangle pairs
+ * @param {Int32Array|null} shellIds  - per-triangle shell (from runFastDiagnostics);
+ *   pairs from different shells are counted separately — separate parts that
+ *   touch intersect harmlessly where the CAD tessellated each side on its own
+ * @returns {Promise<{count:number, faces:Set<number>, bodyCount:number, bodyFaces:Set<number>}|-1>}
  */
-async function findIntersectingTriangles(geometry, token) {
+async function findIntersectingTriangles(geometry, token, shellIds) {
   const startToken = token.get();
   const pos = geometry.attributes.position.array;
   const triCount = pos.length / 9;
@@ -146,43 +123,54 @@ async function findIntersectingTriangles(geometry, token) {
       for (let iy = iy0; iy <= iy1; iy++) {
         for (let iz = iz0; iz <= iz1; iz++) {
           const k = cellKey(ix, iy, iz);
-          let list = grid.get(k);
-          if (!list) { list = []; grid.set(k, list); }
-          list.push(t);
+          let cell = grid.get(k);
+          if (!cell) { cell = { ix, iy, iz, tris: [] }; grid.set(k, cell); }
+          cell.tris.push(t);
         }
       }
     }
   }
 
-  // Narrow phase: test candidate pairs from same grid cells
-  const testedPairs = new Set();
+  // Narrow phase: test candidate pairs from same grid cells. A pair shares
+  // every cell its AABB overlap spans, so test it only in the cell holding
+  // the overlap's min corner — both triangles are always in that one. (A
+  // global "tested pairs" Set overflowed V8's Set size limit on big textured
+  // meshes with long preserved triangles spanning thousands of cells.)
   let intersectCount = 0;
+  let bodyIntersectCount = 0;
   let pairsTested = 0;
   const intersectFaces = new Set();
+  const bodyIntersectFaces = new Set();
 
-  for (const [, tris] of grid) {
+  for (const [, { ix, iy, iz, tris }] of grid) {
     for (let i = 0; i < tris.length; i++) {
       for (let j = i + 1; j < tris.length; j++) {
         const tA = tris[i], tB = tris[j];
         const a = Math.min(tA, tB), b = Math.max(tA, tB);
-        const pairKey = a * triCount + b;
-
-        if (testedPairs.has(pairKey)) continue;
-        testedPairs.add(pairKey);
-
-        // Skip triangles sharing any vertex (topological neighbors)
-        if (sharesVertex(a, b)) continue;
 
         // AABB overlap test
         if (minX[a] > maxX[b] || minX[b] > maxX[a] ||
             minY[a] > maxY[b] || minY[b] > maxY[a] ||
             minZ[a] > maxZ[b] || minZ[b] > maxZ[a]) continue;
 
+        if (Math.floor(Math.max(minX[a], minX[b]) * invCell) !== ix ||
+            Math.floor(Math.max(minY[a], minY[b]) * invCell) !== iy ||
+            Math.floor(Math.max(minZ[a], minZ[b]) * invCell) !== iz) continue;
+
+        // Skip triangles sharing any vertex (topological neighbors)
+        if (sharesVertex(a, b)) continue;
+
         // SAT triangle-triangle intersection
         if (trianglesIntersectSAT(pos, a, b)) {
-          intersectCount++;
-          intersectFaces.add(a);
-          intersectFaces.add(b);
+          if (shellIds && shellIds[a] !== shellIds[b]) {
+            bodyIntersectCount++;
+            bodyIntersectFaces.add(a);
+            bodyIntersectFaces.add(b);
+          } else {
+            intersectCount++;
+            intersectFaces.add(a);
+            intersectFaces.add(b);
+          }
         }
 
         if (++pairsTested % 10000 === 0) {
@@ -193,7 +181,7 @@ async function findIntersectingTriangles(geometry, token) {
     }
   }
 
-  return { count: intersectCount, faces: intersectFaces };
+  return { count: intersectCount, faces: intersectFaces, bodyCount: bodyIntersectCount, bodyFaces: bodyIntersectFaces };
 }
 
 /**
@@ -383,19 +371,23 @@ async function findOverlappingTriangles(geometry, token) {
  *
  * @param {THREE.BufferGeometry} geometry
  * @param {{ get:() => number }} token  - abort guard
- * @returns {Promise<{ intersectingPairs:number, overlappingPairs:number, overlapFaces:Set<number> }|null>}
+ * @param {Int32Array|null} [shellIds]  - per-triangle shell, to split off
+ *          intersections between separate bodies (bodyIntersectingPairs)
+ * @returns {Promise<{ intersectingPairs:number, bodyIntersectingPairs:number, overlappingPairs:number, overlapFaces:Set<number> }|null>}
  *          null if aborted
  */
-export async function runExpensiveDiagnostics(geometry, token) {
+export async function runExpensiveDiagnostics(geometry, token, shellIds = null) {
   const overlapResult = await findOverlappingTriangles(geometry, token);
   if (overlapResult === -1) return null;
 
-  const intersectResult = await findIntersectingTriangles(geometry, token);
+  const intersectResult = await findIntersectingTriangles(geometry, token, shellIds);
   if (intersectResult === -1) return null;
 
   return {
     intersectingPairs: intersectResult.count,
     intersectFaces: intersectResult.faces,
+    bodyIntersectingPairs: intersectResult.bodyCount,
+    bodyIntersectFaces: intersectResult.bodyFaces,
     overlappingPairs: overlapResult.count,
     overlapFaces: overlapResult.faces,
   };
@@ -432,6 +424,9 @@ export function getEdgePositions(geometry) {
   const edgeMap = new Map();
   for (let t = 0; t < triCount; t++) {
     const base = t * 3;
+    // Skip weld-collapsed slivers, exactly like buildAdjacency's counts (#109).
+    const a = vertId[base], b = vertId[base + 1], c = vertId[base + 2];
+    if (a === b || b === c || a === c) continue;
     for (let e = 0; e < 6; e += 2) {
       const vi0 = base + edgePairs[e], vi1 = base + edgePairs[e + 1];
       const ek = numEdgeKey(vertId[vi0], vertId[vi1]);
@@ -465,38 +460,4 @@ export function getEdgePositions(geometry) {
     open: new Float32Array(openList),
     nonManifold: new Float32Array(nmList),
   };
-}
-
-/**
- * Return per-triangle shell ID (0-based) via BFS on the adjacency graph.
- *
- * @param {Array<Array<{neighbor:number}>>} adjacency
- * @param {number} triCount
- * @returns {Uint32Array}  shellId[t] = 0-based shell index for triangle t
- */
-export function getShellAssignments(adjacency, triCount) {
-  const shellId = new Uint32Array(triCount); // default 0
-  const visited = new Uint8Array(triCount);
-  let nextShell = 0;
-  for (let seed = 0; seed < triCount; seed++) {
-    if (visited[seed]) continue;
-    const id = nextShell++;
-    const queue = [seed];
-    visited[seed] = 1;
-    shellId[seed] = id;
-    let head = 0;
-    while (head < queue.length) {
-      const cur = queue[head++];
-      const neighbors = adjacency[cur];
-      if (!neighbors) continue;
-      for (const { neighbor } of neighbors) {
-        if (!visited[neighbor]) {
-          visited[neighbor] = 1;
-          shellId[neighbor] = id;
-          queue.push(neighbor);
-        }
-      }
-    }
-  }
-  return shellId;
 }

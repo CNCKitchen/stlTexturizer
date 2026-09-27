@@ -22,15 +22,15 @@
  * internal "empty" sentinel and is returned by get() on a miss.
  *
  * Grid policy note: callers pass their own `quant`. The app currently uses
- *   1e4 (0.1 µm... 100 µm cells) — export grid, masking, validation, repair
- *   1e5 (10 µm cells)            — subdivision, regularize, displacement
- *   1e6 (1 µm cells)             — decimation (own packed-BigInt welder)
+ *   1e4 (0.1 µm cells) — export grid, masking, validation, repair
+ *   1e5 (10 nm cells)  — subdivision, regularize, displacement
+ *   1e6 (1 nm cells)   — decimation (own packed-BigInt welder)
  * Keep a call site's grid unchanged unless you intend to change behaviour.
  */
 
 export class QuantizedPointMap {
   /**
-   * @param {number} quant     – grid multiplier (e.g. 1e5 → 10 µm cells)
+   * @param {number} quant     – grid multiplier (e.g. 1e5 → 10 nm cells)
    * @param {number} expected  – expected number of unique points (sizing hint)
    */
   constructor(quant, expected = 256) {

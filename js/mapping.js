@@ -226,7 +226,8 @@ export function computeUV(pos, normal, mode, settings, bounds) {
       const capThreshold = Math.cos((settings.capAngle ?? 20) * Math.PI / 180);
       const blendHalf = (settings.seamBandWidth ?? 0.5) * 0.5;
       const absnz = Math.abs(normal.z);
-      const capW = Math.max(0, Math.min(1, (absnz - (capThreshold - blendHalf)) / (2 * blendHalf + 1e-6)));
+      const capRaw = Math.max(0, Math.min(1, (absnz - (capThreshold - blendHalf)) / (2 * blendHalf + 1e-6)));
+      const capW = capRaw * capRaw * (3 - 2 * capRaw); // smoothstep, as in the preview shader
 
       if (capW <= 0) {
         if (sideSamples.length === 1 && sideSamples[0].w === 1) return sideSamples[0];

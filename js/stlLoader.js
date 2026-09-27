@@ -28,6 +28,7 @@ export function loadSTLFile(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
+        assertPlausibleSTL(e.target.result);
         const geometry = stlLoader.parse(e.target.result);
         const { nanCount, degenerateCount, originOffset } = setupGeometry(geometry);
         const bounds = computeBounds(geometry);
@@ -39,6 +40,22 @@ export function loadSTLFile(file) {
     reader.onerror = () => reject(new Error('Could not read file'));
     reader.readAsArrayBuffer(file);
   });
+}
+
+/**
+ * STLLoader treats anything that doesn't start with "solid" as binary and
+ * trusts the face count at byte 80, so a stray PNG or text file dies with
+ * "Array buffer allocation failed" / a DataView range error (#124). Reject
+ * files that are neither a plausible binary nor ASCII STL up front.
+ */
+function assertPlausibleSTL(buf) {
+  if (buf.byteLength >= 84) {
+    const faces = new DataView(buf).getUint32(80, true);
+    if (84 + faces * 50 <= buf.byteLength) return;
+  }
+  const head = new TextDecoder().decode(new Uint8Array(buf, 0, Math.min(buf.byteLength, 16)));
+  if (head.includes('solid')) return;
+  throw new Error('Not a valid STL file');
 }
 
 /**

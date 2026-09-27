@@ -9,11 +9,12 @@ import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWirefram
          setExclusionOverlay, setHoverPreview, setViewerTheme,
          setProjection, requestRender,
          clearDiagOverlays, setDiagEdges, addDiagFaces,
-         setRotationGizmo, isGizmoDragging } from './viewer.js';
+         setRotationGizmo, isGizmoDragging, isSoftwareRendering } from './viewer.js';
 import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js';
 import { estimateStep } from './stepLoader.js';
 import { resolveStepSettings } from './stepConvert.js';
 import { computeSmartResolution } from './smartResolution.js';
+import { REF_TEXTURE_SIZE } from './textureAnalysis.js';
 import { loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextures.js';
 import { initTextureGallery } from './textureGallery.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
@@ -26,7 +27,7 @@ import { buildAdjacency, bucketFill,
 import { brushCoverage, hasSoftPaint, valuesToCorners, cornersToValues,
          buildSoftExclusion, softPaintedFaces, interpolateFromParents } from './softMask.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
-         getEdgePositions, getShellAssignments } from './meshValidation.js';
+         getEdgePositions } from './meshValidation.js';
 import { t, tHtml, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
 import { getScaleReferenceLengths } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
@@ -53,6 +54,7 @@ let _lastCustomMap    = null;   // most recent uploaded/imported custom-map entr
 let previewMaterial   = null;
 let isExporting       = false;
 let isBaking          = false;
+let smoothBottomAutoOff = false; // Smooth Bottom was switched off by Bottom faces = 0 (#126), see syncSmoothBottomToLimit
 let previewDebounce   = null;
 
 // Boundary edge data texture for per-fragment falloff in bump-only preview
@@ -269,6 +271,7 @@ const canvas         = document.getElementById('viewport');
 const brushCursorEl  = document.getElementById('brush-cursor');
 const dropZone       = document.getElementById('drop-zone');
 const dropHint       = document.getElementById('drop-hint');
+const MODEL_FILE_RE  = /\.(stl|obj|3mf|step|stp)$/i;
 const stlFileInput   = document.getElementById('stl-file-input');
 const textureInput   = document.getElementById('texture-file-input');
 const activeMapName  = document.getElementById('active-map-name');
@@ -380,6 +383,7 @@ const symmetricDispToggle    = document.getElementById('symmetric-displacement')
 const dispPreviewToggle      = document.getElementById('displacement-preview');
 const noDownwardZChk         = document.getElementById('no-downward-z-chk');
 const smoothBottomChk        = document.getElementById('smooth-bottom-chk');
+const smoothBottomRow        = document.getElementById('smooth-bottom-row');
 const harvestFlatChk         = document.getElementById('harvest-flat-chk');
 const harvestTolInput        = document.getElementById('harvest-tol');
 const harvestTolRow          = document.getElementById('harvest-tol-row');
@@ -1001,6 +1005,15 @@ console.info(`BumpMesh v${APP_VERSION}`);
 
 initViewer(canvas);
 
+// A CPU-rendered viewer runs at a few fps and just looks broken — say why (#75).
+if (isSoftwareRendering()) {
+  const gpuWarning = document.getElementById('gpu-warning');
+  gpuWarning.classList.remove('hidden');
+  document.getElementById('gpu-warning-dismiss').addEventListener('click', () => {
+    gpuWarning.classList.add('hidden');
+  });
+}
+
 // Apply saved theme to 3D viewport on startup
 setViewerTheme(document.documentElement.getAttribute('data-theme') === 'light');
 
@@ -1302,6 +1315,24 @@ function trapFocus(overlay) {
   overlay.addEventListener('keydown', handler);
 }
 
+// Bottom faces = 0 textures the bed-contact face too, and the bottom snap
+// would flatten that texture again — the export skips the snap then (#126).
+// Mirror that in the UI: uncheck and grey out the checkbox, and restore it if
+// the limit goes back above 0 before the user touches the checkbox
+// (smoothBottomAutoOff, declared with the module state at the top).
+function syncSmoothBottomToLimit() {
+  const masked = settings.bottomAngleLimit > 0;
+  if (!masked && smoothBottomChk.checked) {
+    smoothBottomChk.checked = settings.smoothBottom = false;
+    smoothBottomAutoOff = true;
+  } else if (masked && smoothBottomAutoOff) {
+    smoothBottomChk.checked = settings.smoothBottom = true;
+    smoothBottomAutoOff = false;
+  }
+  smoothBottomChk.disabled = !masked;
+  smoothBottomRow.classList.toggle('disabled', !masked);
+}
+
 // ── Event wiring ──────────────────────────────────────────────────────────────
 
 function wireEvents() {
@@ -1310,6 +1341,9 @@ function wireEvents() {
     const file = e.target.files[0];
     if (!file) return;
     e.target.value = '';
+    // macOS pickers ignore the accept filter, so check the type here too (#124).
+    if (/\.bumpmesh$/i.test(file.name)) { importProject(file).catch(err => alert(t('alerts.importFailed', { msg: err.message }))); return; }
+    if (!MODEL_FILE_RE.test(file.name)) { alert(t('alerts.unsupportedModelType', { name: file.name })); return; }
     handleModelFile(file);
   });
 
@@ -1325,8 +1359,9 @@ function wireEvents() {
     const files = [...e.dataTransfer.files];
     const bmFile = files.find(f => /\.bumpmesh$/i.test(f.name));
     if (bmFile) { importProject(bmFile).catch(err => alert(t('alerts.importFailed', { msg: err.message }))); return; }
-    const file = files.find(f => /\.(stl|obj|3mf|step|stp)$/i.test(f.name));
+    const file = files.find(f => MODEL_FILE_RE.test(f.name));
     if (file) handleModelFile(file);
+    else if (files.length) alert(t('alerts.unsupportedModelType', { name: files[0].name }));
   });
 
   // STEP import dialog: preset radios drive the tolerance fields; Import
@@ -1365,7 +1400,9 @@ function wireEvents() {
 
     try {
       const token = { get() { return diagToken; } };
-      const results = await runExpensiveDiagnostics(currentGeometry, token);
+      const triCount = currentGeometry.attributes.position.count / 3;
+      const shellIds = lastFastDiag?.triCount === triCount ? lastFastDiag.shellIds : null;
+      const results = await runExpensiveDiagnostics(currentGeometry, token, shellIds);
 
       if (diagToken !== myToken) return; // model changed, discard
 
@@ -1399,7 +1436,10 @@ function wireEvents() {
       resetTextureSmoothing();
       updatePreview();
     } catch (err) {
+      // macOS pickers ignore accept="image/*", and browsers can't decode
+      // HEIC/TIFF — tell the user instead of silently keeping the old map (#124).
       console.error('Failed to load texture:', err);
+      alert(t('alerts.textureLoadFailed', { name: file.name }));
     }
     // Reset the file input so re-uploading the same filename still triggers 'change'.
     textureInput.value = '';
@@ -1521,20 +1561,9 @@ function wireEvents() {
   }, false);
   refineLenVal.addEventListener('change', checkResolutionWarning);
   linkSlider(maxTriSlider, maxTriVal, v => { settings.maxTriangles = v; return formatM(v); }, false);
-  // Bottom faces = 0 textures the bed-contact face too, and the bottom snap
-  // would flatten that texture again — so switch the snap off. If the limit
-  // goes back above 0 before the user touches the checkbox, restore it.
-  let smoothBottomAutoOff = false;
   linkSlider(bottomAngleLimitSlider, bottomAngleLimitVal, v => {
-    const wasMasked = settings.bottomAngleLimit > 0;
     settings.bottomAngleLimit = v; _falloffDirty = true;
-    if (v <= 0 && wasMasked && smoothBottomChk.checked) {
-      smoothBottomChk.checked = settings.smoothBottom = false;
-      smoothBottomAutoOff = true;
-    } else if (v > 0 && smoothBottomAutoOff) {
-      smoothBottomChk.checked = settings.smoothBottom = true;
-      smoothBottomAutoOff = false;
-    }
+    syncSmoothBottomToLimit();
     return v;
   });
   smoothBottomChk.addEventListener('change', () => { smoothBottomAutoOff = false; });
@@ -1556,6 +1585,7 @@ function wireEvents() {
     settings.smoothBottom = smoothBottomChk.checked;
     // No preview rebuild needed — the snap is a final-export step only.
   });
+  syncSmoothBottomToLimit();
   harvestFlatChk.checked = settings.harvestFlatFaces;
   harvestTolRow.classList.toggle('disabled', !settings.harvestFlatFaces);
   harvestFlatChk.addEventListener('change', () => {
@@ -3609,9 +3639,10 @@ const SHELL_COLORS = [0xe6194b, 0x3cb44b, 0x4363d8, 0xf58231, 0x911eb4, 0x42d4f4
  */
 function applyDiagSeverity() {
   let severity = 'ok';
+  // Several shells / bodies touching each other are normal for multi-part
+  // files, so they're informational and don't raise the severity (#125).
   if (lastFastDiag) {
     if (lastFastDiag.openEdges > 0 || lastFastDiag.nonManifoldEdges > 0) severity = 'error';
-    else if (lastFastDiag.shellCount > 1 && severity !== 'error') severity = 'warn';
   }
   if (lastAdvancedDiag) {
     if (lastAdvancedDiag.intersectingPairs > 0) severity = 'error';
@@ -3651,11 +3682,13 @@ function toggleDiagHighlight(kind) {
     const positions = kind === 'openEdges' ? edgeData.open : edgeData.nonManifold;
     setDiagEdges(positions, 0xff0000);
   } else if (kind === 'shells') {
-    const shellIds = getShellAssignments(triangleAdjacency, currentGeometry.attributes.position.count / 3);
-    const shellCount = lastFastDiag ? lastFastDiag.shellCount : 0;
     const srcPos = currentGeometry.attributes.position.array;
     const srcNrm = currentGeometry.attributes.normal ? currentGeometry.attributes.normal.array : null;
     const triCount = srcPos.length / 9;
+    // Shell ids come from the diagnostics run, so they match the reported
+    // count; skip if the mesh has been swapped since (precision promotion).
+    if (!lastFastDiag || lastFastDiag.triCount !== triCount) return;
+    const { shellIds, shellCount } = lastFastDiag;
 
     for (let s = 0; s < shellCount; s++) {
       // Count triangles in this shell
@@ -3679,6 +3712,9 @@ function toggleDiagHighlight(kind) {
   } else if (kind === 'intersects' && lastAdvancedDiag && lastAdvancedDiag.intersectFaces) {
     const geo = buildExclusionOverlayGeo(currentGeometry, lastAdvancedDiag.intersectFaces);
     addDiagFaces(geo, 0xff0000, 0.7, true);
+  } else if (kind === 'bodyIntersects' && lastAdvancedDiag && lastAdvancedDiag.bodyIntersectFaces) {
+    const geo = buildExclusionOverlayGeo(currentGeometry, lastAdvancedDiag.bodyIntersectFaces);
+    addDiagFaces(geo, 0xf59e0b, 0.7, true);
   } else if (kind === 'overlaps' && lastAdvancedDiag && lastAdvancedDiag.overlapFaces) {
     const geo = buildExclusionOverlayGeo(currentGeometry, lastAdvancedDiag.overlapFaces);
     addDiagFaces(geo, 0xf59e0b, 0.7);
@@ -3709,15 +3745,15 @@ function makeDiagLine(text, kind) {
 function renderFastDiag(diag) {
   meshDiagFast.innerHTML = '';
 
-  if (diag.openEdges === 0 && diag.nonManifoldEdges === 0 && diag.shellCount <= 1) {
-    meshDiagFast.textContent = t('diag.meshOk');
-  } else {
-    if (diag.openEdges > 0)
-      meshDiagFast.appendChild(makeDiagLine(t('diag.openEdges', { n: diag.openEdges }), 'openEdges'));
-    if (diag.nonManifoldEdges > 0)
-      meshDiagFast.appendChild(makeDiagLine(t('diag.nonManifoldEdges', { n: diag.nonManifoldEdges }), 'nonManifold'));
-    if (diag.shellCount > 1)
-      meshDiagFast.appendChild(makeDiagLine(t('diag.multipleShells', { n: diag.shellCount }), 'shells'));
+  const defects = diag.openEdges > 0 || diag.nonManifoldEdges > 0;
+  if (!defects) meshDiagFast.textContent = t('diag.meshOk');
+  if (diag.openEdges > 0)
+    meshDiagFast.appendChild(makeDiagLine(t('diag.openEdges', { n: diag.openEdges }), 'openEdges'));
+  if (diag.nonManifoldEdges > 0)
+    meshDiagFast.appendChild(makeDiagLine(t('diag.nonManifoldEdges', { n: diag.nonManifoldEdges }), 'nonManifold'));
+  if (diag.shellCount > 1)
+    meshDiagFast.appendChild(makeDiagLine(t('diag.multipleShells', { n: diag.shellCount }), 'shells'));
+  if (defects) {
     const tip = document.createElement('div');
     tip.style.cssText = 'margin-top:4px;opacity:0.8;font-size:10px';
     tip.innerHTML = tHtml('diag.recommendFix');
@@ -3729,13 +3765,17 @@ function renderFastDiag(diag) {
 function renderAdvancedDiag(results) {
   meshDiagAdvanced.innerHTML = '';
 
-  if (results.intersectingPairs === 0 && results.overlappingPairs === 0) {
-    meshDiagAdvanced.textContent = t('diag.advancedOk');
-  } else {
-    if (results.intersectingPairs > 0)
-      meshDiagAdvanced.appendChild(makeDiagLine(t('diag.intersectingTris', { n: results.intersectingPairs }), 'intersects'));
-    if (results.overlappingPairs > 0)
-      meshDiagAdvanced.appendChild(makeDiagLine(t('diag.overlappingTris', { n: results.overlappingPairs }), 'overlaps'));
+  const defects = results.intersectingPairs > 0 || results.overlappingPairs > 0;
+  if (!defects) meshDiagAdvanced.textContent = t('diag.advancedOk');
+  if (results.intersectingPairs > 0)
+    meshDiagAdvanced.appendChild(makeDiagLine(t('diag.intersectingTris', { n: results.intersectingPairs }), 'intersects'));
+  if (results.overlappingPairs > 0)
+    meshDiagAdvanced.appendChild(makeDiagLine(t('diag.overlappingTris', { n: results.overlappingPairs }), 'overlaps'));
+  // Separate parts that touch intersect where each side was tessellated on
+  // its own — harmless for printing, so informational (#125).
+  if (results.bodyIntersectingPairs > 0)
+    meshDiagAdvanced.appendChild(makeDiagLine(t('diag.intersectingBodies', { n: results.bodyIntersectingPairs }), 'bodyIntersects'));
+  if (defects) {
     const tip = document.createElement('div');
     tip.style.cssText = 'margin-top:4px;opacity:0.8;font-size:10px';
     tip.innerHTML = tHtml('diag.recommendFix');
@@ -4427,27 +4467,30 @@ function getEffectiveMapEntry() {
   if (_effectiveMapCacheKey === cacheKey && _effectiveMapCache) {
     return _effectiveMapCache;
   }
-  // Tile the source 3×3 before blurring so edge pixels have correct
-  // neighbours and the blurred centre tile is seamlessly tileable.
+  // The slider is in pixels of a 512 px map; custom maps can be up to
+  // 2048 px (#89), so scale the radius to blur the same share of the tile.
+  const sigma = settings.textureSmoothing * Math.max(1, Math.max(width, height) / REF_TEXTURE_SIZE);
+  // Surround the tile with wrapped copies of itself before blurring so edge
+  // pixels have correct neighbours and the blurred centre tile is seamlessly
+  // tileable. A 4σ margin covers the blur kernel; capping it (instead of a
+  // full 3×3 tiling) keeps a 2048 px map under iOS's ~16.7 Mpx canvas limit.
+  const padX = Math.min(width,  Math.ceil(4 * sigma) + 2);
+  const padY = Math.min(height, Math.ceil(4 * sigma) + 2);
   const tiled = document.createElement('canvas');
-  tiled.width  = width  * 3;
-  tiled.height = height * 3;
+  tiled.width  = width  + 2 * padX;
+  tiled.height = height + 2 * padY;
   const tc = tiled.getContext('2d');
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      tc.drawImage(fullCanvas, col * width, row * height);
+  for (let row = -1; row <= 1; row++) {
+    for (let col = -1; col <= 1; col++) {
+      tc.drawImage(fullCanvas, padX + col * width, padY + row * height);
     }
   }
-  // Blur the 3×3 canvas, then crop out only the centre tile.
-  const blurred = document.createElement('canvas');
-  blurred.width  = width  * 3;
-  blurred.height = height * 3;
-  blurred.getContext('2d').drawImage(tiled, 0, 0);
-  blurCanvas(blurred, settings.textureSmoothing);
+  // Blur the padded canvas, then crop out only the centre tile.
+  blurCanvas(tiled, sigma);
   const offscreen = document.createElement('canvas');
   offscreen.width  = width;
   offscreen.height = height;
-  offscreen.getContext('2d').drawImage(blurred, width, height, width, height, 0, 0, width, height);
+  offscreen.getContext('2d').drawImage(tiled, padX, padY, width, height, 0, 0, width, height);
   const imageData = offscreen.getContext('2d').getImageData(0, 0, width, height);
   const texture   = new THREE.CanvasTexture(offscreen);
   texture.wrapS   = texture.wrapT = THREE.RepeatWrapping;
@@ -5789,6 +5832,9 @@ function applySettingsSnapshot(snap) {
     smoothBottomChk.checked = snap.smoothBottom;
     smoothBottomChk.dispatchEvent(new Event('change', { bubbles: true }));
   }
+  // The restore above resets the auto-off flag, so re-apply the limit rule —
+  // otherwise a project saved with Bottom faces = 0 re-enables the snap (#126).
+  syncSmoothBottomToLimit();
   if (snap.harvestFlatFaces != null) {
     harvestFlatChk.checked = snap.harvestFlatFaces;
     harvestFlatChk.dispatchEvent(new Event('change', { bubbles: true }));

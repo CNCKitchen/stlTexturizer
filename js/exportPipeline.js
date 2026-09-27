@@ -329,7 +329,10 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     if (settings.bottomAngleLimit > 0) {
       clampBelowBottom(finalGeometry, bounds.min.z);
     }
-    if (settings.smoothBottom) {
+    // Bottom faces = 0 means the bed face is textured on purpose; the snap
+    // would flatten that texture again (#126). Gate it here, not only in the
+    // UI, so loaded projects with smoothBottom:true + limit 0 behave too.
+    if (settings.smoothBottom && settings.bottomAngleLimit > 0) {
       snapBottomToFlat(finalGeometry, bounds.min.z, 0.1);
     }
 

@@ -5,7 +5,13 @@
 
 import * as THREE from 'three';
 
-const SIZE  = 512; // texture resolution for both preview and sampling
+const SIZE  = 512; // preset texture resolution for both preview and sampling
+// Custom uploads keep up to 2048 px (#89): squeezing an 8K heightmap into
+// 512 px left it blocky. 2048² stays inside every GPU and canvas limit and
+// costs ~16 MB per RGBA copy. Texture smoothing and Smart Resolution
+// normalise to 512 px (see REF_TEXTURE_SIZE in textureAnalysis.js), so their
+// behaviour doesn't shift with the map's pixel count.
+const CUSTOM_SIZE = 2048;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -16,9 +22,9 @@ function makeCanvas(w, h = w) {
   return c;
 }
 
-/** Return { w, h } capped at SIZE on the longest side, preserving aspect ratio. */
-function fitDimensions(imgW, imgH) {
-  const scale = Math.min(SIZE / imgW, SIZE / imgH, 1);
+/** Return { w, h } capped at maxSize on the longest side, preserving aspect ratio. */
+function fitDimensions(imgW, imgH, maxSize = SIZE) {
+  const scale = Math.min(maxSize / imgW, maxSize / imgH, 1);
   return { w: Math.round(imgW * scale), h: Math.round(imgH * scale) };
 }
 
@@ -169,15 +175,27 @@ export function loadCustomTexture(file) {
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const { w, h } = fitDimensions(img.width, img.height);
-      const canvas = makeCanvas(w, h);
-      const ctx    = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      const imageData = ctx.getImageData(0, 0, w, h);
-      const texture   = new THREE.CanvasTexture(canvas);
-      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-      texture.name = file.name;
-      resolve({ name: file.name, fullCanvas: canvas, texture, imageData, width: w, height: h });
+      // Reject instead of throwing inside onload, which would leave the
+      // promise pending forever (e.g. a sizeless SVG decodes as 0×0 in Firefox).
+      try {
+        if (!img.naturalWidth || !img.naturalHeight) throw new Error('Image has no size');
+        const { w, h } = fitDimensions(img.width, img.height, CUSTOM_SIZE);
+        const canvas = makeCanvas(w, h);
+        const ctx    = canvas.getContext('2d');
+        // The default 'low' quality is plain bilinear: on a big downscale
+        // (8K → 2048) it skips most source pixels and aliases fine detail
+        // into fake moiré and noise, especially on GPU canvases (#89).
+        // Presets keep the default — they were QA'd against it.
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, w, h);
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const texture   = new THREE.CanvasTexture(canvas);
+        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+        texture.name = file.name;
+        resolve({ name: file.name, fullCanvas: canvas, texture, imageData, width: w, height: h });
+      } catch (err) {
+        reject(err);
+      }
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Failed to load image')); };
     img.src = url;
