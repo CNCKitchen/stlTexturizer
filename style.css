@@ -1025,11 +1025,8 @@ main.gallery-open #settings-panel { display: none; }
   .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
 }
 
-.active-map-name {
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--text-muted);
-  word-break: break-all;
+.invert-texture-row {
+  margin-top: 12px;
 }
 
 /* ── Form rows ───────────────────────────────────────────────────────── */

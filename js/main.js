@@ -277,7 +277,6 @@ const dropHint       = document.getElementById('drop-hint');
 const MODEL_FILE_RE  = /\.(stl|obj|3mf|step|stp)$/i;
 const stlFileInput   = document.getElementById('stl-file-input');
 const textureInput   = document.getElementById('texture-file-input');
-const activeMapName  = document.getElementById('active-map-name');
 const customMapRow      = document.getElementById('custom-map-row');
 const customMapSwatch   = document.getElementById('custom-map-swatch');
 const customMapRemoveBtn = document.getElementById('custom-map-remove');
@@ -1174,7 +1173,6 @@ async function selectPreset(idx, applyDefaults = true) {
 
   const entry = PRESETS[idx];
   if (!entry) return;
-  activeMapName.textContent = entry.name;
   if (applyDefaults) {
     resetTextureSmoothing();
     // defaultScale is a legacy fraction of the model's largest bbox edge —
@@ -1254,7 +1252,6 @@ function _useCustomMap(entry, resetSmoothing) {
   if (_lastCustomMap && _lastCustomMap !== entry) _lastCustomMap.texture.dispose();
   activeMapEntry = entry;
   _lastCustomMap = entry;
-  activeMapName.textContent = entry.name;
   _clearPresetActive();
   gallery.markActiveCustom(entry.customId);
   _showCustomMapThumb(entry);
@@ -1321,7 +1318,6 @@ if (customMapRemoveBtn) {
         selectPreset(idx, /*applyDefaults=*/false);
       } else {
         activeMapEntry = null;
-        activeMapName.textContent = t('ui.noMapSelected');
         updatePreview();
       }
     }
