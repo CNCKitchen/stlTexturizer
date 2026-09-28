@@ -9,7 +9,7 @@ import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWirefram
          setExclusionOverlay, setHoverPreview, setViewerTheme,
          setProjection, requestRender,
          clearDiagOverlays, setDiagEdges, addDiagFaces,
-         setRotationGizmo, isGizmoDragging, isSoftwareRendering } from './viewer.js';
+         setRotationGizmo, isGizmoDragging, isSoftwareRendering, setTurntable } from './viewer.js';
 import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js';
 import { estimateStep } from './stepLoader.js';
 import { resolveStepSettings } from './stepConvert.js';
@@ -17,6 +17,8 @@ import { computeSmartResolution } from './smartResolution.js';
 import { REF_TEXTURE_SIZE } from './textureAnalysis.js';
 import { loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextures.js';
 import { initTextureGallery } from './textureGallery.js';
+import { getCustomTextureFile } from './customTextures.js';
+import { initSidebarResize } from './sidebarResize.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { regularizeMesh }     from './regularize.js';
@@ -49,7 +51,7 @@ let currentPoseTrans  = new THREE.Vector3();
 let _rotatePoseSnapshot = null; // { rot, trans } captured on rotate-mode entry, restored by the reset button alongside _rotateOriginalPositions
 let currentStlName    = 'model'; // base filename of the loaded STL (no extension)
 let currentStlExt     = '.stl';  // source file extension (.stl/.obj/.3mf/.step/.stp), for the stats line
-let activeMapEntry    = null;   // { name, texture, imageData, width, height, isCustom? }
+let activeMapEntry    = null;   // { name, texture, imageData, width, height, isCustom?, customId? (library id) }
 let _lastCustomMap    = null;   // most recent uploaded/imported custom-map entry, kept across preset switches so the thumbnail can re-activate it
 let previewMaterial   = null;
 let isExporting       = false;
@@ -1108,7 +1110,14 @@ document.getElementById('theme-toggle').addEventListener('click', () => {
 const DEFAULT_PRESET_NAME = 'Crystal';
 let _activePresetIdx = -1;   // preset picked most recently (set before its texture finishes loading)
 PRESETS = IMAGE_PRESETS.map(p => ({ name: p.name, defaultScale: p.defaultScale }));
-const gallery = initTextureGallery({ onSelect: (idx) => selectPreset(idx) });
+// Picks can come from the keyboard (gallery arrow keys), which the pointerup undo hook never sees.
+// Capture once the texture has loaded: the snapshot's activeMapName follows activeMapEntry.
+const gallery = initTextureGallery({
+  onSelect: (idx) => selectPreset(idx).then(_scheduleUndoCapture),
+  onSelectCustom: (id) => selectCustomTexture(id).then(_scheduleUndoCapture),
+  setTurntable,
+});
+initSidebarResize();
 
 wireEvents();
 showWelcomeIfNeeded();
@@ -1119,17 +1128,19 @@ scaleVVal.value = fmtScaleVal(posToScale(parseFloat(scaleVSlider.value)));
 // Load geometry immediately — don't wait for textures
 loadDefaultCube();
 
-// Restore the preset from the last session, else the default. If the user had ANY map active last
-// session (preset or a since-discarded custom upload), suppress preset defaults so the restored
-// settings survive — we'd otherwise clobber textureSmoothing / scaleU when falling back.
+// Restore the map from the last session: a texture from the user's library if the browser still has
+// it, else the preset, else the default. If the user had ANY map active last session (preset or a
+// since-discarded custom upload), suppress preset defaults so the restored settings survive — we'd
+// otherwise clobber textureSmoothing / scaleU when falling back.
 // Deferred until the module has finished evaluating: selectPreset() touches top-level bindings
 // declared further down (e.g. _selectGeneration), which would still be in their TDZ here.
-queueMicrotask(() => {
-  let persistedName = null;
-  try {
-    const raw = sessionStorage.getItem('bumpmesh-settings');
-    if (raw) persistedName = (JSON.parse(raw) || {}).activeMapName || null;
-  } catch { /* ignore */ }
+queueMicrotask(async () => {
+  let persisted = null;
+  try { persisted = JSON.parse(sessionStorage.getItem('bumpmesh-settings')); } catch { /* ignore */ }
+  const persistedName = persisted?.activeMapName || null;
+
+  if (persisted?.activeCustomId && await selectCustomTexture(persisted.activeCustomId, false)) return;
+  if (activeMapEntry || _activePresetIdx >= 0) return;   // the user picked a map while the library loaded
 
   const applyDefaults = !persistedName;
   let targetIdx = persistedName ? IMAGE_PRESETS.findIndex(p => p.name === persistedName) : -1;
@@ -1195,6 +1206,62 @@ async function selectPreset(idx, applyDefaults = true) {
   }
 }
 
+/**
+ * Make one of the user's stored textures (js/customTextures.js) the active map. Resolves false if
+ * the browser no longer has it (it may evict the library at any time) or it failed to decode. Only
+ * a user pick (applyDefaults) says so out loud; session and undo restores fall back quietly.
+ */
+async function selectCustomTexture(id, applyDefaults = true) {
+  const gen = ++_selectGeneration;
+  let entry = _lastCustomMap?.customId === id ? _lastCustomMap : null;
+  if (!entry) {
+    let file = null;
+    gallery.setCustomLoading(id, true);
+    try {
+      file = await getCustomTextureFile(id);
+      if (file) {
+        entry = await loadCustomTexture(file);
+        entry.isCustom = true;
+        entry.customId = id;
+      }
+    } catch (err) {
+      console.error('Failed to load stored texture:', err);
+    } finally {
+      gallery.setCustomLoading(id, false);
+    }
+    if (!entry) {
+      if (applyDefaults && gen === _selectGeneration) {
+        alert(file ? t('alerts.textureLoadFailed', { name: file.name }) : t('alerts.customTextureMissing'));
+      }
+      gallery.refreshCustoms();   // drop the tile if its file is gone
+      return false;
+    }
+  }
+  if (gen !== _selectGeneration) {   // user clicked another map meanwhile
+    if (entry !== _lastCustomMap) entry.texture.dispose();
+    return false;
+  }
+  _useCustomMap(entry, applyDefaults);
+  return true;
+}
+
+/** Make a decoded custom map the active map (fresh upload, library pick or project import). */
+function _useCustomMap(entry, resetSmoothing) {
+  _selectGeneration++;   // a preset or library load still in flight must not replace it
+  // Only the latest custom map is kept; free the GPU copy of the one it replaces.
+  if (_lastCustomMap && _lastCustomMap !== entry) _lastCustomMap.texture.dispose();
+  activeMapEntry = entry;
+  _lastCustomMap = entry;
+  activeMapName.textContent = entry.name;
+  _clearPresetActive();
+  gallery.markActiveCustom(entry.customId);
+  _showCustomMapThumb(entry);
+  customMapSwatch.classList.add('active');
+  if (resetSmoothing) resetTextureSmoothing();
+  updatePreview();
+  _autoSaveSettings();
+}
+
 // ── Custom-map thumbnail (below the upload button) ───────────────────────────
 
 /** Paint a small preview canvas of the custom map and reveal the thumbnail row. */
@@ -1229,12 +1296,7 @@ function _hideCustomMapThumb() {
 
 /** Promote the kept-aside custom map back to the active map. No defaults reset. */
 function _activateCustomMap() {
-  if (!_lastCustomMap) return;
-  activeMapEntry = _lastCustomMap;
-  _clearPresetActive();
-  customMapSwatch.classList.add('active');
-  activeMapName.textContent = _lastCustomMap.name;
-  updatePreview();
+  if (_lastCustomMap) _useCustomMap(_lastCustomMap, false);
 }
 
 if (customMapSwatch) {
@@ -1426,15 +1488,18 @@ function wireEvents() {
     const file = e.target.files[0];
     if (!file) return;
     try {
-      activeMapEntry = await loadCustomTexture(file);
-      activeMapEntry.isCustom = true;
-      _lastCustomMap = activeMapEntry;
-      activeMapName.textContent = activeMapEntry.name;
-      _clearPresetActive();
-      _showCustomMapThumb(activeMapEntry);
-      customMapSwatch.classList.add('active');
-      resetTextureSmoothing();
-      updatePreview();
+      const entry = await loadCustomTexture(file);
+      entry.isCustom = true;
+      _useCustomMap(entry, true);
+      // Keep the original in the gallery's "Your textures" (best effort — the map works either way).
+      gallery.rememberUpload(file, entry.fullCanvas).then((id) => {
+        if (!id) return;
+        entry.customId = id;
+        if (activeMapEntry === entry) {
+          gallery.markActiveCustom(id);
+          _autoSaveSettings();   // so a reload brings this map back
+        }
+      });
     } catch (err) {
       // macOS pickers ignore accept="image/*", and browsers can't decode
       // HEIC/TIFF — tell the user instead of silently keeping the old map (#124).
@@ -4464,7 +4529,8 @@ function getEffectiveMapEntry() {
   }
   const { fullCanvas, width, height, name } = activeMapEntry;
   const cacheKey = `${name}_${width}_${height}_${settings.textureSmoothing}`;
-  if (_effectiveMapCacheKey === cacheKey && _effectiveMapCache) {
+  // Two uploads can share a file name and size, so also check it was blurred from this very map.
+  if (_effectiveMapCacheKey === cacheKey && _effectiveMapCache?.fullCanvas === fullCanvas) {
     return _effectiveMapCache;
   }
   // The slider is in pixels of a 512 px map; custom maps can be up to
@@ -5715,13 +5781,16 @@ function getSettingsSnapshot() {
   snap.scaleUnit = 'mm';
   if (activeMapEntry) {
     snap.activeMapName = activeMapEntry.name;
+    // Library id of a custom map (js/customTextures.js) — only meaningful in this browser.
+    snap.activeCustomId = activeMapEntry.customId || null;
   } else {
     // Thumbnails may not have finished loading yet; preserve any previously
-    // persisted preset name so a mid-load autosave doesn't wipe it.
+    // persisted map so a mid-load autosave doesn't wipe it.
     try {
       const prev = JSON.parse(sessionStorage.getItem(PROJECT_STORAGE_KEY) || 'null');
       snap.activeMapName = (prev && prev.activeMapName) || null;
-    } catch { snap.activeMapName = null; }
+      snap.activeCustomId = (prev && prev.activeCustomId) || null;
+    } catch { snap.activeMapName = snap.activeCustomId = null; }
   }
   return snap;
 }
@@ -6047,6 +6116,7 @@ exportGoBtn.addEventListener('click', async () => {
     if (includeModel && precisionMaskingEnabled) deactivatePrecisionMasking();
 
     const payload = { version: PROJECT_VERSION, ...getSettingsSnapshot() };
+    delete payload.activeCustomId;   // a browser-local library id means nothing in another browser
     // Mark the custom map as the active reference so the importer restores it
     // even if the user has a preset selected at export time.
     if (includeTexture) payload.activeMapName = customSource.name;
@@ -6365,15 +6435,10 @@ async function _applyImportedTexture(unzipped, data) {
   if (unzipped['texture.png']) {
     const texName = (data && data.activeMapName) || 'imported-texture.png';
     const texFile = new File([unzipped['texture.png']], texName, { type: 'image/png' });
-    activeMapEntry = await loadCustomTexture(texFile);
-    activeMapEntry.isCustom = true;
-    activeMapEntry.name = texName;
-    _lastCustomMap = activeMapEntry;
-    activeMapName.textContent = texName;
-    _clearPresetActive();
-    _showCustomMapThumb(activeMapEntry);
-    customMapSwatch.classList.add('active');
-    updatePreview();
+    const entry = await loadCustomTexture(texFile);
+    entry.isCustom = true;
+    entry.name = texName;
+    _useCustomMap(entry, false);
   } else if (data && data.activeMapName) {
     _selectPresetByName(data.activeMapName);
   }
@@ -6504,7 +6569,9 @@ function _applyUndoSnapshot(snap) {
   try {
     applySettingsSnapshot(snap.settings);
     _restoreMask(snap.mask);
-    if (snap.settings && snap.settings.activeMapName) {
+    if (snap.settings && snap.settings.activeCustomId) {
+      selectCustomTexture(snap.settings.activeCustomId, false);
+    } else if (snap.settings && snap.settings.activeMapName) {
       _selectPresetByName(snap.settings.activeMapName);
     }
     updatePreview();

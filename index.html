@@ -173,6 +173,11 @@
     </section>
 
     <!-- â”€â”€â”€ Settings Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+    <!-- Drag handle on the sidebar's left edge (js/sidebarResize.js); resizes the settings panel and the gallery alike -->
+    <div id="sidebar-resize" class="sidebar-resize" role="separator" aria-orientation="vertical" tabindex="0"
+      data-i18n-aria-label="ui.resizeSidebar" aria-label="Drag to resize the sidebar; double-click to reset"
+      data-i18n-title="ui.resizeSidebar" title="Drag to resize the sidebar; double-click to reset"></div>
+
     <aside id="settings-panel">
 
       <!-- Load STL -->
@@ -643,6 +648,33 @@
       <button id="imprint-link" class="license-link" data-i18n="imprint.btn">Imprint &amp; Privacy</button>
 
     </aside>
+
+    <!-- Texture gallery (filled by js/textureGallery.js). Takes the settings panel's place while open
+         so the model stays visible and every pick shows up on it live. -->
+    <aside id="gallery-panel" class="gallery-panel hidden" role="dialog" aria-labelledby="gallery-title">
+      <div class="gallery-header">
+        <h2 id="gallery-title" data-i18n="gallery.title">Texture Gallery</h2>
+        <button id="gallery-turntable" class="gallery-turntable-btn" type="button" aria-pressed="false"
+          data-i18n-title="gallery.turntableTitle" title="Slowly spin the model while you browse">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          <span data-i18n="gallery.turntable">Turntable</span>
+        </button>
+        <button id="gallery-done" class="gallery-done-btn" type="button" data-i18n="gallery.done">Done</button>
+      </div>
+      <div class="gallery-toolbar">
+        <input type="search" id="gallery-search" class="gallery-search" autocomplete="off" spellcheck="false" />
+        <div id="gallery-chips" class="gallery-chips" role="group" data-i18n-aria-label="gallery.filterLabel" aria-label="Filter by category"></div>
+      </div>
+      <div class="gallery-status">
+        <span class="gallery-hint" data-i18n="gallery.hint">Click a texture to try it on your model; arrow keys flip through them. Star your favorites to pin them to the panel.</span>
+        <span class="gallery-fav-tools">
+          <span id="gallery-fav-count"></span>
+          <button id="gallery-fav-reset" class="gallery-link-btn" type="button" data-i18n="gallery.resetFavourites">Reset favourites</button>
+        </span>
+      </div>
+      <div id="gallery-body" class="gallery-body"></div>
+      <p class="gallery-credits" data-i18n-html="gallery.credits">Patterns marked <strong>HP</strong> are based on <a href="https://heropatterns.com/" target="_blank" rel="noopener">Hero Patterns</a> by Steve Schoger, licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> and converted to heightmaps. Textures marked <strong>CC0</strong> come from <a href="https://ambientcg.com/" target="_blank" rel="noopener">ambientCG</a> and <a href="https://polyhaven.com/" target="_blank" rel="noopener">Poly Haven</a> (public domain). All other textures ship with BumpMesh.</p>
+    </aside>
   </main>
 
   <!-- License popup -->
@@ -679,27 +711,6 @@
     </div>
   </div>
 
-  <!-- Texture gallery popup (filled by js/textureGallery.js) -->
-  <div id="gallery-overlay" class="license-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="gallery-title">
-    <div class="license-modal gallery-modal">
-      <button id="gallery-close" class="license-close-btn" aria-label="Close">&#215;</button>
-      <h2 id="gallery-title" data-i18n="gallery.title">Texture Gallery</h2>
-      <div class="gallery-toolbar">
-        <input type="search" id="gallery-search" class="gallery-search" autocomplete="off" spellcheck="false" />
-        <div id="gallery-chips" class="gallery-chips" role="group" data-i18n-aria-label="gallery.filterLabel" aria-label="Filter by category"></div>
-      </div>
-      <div class="gallery-status">
-        <span class="gallery-hint" data-i18n="gallery.hint">Click a texture to use it. Star your favorites to pin them to the panel.</span>
-        <span class="gallery-fav-tools">
-          <span id="gallery-fav-count"></span>
-          <button id="gallery-fav-reset" class="gallery-link-btn" type="button" data-i18n="gallery.resetFavourites">Reset favourites</button>
-        </span>
-      </div>
-      <div id="gallery-body" class="gallery-body"></div>
-      <p class="gallery-credits" data-i18n-html="gallery.credits">Patterns marked <strong>HP</strong> are based on <a href="https://heropatterns.com/" target="_blank" rel="noopener">Hero Patterns</a> by Steve Schoger, licensed under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> and converted to heightmaps. Textures marked <strong>CC0</strong> come from <a href="https://ambientcg.com/" target="_blank" rel="noopener">ambientCG</a> and <a href="https://polyhaven.com/" target="_blank" rel="noopener">Poly Haven</a> (public domain). All other textures ship with BumpMesh.</p>
-    </div>
-  </div>
-
   <div id="license-overlay" class="license-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="license-title">
     <div class="license-modal">
       <button id="license-close" class="license-close-btn" aria-label="Close">&#215;</button>
@@ -732,7 +743,7 @@
       <p class="imprint-text" data-i18n-html="imprint.privacyIntro"><strong>Responsible party</strong> (Verantwortlicher gem. Art. 4 Abs. 7 DSGVO): Stefan Hermann, Bahnhofstr. 2, 88145 Hergatz, Germany.</p>
       <ul class="license-list">
         <li data-i18n-html="imprint.privacyHosting">This website is hosted on <strong>GitHub Pages</strong> (GitHub Inc. / Microsoft Corp., 88 Colin P Kelly Jr St, San Francisco, CA 94107, USA). When you visit this site, GitHub may process your IP address in server logs. Legal basis: Art. 6(1)(f) DSGVO (legitimate interest in providing the website). See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">GitHub&rsquo;s Privacy Statement</a>.</li>
-        <li data-i18n-html="imprint.privacyLocal">This tool stores user preferences (language, theme) in your browser&rsquo;s <strong>localStorage</strong>. This data never leaves your device and is not transmitted to any server.</li>
+        <li data-i18n-html="imprint.privacyLocal">This tool stores data only in your browser: preferences (e.g. language, theme, favorites) in <strong>localStorage</strong>, your current texture settings in <strong>sessionStorage</strong> (cleared when you close the tab), and textures you upload in <strong>IndexedDB</strong> so you can reuse them. This data never leaves your device and is not transmitted to any server. You can delete uploaded textures in the Texture Gallery, or everything by clearing this site&rsquo;s data in your browser.</li>
         <li data-i18n-html="imprint.privacyNoCookies">This website does <strong>not</strong> use cookies, analytics, or any tracking technologies.</li>
         <li data-i18n-html="imprint.privacyExternal">This site contains links to external websites (e.g., CNCKitchen.STORE, PayPal, Ko-fi). These sites have their own privacy policies, over which we have no control.</li>
         <li data-i18n-html="imprint.privacyRights">Under the GDPR you have the right to <strong>access, rectification, erasure, restriction of processing, data portability</strong>, and the right to <strong>lodge a complaint</strong> with a supervisory authority.</li>

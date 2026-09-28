@@ -31,6 +31,10 @@ let _hoverMaterial = null;
 let _needsRender = true;
 let _diagEdges = null;       // LineSegments2 for open/non-manifold edges
 let _diagFaces = [];         // Array of THREE.Mesh overlays for face highlights
+let _turntable = null;       // { last, onStop } while the camera auto-orbits the model
+
+const _TURNTABLE_RAD_PER_S = (2 * Math.PI) / 24;   // one revolution every 24 s
+const _Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 // Turntable pitch clamp: keep the view direction at least this far (radians)
 // away from ±world Z. At the pole itself the up direction is ambiguous and
@@ -468,15 +472,55 @@ export function initViewer(canvas) {
   // Rotation gizmo interaction
   _initGizmoInteraction();
 
+  // Any direct manipulation of the view hands control back to the user.
+  const stopTurntable = () => {
+    if (!_turntable) return;
+    const { onStop } = _turntable;
+    _turntable = null;
+    onStop?.();
+  };
+  renderer.domElement.addEventListener('pointerdown', stopTurntable);
+  renderer.domElement.addEventListener('wheel', stopTurntable, { passive: true });
+
   // Render loop
   (function animate() {
     requestAnimationFrame(animate);
+    if (_turntable) _stepTurntable();
     controls.update();
     if (_needsRender) {
       _needsRender = false;
       renderer.render(scene, camera);
     }
   })();
+}
+
+/** Yaw the camera (and orbit target) around the vertical axis through the model centre, so the
+ *  model spins in place on screen however the view was panned or zoomed. */
+function _stepTurntable() {
+  const now = performance.now();
+  const dt = Math.min((now - _turntable.last) / 1000, 0.1);   // no jump after a background tab
+  _turntable.last = now;
+  if (!currentMesh || dt <= 0) return;
+
+  const geo = currentMesh.geometry;
+  if (!geo.boundingSphere) geo.computeBoundingSphere();
+  const pivot = _tmpV4.copy(geo.boundingSphere.center).applyMatrix4(currentMesh.matrixWorld);
+
+  _tmpQ1.setFromAxisAngle(_Z_AXIS, dt * _TURNTABLE_RAD_PER_S);
+  camera.position.sub(pivot).applyQuaternion(_tmpQ1).add(pivot);
+  controls.target.sub(pivot).applyQuaternion(_tmpQ1).add(pivot);
+  camera.quaternion.premultiply(_tmpQ1);
+  _needsRender = true;
+}
+
+/**
+ * Start or stop the turntable. `onStop` fires once when the user grabs, pans or zooms the view,
+ * which ends the spin; it does not fire for setTurntable(false).
+ * @param {boolean} on
+ * @param {() => void} [onStop]
+ */
+export function setTurntable(on, onStop = null) {
+  _turntable = on ? { last: performance.now(), onStop } : null;
 }
 
 function onResize() {

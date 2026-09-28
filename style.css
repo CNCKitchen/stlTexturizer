@@ -18,7 +18,8 @@
   --danger:       #ff5f5f;
   --success:      #4ade80;
   --radius:       8px;
-  --sidebar-w:    380px;
+  --sidebar-w:    380px;   /* widened per user by js/sidebarResize.js (set on <main>) */
+  --sidebar-min-w: 380px;
   --header-h:     48px;
 }
 
@@ -434,8 +435,42 @@ main {
 }
 
 /* ── Settings panel ──────────────────────────────────────────────────── */
+/* The settings panel and the gallery that replaces it share one width, so opening the gallery never
+   shifts the viewport. Never narrower than designed; always leaves the viewport 320px. */
+#settings-panel,
+.gallery-panel {
+  width: clamp(var(--sidebar-min-w), var(--sidebar-w), calc(100% - 320px));
+}
+
+.sidebar-resize {
+  position: relative;
+  flex: 0 0 0;
+  z-index: 2;
+  touch-action: none;
+}
+
+/* 8px hit area straddling the sidebar border; the accent line shows on hover, focus and drag. */
+.sidebar-resize::before,
+.sidebar-resize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.sidebar-resize::before { left: -4px; width: 8px; cursor: col-resize; touch-action: none; }
+.sidebar-resize::after  { left: -1px; width: 2px; background: transparent; transition: background 0.15s; pointer-events: none; }
+
+.sidebar-resize:hover::after,
+.sidebar-resize:focus-visible::after,
+.sidebar-resize.dragging::after { background: var(--accent); }
+.sidebar-resize:focus-visible { outline: none; }
+
+/* No text selection or canvas pointer grabs while dragging the handle. */
+body.sidebar-resizing { cursor: col-resize; user-select: none; }
+body.sidebar-resizing #viewport { pointer-events: none; }
+
 #settings-panel {
-  width: var(--sidebar-w);
   flex-shrink: 0;
   background: var(--surface);
   border-left: 1px solid var(--border);
@@ -556,6 +591,7 @@ main {
 
 .preset-swatch:hover { border-color: var(--text-muted); transform: scale(1.04); }
 .preset-swatch.active { border-color: var(--accent); }
+.preset-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .preset-swatch canvas,
 .preset-swatch img {
@@ -660,22 +696,87 @@ main {
   padding: 1px 6px;
 }
 
-/* ── Texture gallery popup ───────────────────────────────────────────── */
-/* .license-modal (shared popup chrome) is declared later with the same specificity, so qualify it. */
-.license-modal.gallery-modal {
-  max-width: 920px;
-  width: calc(100% - 32px);
-  height: min(86vh, 900px);
-  padding: 22px 24px 16px;
+/* ── Texture gallery side panel ──────────────────────────────────────── */
+/* Non-modal: it takes the settings panel's slot (and width, see #settings-panel), so the viewport
+   stays put and orbitable while picks apply live. */
+main.gallery-open #settings-panel { display: none; }
+
+.gallery-panel {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  padding: 14px 16px 12px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
 }
+
+.gallery-panel.hidden { display: none; }
+
+.gallery-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gallery-header h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gallery-turntable-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.gallery-turntable-btn:hover { color: var(--text); border-color: var(--text-muted); }
+
+.gallery-turntable-btn[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.gallery-turntable-btn[aria-pressed="true"] svg { animation: gallery-spin 2.4s linear infinite; }
+
+@keyframes gallery-spin { to { transform: rotate(360deg); } }
+
+.gallery-done-btn {
+  padding: 5px 14px;
+  background: var(--accent);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.gallery-done-btn:hover { filter: brightness(1.12); }
 
 .gallery-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding-right: 28px; /* clear the close button */
 }
 
 .gallery-search {
@@ -801,11 +902,38 @@ main {
 .gallery-star:hover { transform: scale(1.12); }
 .gallery-star[aria-pressed="true"] { color: #ffc940; }
 
-/* Unstarred stars only appear on hover/focus where hovering exists; touch keeps them visible. */
+/* Download / delete on the user's own textures, stacked in the top-left corner opposite the star. */
+.gallery-tool {
+  position: absolute;
+  left: 5px;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s, background 0.15s;
+}
+
+.gallery-tool-download { top: 5px; }
+.gallery-tool-delete { top: 33px; }
+.gallery-tool:hover { transform: scale(1.12); }
+.gallery-tool-delete:hover { background: var(--danger); }
+
+/* Unstarred stars and tile tools only appear on hover/focus where hovering exists; touch keeps them visible. */
 @media (hover: hover) {
-  .gallery-star[aria-pressed="false"] { opacity: 0; }
+  .gallery-star[aria-pressed="false"],
+  .gallery-tool { opacity: 0; }
   .gallery-tile:hover .gallery-star,
-  .gallery-star:focus-visible { opacity: 1; }
+  .gallery-star:focus-visible,
+  .gallery-tile:hover .gallery-tool,
+  .gallery-tool:focus-visible { opacity: 1; }
 }
 
 .gallery-badge {
@@ -829,6 +957,56 @@ main {
   color: var(--text-muted);
 }
 
+/* ── Your textures (uploads kept in this browser, js/customTextures.js) ── */
+.gallery-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 14px 0 6px;
+}
+
+.gallery-section-head:first-child { margin-top: 2px; }
+.gallery-section-head .gallery-section-title { margin: 0; min-width: 0; }
+
+.gallery-danger-link {
+  font-size: 11px;
+  color: var(--danger);
+  white-space: nowrap;
+}
+
+.gallery-custom-note {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  background: color-mix(in srgb, #f59e0b 8%, var(--surface2));
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+}
+
+.gallery-custom-note-warn {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface2));
+  border-left-color: var(--danger);
+}
+
+.gallery-custom-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.gallery-custom-empty p { margin: 0; line-height: 1.5; }
+
 .gallery-credits {
   margin: 0;
   padding-top: 10px;
@@ -843,7 +1021,7 @@ main {
 .gallery-credits a:hover { text-decoration: underline; }
 
 @media (max-width: 520px) {
-  .license-modal.gallery-modal { padding: 18px 14px 12px; height: 92vh; }
+  .gallery-panel { padding: 12px 10px 10px; }
   .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
 }
 
