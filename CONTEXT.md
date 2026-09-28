@@ -109,3 +109,61 @@ Where the decimation savings came from, all behaviour-preserving:
   cannot do this — it frees GPU resources, not the JS typed arrays.
 
 Verify any change here with `bench-pipeline.mjs` fingerprints, not by eye.
+
+## The quality ceiling is a memory budget (`js/memoryBudget.js`)
+
+The subdivision safety cap is **derived**, not hardcoded:
+`cap = budgetBytes / PIPELINE_BYTES_PER_TRIANGLE`, bounded by a second,
+independent ceiling. It replaced a fixed 16M/32M pair whose justifying comment
+assumed 145 B/tri when the real figure was 660 — so those caps were
+unreachable, and an export hit the allocator instead of the "cap".
+
+`PIPELINE_BYTES_PER_TRIANGLE` is 384: the **browser** figure (RSS of every
+Chromium process during a real export, minus the idle baseline — 15.0 M
+subdivided triangles, 665 MB to 6165 MB). Node's live typed-array accounting
+gives 327; the browser number is deliberately preferred, because this guard
+exists to stop an export before the allocator does and the allocator charges
+for the footprint, not for the subset V8 calls live.
+
+**If you change an allocation in `decimation.js`, `subdivision.js` or
+`displacement.js`, re-measure and update `PIPELINE_BYTES_PER_TRIANGLE`.** It is
+the only thing standing between the user and an out-of-memory tab.
+
+### Two ceilings — total memory AND per-allocation
+
+| Ceiling | Constant | Binds at |
+|---------|----------|----------|
+| Total footprint | `PIPELINE_BYTES_PER_TRIANGLE` (384) | budget ÷ 384 |
+| One typed array | `MAX_SINGLE_BUFFER_BYTES_PER_TRIANGLE` (48) vs 2^31-1 B | ~44.7 M triangles |
+
+The second is **not about how much RAM the machine has**. V8 caps a single
+typed array at 2^31-1 bytes (measured: the largest allocatable Float32Array is
+2046 MB, page and worker alike). The pipeline's biggest single allocations are
+decimation's `quadrics` (Float64Array(V*10) = 40 B/tri) and `toNonIndexed`'s
+position/normal buffers (Float32Array(T*9) = 36 B/tri each).
+
+Found the hard way: a 32 GB budget nominally allowed 101 M triangles,
+subdivision reached 65 M, and `toNonIndexed` then asked for a 2.34 GB
+Float32Array and threw `Array buffer allocation failed` — killing the export
+after minutes of work, on a machine with 30 GB free. Going out-of-core is the
+only way past ~45 M triangles.
+
+`navigator.deviceMemory` is clamped to 8 by its own specification, so it cannot
+distinguish an 8 GB laptop from a 512 GB workstation. The budget is therefore a
+user setting with a conservative automatic default, not a detection.
+
+### Allocation failures degrade, they do not throw
+
+`subdivide()` rolls back to the last complete level on an allocation failure
+(`isAllocationFailure` matches the V8/Spidermonkey/JSC wordings; anything else
+re-throws) and reports it as `safetyCapHit`, which the caller already surfaces
+as "coarser than requested". With the structural cap in place this path should
+be unreachable in Chromium — **it is defensive and currently unexercised by any
+test**; it exists because engine limits differ and losing a finished
+multi-minute subdivision to one failed allocation is not acceptable.
+
+The page owns the budget (localStorage); the pipeline may run in a worker with
+no localStorage, so the resolved cap travels as `settings.subdivisionCap`, where
+`0` means "use the auto-detected default". `diag-quality-ceiling.mjs` shows
+which ceiling binds at a given part size; `diag-manifold-stages.mjs` reports
+edge defects after each stage.

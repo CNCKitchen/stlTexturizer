@@ -527,6 +527,14 @@
         <div class="advanced-content" id="advanced-content">
           <p class="advanced-blurb" data-i18n="ui.advancedBlurb">Experimental tools. Behavior may change between releases.</p>
 
+          <h3 class="panel-subsection-heading" data-i18n="ui.memBudgetHeading">Quality Ceiling (memory budget)</h3>
+          <p class="advanced-blurb" data-i18n="ui.memBudgetDesc">How much memory the export is allowed to use. This is what limits how fine a resolution you can actually get: the mesh is capped so the browser doesn't run out of memory mid-export. Browsers can't report how much RAM is free (they never report more than 8 GB), so the automatic value is a safe guess — if you have the memory, raise it. Too high means the export fails with an out-of-memory error; just set it back down and retry.</p>
+          <div class="form-row">
+            <label for="mem-budget" data-i18n="ui.memBudget">Memory budget</label>
+            <select id="mem-budget" class="val mem-budget-select"></select>
+          </div>
+          <p id="mem-budget-info" class="advanced-blurb mem-budget-info"></p>
+
           <h3 class="panel-subsection-heading" data-i18n="ui.noDownwardZHeading">Overhang Protection</h3>
           <p class="advanced-blurb" data-i18n="ui.noDownwardZDesc">Some textures push surface vertices downward, creating new overhangs. When enabled, vertices are never moved in the âˆ’Z direction during texturing. X and Y movement is unaffected.</p>
           <div class="form-row">
@@ -622,7 +630,7 @@
           <span class="val" id="max-triangles-val">0.75 M</span>
         </div>
         <div id="tri-limit-warning" class="tri-limit-warning hidden" data-i18n="warnings.safetyCapHit">
-          âš  16M-triangle safety cap hit during subdivision â€” result may still be coarser than requested edge length.
+          ⚠ Memory budget reached during subdivision - the result is coarser than the requested edge length. Raise the memory budget under Advanced, or use a coarser Resolution.
         </div>
 
         <div id="export-progress" class="export-progress hidden">

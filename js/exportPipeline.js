@@ -215,11 +215,16 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     await yieldFrame();
     if (shouldAbort()) return null;
 
+    // The subdivision cap comes from the page (it owns the user's memory-budget
+    // setting; this code may be running in a worker with no localStorage).
+    // 0 → subdivision falls back to its auto-detected default.
+    const safetyCap = settings.subdivisionCap || 0;
+
     let safetyCapHit, faceParentId;
     ({ geometry: subdivided, safetyCapHit, faceParentId } = await subdivide(
       geometry, settings.refineLength,
       (p, triCount, longestEdge) => onEvent('subdivide1', p, { triCount, longestEdge }),
-      input.faceWeights || null
+      input.faceWeights || null, { safetyCap }
     ));
     if (shouldAbort()) return null;
 
@@ -244,7 +249,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       const { geometry: resub, faceParentId: resubParents } = await subdivide(
         reg.geometry, settings.refineLength * settings.regularizeSecondPassMul,
         (p, triCount, longestEdge) => onEvent('subdivide2', p, { triCount, longestEdge }),
-        secondPassWeights, { fast: false }
+        secondPassWeights, { fast: false, safetyCap }
       );
       reg.geometry.dispose();
       if (trackParents) {
