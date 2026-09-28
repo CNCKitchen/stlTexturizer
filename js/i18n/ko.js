@@ -250,7 +250,7 @@ export default {
   "imprint.privacyExternal": "이 사이트에는 외부 웹사이트(CNCKitchen.STORE, PayPal, Ko-fi 등)로의 링크가 포함되어 있습니다. 이러한 사이트에는 각자의 개인정보 처리방침이 적용되며, 당사는 이를 통제할 수 없습니다.",
   "imprint.privacyRights": "GDPR에 따라 귀하는 <strong>열람, 정정, 삭제, 처리 제한, 데이터 이동권</strong> 및 감독 기관에 <strong>불만을 제기할 권리</strong>를 가집니다.",
   "sponsor.title": "CNC Kitchen의 BumpMesh를 사용해 주셔서 감사합니다!",
-  "sponsor.body": "이 도구는 CNC Kitchen이 <strong>완전히 무료로</strong> 제공합니다.<br>STL이 처리되는 동안, 저희가 계속 멋진 것을 만들 수 있도록 도와주는 스토어를 둘러보시는 건 어떨까요?",
+  "sponsor.body": "이 도구는 CNC Kitchen이 <strong>완전히 무료로</strong> 제공합니다.<br>STL이 처리되는 동안, 저희가 계속 멋진 것을 만들 수 있도록 도와주는 <a href=\"https://geni.us/CNCStoreTexture\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"modal-text-link\">스토어</a>를 둘러보시는 건 어떨까요?",
   "sponsor.visitStore": "🛒 CNCKitchen.STORE 방문",
   "sponsor.donate": "💙 PayPal로 팁 보내기",
   "sponsor.donateKofi": "☕ Ko-fi로 팁 보내기",

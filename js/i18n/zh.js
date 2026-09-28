@@ -250,7 +250,7 @@ export default {
   "imprint.privacyExternal": "本网站包含指向外部网站的链接（例如 CNCKitchen.STORE、PayPal、Ko-fi）。这些网站有其独立的隐私政策，我们对此无法控制。",
   "imprint.privacyRights": "根据 GDPR，您有权<strong>访问、更正、删除、限制处理、数据可移植</strong>，并有权向监管机构<strong>提出投诉</strong>。",
   "sponsor.title": "感谢使用 CNC Kitchen 的 BumpMesh！",
-  "sponsor.body": "本工具由 CNC Kitchen <strong>完全免费</strong>提供。<br/>当您的 STL 正在处理时，何不看看让我们得以持续创作优质内容的商店？",
+  "sponsor.body": "本工具由 CNC Kitchen <strong>完全免费</strong>提供。<br/>当您的 STL 正在处理时，何不看看让我们得以持续创作优质内容的<a href=\"https://geni.us/CNCStoreTexture\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"modal-text-link\">商店</a>？",
   "sponsor.visitStore": "🛒 访问 CNCKitchen.STORE",
   "sponsor.donate": "💙 通过 PayPal 打赏",
   "sponsor.donateKofi": "☕ 通过 Ko-fi 打赏",

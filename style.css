@@ -1888,6 +1888,17 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   margin: 0;
 }
 
+/* Inline store link in the body text — deliberately not named sponsor-*,
+   since adblocker cosmetic filters hide those and take the buttons with them. */
+.modal-text-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.modal-text-link:hover { color: var(--accent-hover); }
+
 .sponsor-link {
   display: block;
   text-align: center;

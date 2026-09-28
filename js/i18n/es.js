@@ -250,7 +250,7 @@ export default {
   "imprint.privacyExternal": "Este sitio contiene enlaces a sitios web externos (p. ej., CNCKitchen.STORE, PayPal, Ko-fi). Estos sitios tienen sus propias políticas de privacidad, sobre las cuales no tenemos control.",
   "imprint.privacyRights": "Según el RGPD, tienes derecho a <strong>acceso, rectificación, supresión, limitación del tratamiento, portabilidad de datos</strong> y derecho a <strong>presentar una reclamación</strong> ante una autoridad de control.",
   "sponsor.title": "¡Gracias por usar BumpMesh de CNC Kitchen!",
-  "sponsor.body": "Esta herramienta es proporcionada <strong>completamente gratis</strong> por CNC Kitchen.<br>Mientras se procesa tu STL, ¿por qué no echas un vistazo a la tienda que nos ayuda a seguir creando cosas geniales para ti?",
+  "sponsor.body": "Esta herramienta es proporcionada <strong>completamente gratis</strong> por CNC Kitchen.<br>Mientras se procesa tu STL, ¿por qué no echas un vistazo a la <a href=\"https://geni.us/CNCStoreTexture\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"modal-text-link\">tienda</a> que nos ayuda a seguir creando cosas geniales para ti?",
   "sponsor.visitStore": "🛒 Visitar CNCKitchen.STORE",
   "sponsor.donate": "💙 Dejar propina en PayPal",
   "sponsor.donateKofi": "☕ Dejar propina en Ko-fi",

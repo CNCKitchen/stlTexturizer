@@ -250,7 +250,7 @@ export default {
   "imprint.privacyExternal": "Bu site, harici web sitelerine bağlantılar (örn. CNCKitchen.STORE, PayPal, Ko-fi) içermektedir. Bu sitelerin kendi gizlilik politikaları vardır ve bunlar üzerinde bizim hiçbir kontrolümüz yoktur.",
   "imprint.privacyRights": "GDPR kapsamında, verilerinize <strong>erişim, düzeltme, silme (unutulma hakkı), işlemenin kısıtlanması, veri taşınabilirliği</strong> haklarına ve bir denetim makamına <strong>şikayette bulunma</strong> hakkına sahipsiniz.",
   "sponsor.title": "CNC Kitchen tarafından üretilen BumpMesh'i kullandığınız için teşekkür ederiz!",
-  "sponsor.body": "Bu araç, CNC Kitchen tarafından <strong>tamamen ücretsiz</strong> olarak sunulmaktadır.<br>STL dosyanız işlenirken, sizin için harika şeyler üretmeye devam etmemize yardımcı olan mağazaya göz atmaya ne dersiniz?",
+  "sponsor.body": "Bu araç, CNC Kitchen tarafından <strong>tamamen ücretsiz</strong> olarak sunulmaktadır.<br>STL dosyanız işlenirken, sizin için harika şeyler üretmeye devam etmemize yardımcı olan <a href=\"https://geni.us/CNCStoreTexture\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"modal-text-link\">mağazaya</a> göz atmaya ne dersiniz?",
   "sponsor.visitStore": "🛒 CNCKitchen.STORE",
   "sponsor.donate": "💙 PayPal'dan Bağış Gönderin",
   "sponsor.donateKofi": "☕ Ko-fi'den Bağış Gönderin",

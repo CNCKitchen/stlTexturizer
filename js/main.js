@@ -1773,7 +1773,8 @@ function wireEvents() {
     if (sessionStorage.getItem('stlt-no-sponsor') === '1') return;
     const overlay = document.getElementById('sponsor-overlay');
     const closeBtn = document.getElementById('sponsor-close');
-    const storeLink = overlay.querySelector('.sponsor-link');
+    // Button plus the inline text link (the button may be hidden or removed by adblockers)
+    const storeLinks = overlay.querySelectorAll('a[href="https://geni.us/CNCStoreTexture"]');
     overlay.classList.remove('hidden');
     trapFocus(overlay);
 
@@ -1785,7 +1786,7 @@ function wireEvents() {
     };
 
     closeBtn.onclick = dismiss;
-    storeLink.onclick = () => setTimeout(dismiss, 150);
+    storeLinks.forEach(a => { a.onclick = () => setTimeout(dismiss, 150); });
   };
   exportBtn.addEventListener('click', () => startExport('stl'));
   export3mfBtn.addEventListener('click', () => startExport('3mf'));
