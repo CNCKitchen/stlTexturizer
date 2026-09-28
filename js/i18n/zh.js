@@ -66,7 +66,7 @@ export default {
   "gallery.confirmDeleteCustom": "要从此浏览器中删除“{name}”吗？此操作无法撤销。",
   "gallery.confirmDeleteAllCustom": "要从此浏览器中删除全部 {n} 个纹理吗？此操作无法撤销。",
   "alerts.customTextureMissing": "此纹理已不再保存在浏览器中——网站数据可能已被清除。请重新上传原始文件。",
-  "gallery.credits": "标有 <strong>HP</strong> 的图案基于 Steve Schoger 的 <a href=\"https://heropatterns.com/\" target=\"_blank\" rel=\"noopener\">Hero Patterns</a>（<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\" rel=\"noopener\">CC BY 4.0</a> 许可），并已转换为高度图。标有 <strong>CC0</strong> 的纹理来自 <a href=\"https://ambientcg.com/\" target=\"_blank\" rel=\"noopener\">ambientCG</a> 和 <a href=\"https://polyhaven.com/\" target=\"_blank\" rel=\"noopener\">Poly Haven</a>（公共领域）。其余纹理均随 BumpMesh 提供。",
+  "gallery.credits": "标有 <strong>HP</strong> 的图案基于 Steve Schoger 的 <a href=\"https://heropatterns.com/\" target=\"_blank\" rel=\"noopener\">Hero Patterns</a>（<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\" rel=\"noopener\">CC BY 4.0</a> 许可），并已转换为高度图。标有 <strong>CC0</strong> 的纹理来自 <a href=\"https://ambientcg.com/\" target=\"_blank\" rel=\"noopener\">ambientCG</a> 和 <a href=\"https://polyhaven.com/\" target=\"_blank\" rel=\"noopener\">Poly Haven</a>（公共领域）。标有 <strong>FF</strong> 的纹理使用 <a href=\"https://www.filterforge.com/\" target=\"_blank\" rel=\"noopener\">Filter Forge</a> 制作。其余纹理均随 BumpMesh 提供。",
   "ui.loadingTextures": "正在加载纹理…",
   "sections.projection": "投影",
   "labels.mode": "模式",

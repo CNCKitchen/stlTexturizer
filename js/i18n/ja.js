@@ -66,7 +66,7 @@ export default {
   "gallery.confirmDeleteCustom": "「{name}」をこのブラウザから削除しますか？元に戻すことはできません。",
   "gallery.confirmDeleteAllCustom": "マイテクスチャ（{n} 件）をすべてこのブラウザから削除しますか？元に戻すことはできません。",
   "alerts.customTextureMissing": "このテクスチャはブラウザに保存されていません。サイトデータが消去された可能性があります。元のファイルをもう一度アップロードしてください。",
-  "gallery.credits": "<strong>HP</strong> 付きのパターンは Steve Schoger による <a href=\"https://heropatterns.com/\" target=\"_blank\" rel=\"noopener\">Hero Patterns</a>（<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\" rel=\"noopener\">CC BY 4.0</a> ライセンス）を基に高さマップへ変換したものです。<strong>CC0</strong> 付きのテクスチャは <a href=\"https://ambientcg.com/\" target=\"_blank\" rel=\"noopener\">ambientCG</a> と <a href=\"https://polyhaven.com/\" target=\"_blank\" rel=\"noopener\">Poly Haven</a>（パブリックドメイン）から取得しています。その他のテクスチャは BumpMesh に同梱されています。",
+  "gallery.credits": "<strong>HP</strong> 付きのパターンは Steve Schoger による <a href=\"https://heropatterns.com/\" target=\"_blank\" rel=\"noopener\">Hero Patterns</a>（<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\" rel=\"noopener\">CC BY 4.0</a> ライセンス）を基に高さマップへ変換したものです。<strong>CC0</strong> 付きのテクスチャは <a href=\"https://ambientcg.com/\" target=\"_blank\" rel=\"noopener\">ambientCG</a> と <a href=\"https://polyhaven.com/\" target=\"_blank\" rel=\"noopener\">Poly Haven</a>（パブリックドメイン）から取得しています。<strong>FF</strong> 付きのテクスチャは <a href=\"https://www.filterforge.com/\" target=\"_blank\" rel=\"noopener\">Filter Forge</a> で作成しました。その他のテクスチャは BumpMesh に同梱されています。",
   "ui.loadingTextures": "テクスチャを読み込み中…",
   "sections.projection": "投影",
   "labels.mode": "モード",

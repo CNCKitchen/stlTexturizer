@@ -66,7 +66,7 @@ export default {
   "gallery.confirmDeleteCustom": "이 브라우저에서 “{name}”을(를) 삭제할까요? 되돌릴 수 없습니다.",
   "gallery.confirmDeleteAllCustom": "이 브라우저에서 내 텍스처 {n}개를 모두 삭제할까요? 되돌릴 수 없습니다.",
   "alerts.customTextureMissing": "이 텍스처는 더 이상 브라우저에 저장되어 있지 않습니다. 사이트 데이터가 삭제된 것 같습니다. 원본 파일을 다시 업로드해 주세요.",
-  "gallery.credits": "<strong>HP</strong> 표시가 있는 패턴은 Steve Schoger의 <a href=\"https://heropatterns.com/\" target=\"_blank\" rel=\"noopener\">Hero Patterns</a>(<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\" rel=\"noopener\">CC BY 4.0</a> 라이선스)를 높이 맵으로 변환한 것입니다. <strong>CC0</strong> 표시가 있는 텍스처는 <a href=\"https://ambientcg.com/\" target=\"_blank\" rel=\"noopener\">ambientCG</a> 및 <a href=\"https://polyhaven.com/\" target=\"_blank\" rel=\"noopener\">Poly Haven</a>(퍼블릭 도메인)에서 가져왔습니다. 그 밖의 텍스처는 BumpMesh에 포함되어 있습니다.",
+  "gallery.credits": "<strong>HP</strong> 표시가 있는 패턴은 Steve Schoger의 <a href=\"https://heropatterns.com/\" target=\"_blank\" rel=\"noopener\">Hero Patterns</a>(<a href=\"https://creativecommons.org/licenses/by/4.0/\" target=\"_blank\" rel=\"noopener\">CC BY 4.0</a> 라이선스)를 높이 맵으로 변환한 것입니다. <strong>CC0</strong> 표시가 있는 텍스처는 <a href=\"https://ambientcg.com/\" target=\"_blank\" rel=\"noopener\">ambientCG</a> 및 <a href=\"https://polyhaven.com/\" target=\"_blank\" rel=\"noopener\">Poly Haven</a>(퍼블릭 도메인)에서 가져왔습니다. <strong>FF</strong> 표시가 있는 텍스처는 <a href=\"https://www.filterforge.com/\" target=\"_blank\" rel=\"noopener\">Filter Forge</a>로 제작했습니다. 그 밖의 텍스처는 BumpMesh에 포함되어 있습니다.",
   "ui.loadingTextures": "텍스처 불러오는 중…",
   "sections.projection": "투영",
   "labels.mode": "모드",

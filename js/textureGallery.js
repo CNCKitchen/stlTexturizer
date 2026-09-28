@@ -17,7 +17,11 @@ import { t } from './i18n.js';
 
 const FAV_KEY = 'bumpmesh-favourites';
 const TURNTABLE_KEY = 'bumpmesh-gallery-turntable';
-const CREDIT_BADGE = { hero: 'HP', cc0: 'CC0' };
+const CREDITS = {
+  hero: { badge: 'HP',  title: 'Hero Patterns (CC BY 4.0)' },
+  cc0:  { badge: 'CC0', title: 'CC0' },
+  ff:   { badge: 'FF',  title: 'Filter Forge' },
+};
 const KEY_APPLY_DELAY_MS = 150;   // arrow-key browsing applies once the key rests, not per repeat
 // Presets are keyed by name, the user's own textures by this prefix + library id. The key is also
 // the favourites entry, so favourites saved before custom textures existed load unchanged.
@@ -196,9 +200,9 @@ export function initTextureGallery({ onSelect, onSelectCustom, setTurntable }) {
     if (item.credit) {
       const badge = document.createElement('span');
       badge.className = 'gallery-badge';
-      badge.textContent = CREDIT_BADGE[item.credit];
+      badge.textContent = CREDITS[item.credit].badge;
       sw.appendChild(badge);
-      sw.title = item.name + (item.credit === 'hero' ? ' · Hero Patterns (CC BY 4.0)' : ' · CC0');
+      sw.title = `${item.name} · ${CREDITS[item.credit].title}`;
     }
 
     const star = document.createElement('button');
