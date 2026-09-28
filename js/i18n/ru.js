@@ -90,6 +90,8 @@ export default {
   "sections.displacement": "Глубина текстуры",
   "labels.textureHeight": "Высота текстуры (мм)",
   "labels.invertDisplacement": "Инвертировать (вдавливать вместо выдавливания)",
+  "labels.invertTexture": "Инвертировать текстуру ⓘ",
+  "tooltips.invertTexture": "Меняет местами чёрный и белый в карте смещения, так что выступают тёмные области, а не светлые.",
   "labels.seamBlend": "Сглаживание шва ⓘ",
   "tooltips.seamBlend": "Смягчает жёсткий шов в местах соединения граней проекции. Особенно эффективно для кубической и цилиндрической проекций.",
   "labels.transitionSmoothing": "Сглаживание переходов ⓘ",

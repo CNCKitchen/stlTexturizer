@@ -90,6 +90,8 @@ export default {
   "sections.displacement": "Глибина текстури",
   "labels.textureHeight": "Висота текстури (мм)",
   "labels.invertDisplacement": "Інвертувати (втиснути замість витиснути)",
+  "labels.invertTexture": "Інвертувати текстуру ⓘ",
+  "tooltips.invertTexture": "Міняє місцями чорний і білий у карті рельєфу, тож виступають темні ділянки, а не світлі.",
   "labels.seamBlend": "Згладжування швів ⓘ",
   "tooltips.seamBlend": "Згладжує жорсткі шви на стиках проєкції. Ефективно для кубічного та циліндричного режимів.",
   "labels.transitionSmoothing": "Згладжування переходів ⓘ",

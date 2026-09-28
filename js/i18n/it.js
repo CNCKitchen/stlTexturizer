@@ -90,6 +90,8 @@ export default {
   "sections.displacement": "Profondità Texture",
   "labels.textureHeight": "Altezza texture (mm)",
   "labels.invertDisplacement": "Inverti (spingi verso l'interno)",
+  "labels.invertTexture": "Inverti texture ⓘ",
+  "tooltips.invertTexture": "Scambia bianco e nero nella mappa di deformazione, così le zone scure risultano in rilievo al posto di quelle chiare.",
   "labels.seamBlend": "Unione dei bordi ⓘ",
   "tooltips.seamBlend": "Attenua il bordo netto dove si incontrano le facce della proiezione. Efficace per le modalità Cubica e Cilindrica.",
   "labels.transitionSmoothing": "Smoothing di transizione ⓘ",

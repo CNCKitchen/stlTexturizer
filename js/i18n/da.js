@@ -90,6 +90,8 @@ export default {
   "sections.displacement": "Teksturdybde",
   "labels.textureHeight": "Teksturhøjde (mm)",
   "labels.invertDisplacement": "Omvendt (skub indad i stedet for udad)",
+  "labels.invertTexture": "Inverter tekstur ⓘ",
+  "tooltips.invertTexture": "Bytter sort og hvid i forskydningskortet, så mørke områder bliver hævede i stedet for lyse.",
   "labels.seamBlend": "Sømblending ⓘ",
   "tooltips.seamBlend": "Blødgør den hårde søm, hvor projektionsfladerne mødes. Effektivt for kubiske og cylindriske tilstande.",
   "labels.transitionSmoothing": "Overgangsudjævning ⓘ",

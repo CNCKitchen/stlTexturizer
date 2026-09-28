@@ -90,6 +90,8 @@ export default {
   "sections.displacement": "텍스처 깊이",
   "labels.textureHeight": "텍스처 높이 (mm)",
   "labels.invertDisplacement": "반전 (바깥쪽 대신 안쪽으로)",
+  "labels.invertTexture": "텍스처 반전 ⓘ",
+  "tooltips.invertTexture": "디스플레이스먼트 맵의 흰색과 검은색을 바꿔, 밝은 부분 대신 어두운 부분이 돌출되도록 합니다.",
   "labels.seamBlend": "이음새 블렌드 ⓘ",
   "tooltips.seamBlend": "투영 면이 만나는 부분의 딱딱한 이음새를 완화합니다. 큐빅 및 원통형 모드에서 효과적입니다.",
   "labels.transitionSmoothing": "전환 스무딩 ⓘ",

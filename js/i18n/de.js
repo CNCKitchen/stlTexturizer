@@ -91,6 +91,8 @@ export default {
   "sections.displacement": "Texturtiefe",
   "labels.textureHeight": "Texturhöhe (mm)",
   "labels.invertDisplacement": "Invertieren (nach innen statt außen)",
+  "labels.invertTexture": "Textur invertieren ⓘ",
+  "tooltips.invertTexture": "Vertauscht Schwarz und Weiß in der Verschiebungskarte, sodass dunkle statt helle Bereiche erhaben werden.",
   "labels.seamBlend": "Nahtglättung ⓘ",
   "tooltips.seamBlend": "Glättet den scharfen Übergang zwischen Projektionsflächen. Wirksam für Kubische und Zylindrische Modi.",
   "labels.transitionSmoothing": "Übergangsglättung ⓘ",

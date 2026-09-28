@@ -90,6 +90,8 @@ export default {
   "sections.displacement": "纹理深度",
   "labels.textureHeight": "纹理高度 (mm)",
   "labels.invertDisplacement": "反向（内推而非外推）",
+  "labels.invertTexture": "反转纹理 ⓘ",
+  "tooltips.invertTexture": "交换位移贴图中的黑白，使深色区域凸起，而不是浅色区域。",
   "labels.seamBlend": "接缝混合 ⓘ",
   "tooltips.seamBlend": "柔化投影面交接处的硬接缝。对立方体和圆柱形模式有效。",
   "labels.transitionSmoothing": "过渡平滑 ⓘ",

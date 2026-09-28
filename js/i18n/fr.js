@@ -90,6 +90,8 @@ export default {
   "sections.displacement": "Profondeur de texture",
   "labels.textureHeight": "Hauteur de texture (mm)",
   "labels.invertDisplacement": "Inverser (pousser vers l'intérieur)",
+  "labels.invertTexture": "Inverser la texture ⓘ",
+  "tooltips.invertTexture": "Échange le noir et le blanc dans la carte de déplacement : les zones sombres deviennent saillantes au lieu des zones claires.",
   "labels.seamBlend": "Fusion des coutures ⓘ",
   "tooltips.seamBlend": "Adoucit la couture nette là où les faces de projection se rejoignent. Efficace pour les modes Cubique et Cylindrique.",
   "labels.transitionSmoothing": "Lissage de transition ⓘ",

@@ -90,6 +90,8 @@ export default {
   "sections.displacement": "テクスチャの深さ",
   "labels.textureHeight": "テクスチャの高さ (mm)",
   "labels.invertDisplacement": "反転 (外側ではなく内側へ)",
+  "labels.invertTexture": "テクスチャを反転 ⓘ",
+  "tooltips.invertTexture": "ディスプレイスメントマップの白と黒を入れ替え、明るい部分ではなく暗い部分が盛り上がるようにします。",
   "labels.seamBlend": "シームブレンド ⓘ",
   "tooltips.seamBlend": "投影面が接する境界の硬い継ぎ目を滑らかにします。キュービックおよび円筒モードで効果的です。",
   "labels.transitionSmoothing": "トランジションスムージング ⓘ",

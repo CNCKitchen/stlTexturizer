@@ -86,6 +86,8 @@ export default {
   "sections.displacement": "Głębokość tekstury",
   "labels.textureHeight": "Wysokość tekstury (mm)",
   "labels.invertDisplacement": "Odwróć (wklęsłe zamiast wypukłych)",
+  "labels.invertTexture": "Odwróć teksturę ⓘ",
+  "tooltips.invertTexture": "Zamienia biel i czerń w mapie przemieszczeń, dzięki czemu wypukłe stają się ciemne obszary zamiast jasnych.",
   "labels.seamBlend": "Zacieranie szwów ⓘ",
   "tooltips.seamBlend": "Zmiękcza widoczne szwy w miejscach łączenia ścian projekcji. Skuteczne w trybach sześciennym oraz cylindrycznym.",
   "labels.transitionSmoothing": "Wygładzenie przejść ⓘ",

@@ -90,6 +90,8 @@ export default {
   "sections.displacement": "Kabartma Derinliği",
   "labels.textureHeight": "Kabartma uzunluğu (mm)",
   "labels.invertDisplacement": "Ters Çevir (Kabartma dışarı çıkmak yerine içeri çöker.)",
+  "labels.invertTexture": "Dokuyu ters çevir ⓘ",
+  "tooltips.invertTexture": "Kabartma desen haritasında siyah ile beyazı yer değiştirir; böylece açık alanlar yerine koyu alanlar kabarık olur.",
   "labels.seamBlend": "Kesişmeleri Kaynaştır ⓘ",
   "tooltips.seamBlend": "Kabartmalı yüzeylerinin birleştiği yerdeki keskin dikiş izlerini kaynaştırır. Kübik ve Silindirik modlar için etkilidir.",
   "labels.transitionSmoothing": "Kesişme Yumuşatma Seviyesi",

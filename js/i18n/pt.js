@@ -90,6 +90,8 @@ export default {
   "sections.displacement": "Profundidade da textura",
   "labels.textureHeight": "Altura da textura (mm)",
   "labels.invertDisplacement": "Inverter (empurrar para dentro)",
+  "labels.invertTexture": "Inverter textura ⓘ",
+  "tooltips.invertTexture": "Troca o preto e o branco no mapa de deslocamento, para que as áreas escuras fiquem em relevo em vez das claras.",
   "labels.seamBlend": "Fusão de costuras ⓘ",
   "tooltips.seamBlend": "Suaviza a costura onde as faces de projeção se encontram. Eficaz para os modos Cúbico e Cilíndrico.",
   "labels.transitionSmoothing": "Suavização de transição ⓘ",
