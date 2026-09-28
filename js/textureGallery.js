@@ -119,6 +119,7 @@ export function initTextureGallery({ onSelect, onSelectCustom, setTurntable }) {
   let listOk = true;             // false while the browser won't let us read the library
   let saveOk = true;             // false after the browser refused to store an upload
   let activeKey = null;
+  let pickedKey = null;          // last active preset that isn't a favourite; the panel shows it too
   let filter = 'all';            // 'all' | 'favourites' | 'custom' | category id
   let returnFocus = null;
   let settingsScroll = 0;        // the settings panel is display:none while open, which drops it
@@ -153,6 +154,9 @@ export function initTextureGallery({ onSelect, onSelectCustom, setTurntable }) {
   function renderPanel() {
     panelGrid.innerHTML = '';
     const keys = shownFavourites();
+    // A preset picked in the gallery gets a tile after the favourites, so the panel always shows
+    // what is on the model. It stays until another non-favourite pick replaces it.
+    if (pickedKey && !keys.includes(pickedKey)) keys.push(pickedKey);
     if (!keys.length) {
       const empty = document.createElement('p');
       empty.className = 'preset-grid-empty';
@@ -360,11 +364,19 @@ export function initTextureGallery({ onSelect, onSelectCustom, setTurntable }) {
 
   function toggleFavourite(key) {
     favourites = favourites.includes(key) ? favourites.filter(k => k !== key) : [...favourites, key];
+    syncPicked();
     saveFavourites(favourites);
     paintStar(key);
     updateCounts();
     renderPanel();
     if (filter === 'favourites') renderGallery();
+  }
+
+  /** Starring the picked tile makes it a regular favourite. When the preset on the model is not a
+   *  favourite (picked in the gallery, un-starred, favourites reset), it takes the picked tile. */
+  function syncPicked() {
+    if (pickedKey && favourites.includes(pickedKey)) pickedKey = null;
+    if (activeKey && !isCustomKey(activeKey) && !favourites.includes(activeKey)) pickedKey = activeKey;
   }
 
   /** Mirror active + loading state onto every swatch copy. */
@@ -560,6 +572,7 @@ export function initTextureGallery({ onSelect, onSelectCustom, setTurntable }) {
   });
   resetBtn.addEventListener('click', () => {
     favourites = DEFAULT_FAVOURITES.slice();
+    syncPicked();
     saveFavourites(favourites);
     tiles.forEach((_, key) => paintStar(key));
     updateCounts();
@@ -579,7 +592,12 @@ export function initTextureGallery({ onSelect, onSelectCustom, setTurntable }) {
 
   return {
     /** Highlight preset `idx` (or none with -1, e.g. while a custom map is active). */
-    markActive(idx) { activeKey = idx >= 0 ? IMAGE_PRESETS[idx].name : null; syncState(); },
+    markActive(idx) {
+      activeKey = idx >= 0 ? IMAGE_PRESETS[idx].name : null;
+      const before = pickedKey;
+      syncPicked();
+      if (pickedKey !== before) renderPanel(); else syncState();
+    },
     /** Highlight the user's texture `id` from the library (none for a falsy id). */
     markActiveCustom(id) { activeKey = id ? CUSTOM_PREFIX + id : null; syncState(); },
     /** Show or clear the loading spinner on preset `idx`. */
