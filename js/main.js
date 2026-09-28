@@ -21,8 +21,8 @@ import { getCustomTextureFile } from './customTextures.js';
 import { initSidebarResize } from './sidebarResize.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
-import { regularizeMesh }     from './regularize.js';
 import { runExportPipeline }  from './exportPipeline.js';
+import { runPreviewPipeline, computeFaceNormals } from './previewPipeline.js';
 import { exportSTL, export3MF } from './exporter.js';
 import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
@@ -253,8 +253,21 @@ let precisionPainted        = false;  // refined mesh carries strokes that re-se
 
 // ── Displacement preview state ────────────────────────────────────────────────
 let dispPreviewGeometry  = null;   // subdivided geometry with smoothNormal attribute
-let dispPreviewBusy      = false;  // true while async subdivision is running
 let dispPreviewParentMap = null;   // Int32Array: subdivided face → original face index
+let dispPreviewEdgeInfo  = null;   // { floorEdge, maxEdge, edge } of the latest build; edge null while building
+// Declared up here, not beside their functions: model loads during module
+// init already call cancelDisplacementPreviewBuild().
+let _previewWorkerAbort  = null;   // set while a worker build is in flight: kill + resolve(null)
+let _dispPreviewResolutionTimer = null;
+
+// 3D-preview mesh budget, in predicted first-subdivide triangles (see
+// choosePreviewEdge in previewPipeline.js).  That count drives the build time
+// (~2 µs per triangle in the preview worker on a desktop CPU) and the
+// preview's memory.  Low-memory and touch devices get a smaller budget.
+const PREVIEW_TRI_BUDGET =
+  (navigator.deviceMemory && navigator.deviceMemory < 4) || matchMedia('(pointer: coarse)').matches
+    ? 600_000
+    : 1_500_000;
 
 // ── Operation tokens (stale-result guards) ────────────────────────────────────
 // Each async operation captures the current token at start and checks it after
@@ -384,6 +397,7 @@ const falloffCurveButtons      = {
 };
 const symmetricDispToggle    = document.getElementById('symmetric-displacement');
 const dispPreviewToggle      = document.getElementById('displacement-preview');
+const dispPreviewSpinner     = document.getElementById('displacement-preview-spinner');
 const noDownwardZChk         = document.getElementById('no-downward-z-chk');
 const smoothBottomChk        = document.getElementById('smooth-bottom-chk');
 const smoothBottomRow        = document.getElementById('smooth-bottom-row');
@@ -1620,6 +1634,7 @@ function wireEvents() {
     // (applySmartResolution sets values without dispatching `input`, so this
     // only fires when the user drags or types — exactly what we want.)
     if (smartResInfo) smartResInfo.classList.add('hidden');
+    scheduleDisplacementPreviewResolutionRefresh();
     return v.toFixed(2);
   }, false);
   refineLenVal.addEventListener('change', checkResolutionWarning);
@@ -2840,7 +2855,8 @@ function handlePlaceOnFaceClick(e) {
 
   loadGeometry(currentGeometry);
 
-  // Reset displacement preview
+  // Reset displacement preview (an in-flight build used the old pose)
+  cancelDisplacementPreviewBuild();
   if (dispPreviewGeometry) { dispPreviewGeometry.dispose(); dispPreviewGeometry = null; }
   settings.useDisplacement = false;
   dispPreviewToggle.checked = false;
@@ -3351,7 +3367,7 @@ function loadDefaultCube() {
 
   // Invalidate any in-flight async operations tied to the previous model
   precisionToken++;
-  dispPreviewToken++;
+  cancelDisplacementPreviewBuild();
   exportToken++;
 
   currentGeometry = geo;
@@ -3519,7 +3535,7 @@ async function handleModelFile(file, stepSettings = null) {
 
     // Invalidate any in-flight async operations tied to the previous model
     precisionToken++;
-    dispPreviewToken++;
+    cancelDisplacementPreviewBuild();
     exportToken++;
     diagToken++;
 
@@ -3904,6 +3920,7 @@ function applySmartResolution() {
   refineLenSlider.value = result.edge;
   refineLenVal.value    = result.edge;
   checkResolutionWarning();
+  scheduleDisplacementPreviewResolutionRefresh();
 
   // Set max-tri via the slider's existing input event so settings.maxTriangles
   // and the displayed label stay consistent with all other slider drag paths.
@@ -4604,21 +4621,29 @@ function _regularizeOpts() {
   };
 }
 
-function updatePreview() {
-  if (!currentGeometry || !currentBounds) return;
-
+// Settings snapshot for the preview material's uniforms.
+function _materialSettings() {
   // Texture aspect correction so non-square textures keep their proportions.
   // A 512×279 texture needs aspectV = 512/279 ≈ 1.84 so V tiles faster (more
   // repetitions), making each tile shorter in world-space to match the texture's
   // wider-than-tall content.  The wider axis gets aspect = 1 (unchanged).
   const tw = activeMapEntry?.width ?? 1, th = activeMapEntry?.height ?? 1;
   const tmax = Math.max(tw, th, 1);
-  const fullSettings = {
+  return {
     ...settings,
     bounds: currentBounds,
     textureAspectU: tmax / Math.max(tw, 1),
     textureAspectV: tmax / Math.max(th, 1),
+    // The displaced mesh exists only once its async build finishes; until
+    // then the base mesh keeps bump-only shading.
+    useDisplacement: settings.useDisplacement && !!dispPreviewGeometry,
   };
+}
+
+function updatePreview() {
+  if (!currentGeometry || !currentBounds) return;
+
+  const fullSettings = _materialSettings();
 
   if (!activeMapEntry) {
     // No map yet — plain material
@@ -4663,97 +4688,12 @@ function updatePreview() {
 // ── Displacement preview ──────────────────────────────────────────────────────
 
 /**
- * Compute and set flat geometric face normals as a `faceNormal` attribute.
- * Unlike the `normal` attribute (which may be smooth/interpolated after
- * subdivision), `faceNormal` is always the true per-triangle normal computed
- * from the cross product of the triangle's edges.  The shader uses this for
- * angle-based masking so that smooth normals at edges don't cause mask bleeding.
+ * Set flat geometric face normals as a `faceNormal` attribute (the shader's
+ * angle masking reads them — see computeFaceNormals in previewPipeline.js).
  */
 function addFaceNormals(geometry) {
-  const pos   = geometry.attributes.position.array;
-  const count = geometry.attributes.position.count;
-  const fn    = new Float32Array(count * 3);
-  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
-  const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), n  = new THREE.Vector3();
-  for (let i = 0; i < count; i += 3) {
-    vA.set(pos[i * 3],       pos[i * 3 + 1],       pos[i * 3 + 2]);
-    vB.set(pos[(i+1) * 3],   pos[(i+1) * 3 + 1],   pos[(i+1) * 3 + 2]);
-    vC.set(pos[(i+2) * 3],   pos[(i+2) * 3 + 1],   pos[(i+2) * 3 + 2]);
-    e1.subVectors(vB, vA);
-    e2.subVectors(vC, vA);
-    n.crossVectors(e1, e2).normalize();
-    for (let v = 0; v < 3; v++) {
-      fn[(i + v) * 3]     = n.x;
-      fn[(i + v) * 3 + 1] = n.y;
-      fn[(i + v) * 3 + 2] = n.z;
-    }
-  }
+  const fn = computeFaceNormals(geometry.attributes.position.array);
   geometry.setAttribute('faceNormal', new THREE.Float32BufferAttribute(fn, 3));
-}
-
-/**
- * Compute area-weighted smooth normals for a non-indexed geometry and store
- * them as a `smoothNormal` vec3 attribute.  Every copy of the same position
- * gets the same averaged normal so vertex-shader displacement is watertight.
- */
-function addSmoothNormals(geometry) {
-  const pos   = geometry.attributes.position.array;
-  const count = geometry.attributes.position.count;
-  const nrm   = geometry.attributes.normal.array;
-
-  // Vertex-dedup pass: assign a numeric ID to each unique quantised position.
-  const QUANT = 1e4;
-  const dedupMap = new QuantizedPointMap(QUANT, Math.min(count, 1 << 22));
-  let nextId = 0;
-  const vertId = new Uint32Array(count);
-  for (let i = 0; i < count; i++) {
-    const id = dedupMap.getOrSet(pos[i*3], pos[i*3+1], pos[i*3+2], nextId);
-    if (dedupMap.inserted) nextId++;
-    vertId[i] = id;
-  }
-
-  // Accumulate area-weighted buffer normals per unique position into flat arrays.
-  // The subdivision pipeline splits indexed vertices at sharp dihedral edges
-  // (>30 deg) so the interpolated buffer normals are smooth across soft edges
-  // (cylinder, sphere) but sharp across hard edges (cube).  Using these buffer
-  // normals instead of geometric face normals eliminates visible faceting steps
-  // on round surfaces while still preserving hard edges.
-  const uc = nextId;
-  const snx = new Float64Array(uc), sny = new Float64Array(uc), snz = new Float64Array(uc);
-  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
-  const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), fn = new THREE.Vector3();
-
-  for (let i = 0; i < count; i += 3) {
-    vA.set(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
-    vB.set(pos[(i + 1) * 3], pos[(i + 1) * 3 + 1], pos[(i + 1) * 3 + 2]);
-    vC.set(pos[(i + 2) * 3], pos[(i + 2) * 3 + 1], pos[(i + 2) * 3 + 2]);
-    e1.subVectors(vB, vA);
-    e2.subVectors(vC, vA);
-    fn.crossVectors(e1, e2);
-    const area = fn.length();
-    if (area < 1e-12) continue;
-    for (let v = 0; v < 3; v++) {
-      const vi = i + v;
-      const id = vertId[vi];
-      snx[id] += nrm[vi * 3]     * area;
-      sny[id] += nrm[vi * 3 + 1] * area;
-      snz[id] += nrm[vi * 3 + 2] * area;
-    }
-  }
-
-  // Normalize accumulated normals
-  for (let id = 0; id < uc; id++) {
-    const len = Math.sqrt(snx[id] * snx[id] + sny[id] * sny[id] + snz[id] * snz[id]) || 1;
-    snx[id] /= len; sny[id] /= len; snz[id] /= len;
-  }
-
-  // Write smoothNormal attribute via vertId lookup
-  const sn = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    const id = vertId[i];
-    sn[i * 3] = snx[id]; sn[i * 3 + 1] = sny[id]; sn[i * 3 + 2] = snz[id];
-  }
-  geometry.setAttribute('smoothNormal', new THREE.Float32BufferAttribute(sn, 3));
 }
 
 // ── Precision masking ─────────────────────────────────────────────────────────
@@ -4996,9 +4936,9 @@ function checkPrecisionOutdated() {
 
 /**
  * Toggle displacement preview on/off.
- * When enabled: subdivides the current geometry to a moderate resolution,
- * computes smooth normals, and switches the viewer to the subdivided
- * geometry with vertex-shader displacement.
+ * When enabled: builds a refined copy of the current geometry in the preview
+ * worker (previewPipeline.js) and switches the viewer to it with vertex-
+ * shader displacement.  The bump-only preview stays interactive meanwhile.
  * When disabled: reverts to the original geometry with bump-only preview.
  */
 async function toggleDisplacementPreview(enable) {
@@ -5014,6 +4954,9 @@ async function toggleDisplacementPreview(enable) {
     deactivatePrecisionMasking();
   }
 
+  // Supersede any in-flight build (a re-enable restarts it).
+  cancelDisplacementPreviewBuild();
+
   if (!enable) {
     // Revert to original geometry with bump-only shading.
     if (currentGeometry && previewMaterial) {
@@ -5027,6 +4970,7 @@ async function toggleDisplacementPreview(enable) {
       dispPreviewGeometry = null;
     }
     dispPreviewParentMap = null;
+    dispPreviewEdgeInfo = null;
     return;
   }
 
@@ -5037,106 +4981,108 @@ async function toggleDisplacementPreview(enable) {
     return;
   }
 
-  if (dispPreviewBusy) return;
-  const myToken = ++dispPreviewToken;
-  dispPreviewBusy = true;
+  const myToken = dispPreviewToken;
+  dispPreviewSpinner.classList.remove('hidden');
 
   try {
-    // Choose a preview edge length: coarser than export for performance.
-    // Target ~maxDim/80 so a 50 mm cube gets ~0.6 mm edges → ~100 k triangles.
+    // Edge length: as fine as the export resolution, coarsened to fit the
+    // triangle budget, never coarser than the legacy maxDim/80 (which gave
+    // a 50 mm cube ~0.6 mm edges).
     const maxDim = Math.max(currentBounds.size.x, currentBounds.size.y, currentBounds.size.z);
-    const previewEdge = Math.max(0.1, maxDim / 80);
+    const maxEdge = Math.max(0.1, maxDim / 80);
+    const floorEdge = settings.refineLength;
+    dispPreviewEdgeInfo = { floorEdge, maxEdge, edge: null };
 
-    await yieldFrame();
-    if (dispPreviewToken !== myToken) return;
+    const result = await runPreviewBuild({
+      positions:      currentGeometry.attributes.position.array,
+      normals:        currentGeometry.attributes.normal?.array ?? null,
+      floorEdge, maxEdge, triBudget: PREVIEW_TRI_BUDGET,
+      regularize:     settings.regularizeEnabled,
+      regularizeOpts: _regularizeOpts(),
+      secondPassMul:  settings.regularizeSecondPassMul,
+      excludedFaces:  _previewExcludedFaces(),
+    }, () => dispPreviewToken !== myToken);
+    if (!result || dispPreviewToken !== myToken) return;
 
-    const { geometry: subdivided, faceParentId } = await subdivide(
-      currentGeometry, previewEdge, null, null, { fast: true }
-    );
-    if (dispPreviewToken !== myToken) { subdivided.dispose(); return; }
-
-    // Pipeline: subdivide → regularize → subdivide.  The first subdivide
-    // brings edges down to previewEdge but creates sliver chains from any
-    // CAD-tessellation needles in the input (laserPlate-style fans).  The
-    // regularize collapses those slivers, possibly stretching a few edges
-    // along the way.  The second subdivide brings those stretched edges
-    // back to ≤ previewEdge × secondPassMul for clean displacement sampling.
-    // The whole regularize+resub block can be disabled from the Advanced panel.
-    let activeGeo, activeParents;
-    if (settings.regularizeEnabled) {
-      const regPrev = regularizeMesh(subdivided, faceParentId, previewEdge, _regularizeOpts());
-      subdivided.dispose();
-      if (dispPreviewToken !== myToken) { regPrev.geometry.dispose(); return; }
-
-      // Build per-face exclusion weights for the second subdivide so masked
-      // surfaces don't get refined (they won't be displaced anyway).  Preview's
-      // first subdivide doesn't bake mask into geometry (shader handles it),
-      // so we derive it here from app state mapped through regPrev.faceParentId.
-      let secondPassWeightsPrev = null;
-      if (excludedFaces.size > 0 || selectionMode) {
-        const triCount = regPrev.geometry.attributes.position.count / 3;
-        secondPassWeightsPrev = new Float32Array(triCount * 3);
-        // Include-only: soft-painted faces get (partial) texture too
-        const softFaces = (selectionMode && _layerHasPaint(softPaint))
-          ? softPaintedFaces(softPaint.vertId, softPaint.values) : null;
-        for (let i = 0; i < triCount; i++) {
-          const origFace = regPrev.faceParentId[i];
-          let isExcluded = excludedFaces.has(origFace);
-          if (selectionMode) isExcluded = !isExcluded && !(softFaces && softFaces[origFace]);
-          if (isExcluded) {
-            secondPassWeightsPrev[i*3]     = 1.0;
-            secondPassWeightsPrev[i*3 + 1] = 1.0;
-            secondPassWeightsPrev[i*3 + 2] = 1.0;
-          }
-        }
-      }
-      const { geometry: resubPrev, faceParentId: resubParentsPrev } = await subdivide(
-        regPrev.geometry, previewEdge * settings.regularizeSecondPassMul, null, secondPassWeightsPrev, { fast: true }
-      );
-      regPrev.geometry.dispose();
-      if (dispPreviewToken !== myToken) { resubPrev.dispose(); return; }
-
-      // Compose parent maps: resubParents → regularize-faces → original-mesh faces.
-      const composedParentsPrev = new Int32Array(resubParentsPrev.length);
-      for (let i = 0; i < resubParentsPrev.length; i++) {
-        composedParentsPrev[i] = regPrev.faceParentId[resubParentsPrev[i]];
-      }
-      activeGeo = resubPrev;
-      activeParents = composedParentsPrev;
-    } else {
-      activeGeo = subdivided;
-      activeParents = faceParentId;
-    }
-
-    addSmoothNormals(activeGeo);
-    addFaceNormals(activeGeo);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position',     new THREE.BufferAttribute(result.positions, 3));
+    geo.setAttribute('normal',       new THREE.BufferAttribute(result.normals, 3));
+    geo.setAttribute('smoothNormal', new THREE.BufferAttribute(result.smoothNormals, 3));
+    geo.setAttribute('faceNormal',   new THREE.BufferAttribute(result.faceNormals, 3));
 
     // Dispose previous preview geometry if any
     if (dispPreviewGeometry) dispPreviewGeometry.dispose();
-    dispPreviewGeometry = activeGeo;
+    dispPreviewGeometry = geo;
+    dispPreviewEdgeInfo.edge = result.edge;
 
     // Use the face parent IDs tracked through subdivision (O(n) instead of spatial search)
-    dispPreviewParentMap = activeParents;
-    updateFaceMask(activeGeo);
+    dispPreviewParentMap = result.faceParentId;
+    updateFaceMask(geo);
 
     // Force material recreation so it binds the new geometry with smoothNormal
     if (previewMaterial) {
       previewMaterial.dispose();
       previewMaterial = null;
     }
-    const fullSettings = { ...settings, bounds: currentBounds };
-    previewMaterial = createPreviewMaterial(getEffectiveMapEntry().texture, fullSettings);
+    previewMaterial = createPreviewMaterial(getEffectiveMapEntry()?.texture, _materialSettings());
     setMeshGeometry(dispPreviewGeometry);
     setMeshMaterial(previewMaterial);
-
-
   } catch (err) {
+    if (dispPreviewToken !== myToken) return;
     console.error('Displacement preview failed:', err);
     dispPreviewToggle.checked = false;
     settings.useDisplacement = false;
+    dispPreviewEdgeInfo = null;
   } finally {
-    dispPreviewBusy = false;
+    if (dispPreviewToken === myToken) dispPreviewSpinner.classList.add('hidden');
   }
+}
+
+/**
+ * Invalidate any in-flight 3D-preview build: bump the token so its result is
+ * dropped, and terminate the worker so it stops burning CPU on it.
+ */
+function cancelDisplacementPreviewBuild() {
+  dispPreviewToken++;
+  if (_previewWorkerAbort) _previewWorkerAbort();
+  dispPreviewSpinner.classList.add('hidden');
+}
+
+/**
+ * Per-source-face flags (1 = untextured) for the preview's second subdivide,
+ * so masked surfaces aren't refined — they won't be displaced anyway.  The
+ * shader handles the mask itself, so this is only an optimisation.
+ */
+function _previewExcludedFaces() {
+  if (excludedFaces.size === 0 && !selectionMode) return null;
+  const triCount = currentGeometry.attributes.position.count / 3;
+  const flags = new Uint8Array(triCount);
+  // Include-only: soft-painted faces get (partial) texture too
+  const softFaces = (selectionMode && _layerHasPaint(softPaint))
+    ? softPaintedFaces(softPaint.vertId, softPaint.values) : null;
+  for (let f = 0; f < triCount; f++) {
+    let isExcluded = excludedFaces.has(f);
+    if (selectionMode) isExcluded = !isExcluded && !(softFaces && softFaces[f]);
+    if (isExcluded) flags[f] = 1;
+  }
+  return flags;
+}
+
+// The preview edge follows the export resolution (see toggleDisplacementPreview),
+// so rebuild an active 3D preview once the resolution settles on a value that
+// would change it.  Debounced: slider drags and wheel steps fire per step.
+function scheduleDisplacementPreviewResolutionRefresh() {
+  clearTimeout(_dispPreviewResolutionTimer);
+  _dispPreviewResolutionTimer = setTimeout(() => {
+    const info = dispPreviewEdgeInfo;
+    if (!settings.useDisplacement || !info) return;
+    const newFloor = settings.refineLength;
+    if (Math.min(newFloor, info.maxEdge) === Math.min(info.floorEdge, info.maxEdge)) return;
+    // A finished build that the budget (not the resolution) limited only
+    // changes if the new resolution is coarser than the edge it used.
+    if (info.edge !== null && info.edge > info.floorEdge && newFloor <= info.edge) return;
+    toggleDisplacementPreview(true);
+  }, 400);
 }
 
 // ── Export pipeline ───────────────────────────────────────────────────────────
@@ -5428,7 +5374,7 @@ function ensurePipelineWorker() {
   if (_pipelineWorkerFailed) return Promise.resolve(null);
   if (_pipelineWorker) return Promise.resolve(_pipelineWorker);
   if (!_pipelineWorkerInit) {
-    _pipelineWorkerInit = _initPipelineWorker().then(
+    _pipelineWorkerInit = _initWorker(new URL('./exportWorker.js', import.meta.url)).then(
       (w) => { _pipelineWorker = w; _pipelineWorkerInit = null; return w; },
       (err) => {
         _pipelineWorkerFailed = true;
@@ -5454,11 +5400,13 @@ function ensurePipelineWorker() {
   else window.addEventListener('load', schedule, { once: true });
 }
 
-function _initPipelineWorker() {
+// Start a module worker and resolve once it posts {type:'ready'} (its static
+// imports, incl. three.js, have loaded). Shared by the export and preview workers.
+function _initWorker(url) {
   return new Promise((resolve, reject) => {
     let w;
     try {
-      w = new Worker(new URL('./exportWorker.js', import.meta.url), { type: 'module' });
+      w = new Worker(url, { type: 'module' });
     } catch (err) {
       reject(err);
       return;
@@ -5497,6 +5445,53 @@ async function runPipeline(input, onEvent, isStale) {
       else if (m.type === 'error') { cleanup(); reject(new Error(m.message)); }
     };
     w.onerror = (e) => { kill(); reject(new Error((e && e.message) || 'export worker crashed')); };
+    w.postMessage({ cmd: 'run', input });
+  });
+}
+
+// ── 3D-preview worker ──────────────────────────────────────────────────────
+// Its own worker (previewWorker.js) so a preview build never queues behind or
+// gets killed with an export. Started lazily on the first preview build.
+let _previewWorker = null;
+let _previewWorkerFailed = false;
+let _previewWorkerInit = null;
+
+function ensurePreviewWorker() {
+  if (_previewWorkerFailed) return Promise.resolve(null);
+  if (_previewWorker) return Promise.resolve(_previewWorker);
+  if (!_previewWorkerInit) {
+    _previewWorkerInit = _initWorker(new URL('./previewWorker.js', import.meta.url)).then(
+      (w) => { _previewWorker = w; _previewWorkerInit = null; return w; },
+      (err) => {
+        _previewWorkerFailed = true;
+        _previewWorkerInit = null;
+        console.warn('[stlTexturizer] preview worker unavailable — building the 3D preview on the main thread:', err.message);
+        return null;
+      }
+    );
+  }
+  return _previewWorkerInit;
+}
+
+async function runPreviewBuild(input, isStale) {
+  const w = await ensurePreviewWorker();
+  if (isStale()) return null;
+  if (!w) {
+    // The main-thread fallback freezes the UI for the whole build, so keep
+    // the legacy coarse edge there.
+    return runPreviewPipeline({ ...input, floorEdge: input.maxEdge }, undefined, isStale);
+  }
+  return new Promise((resolve, reject) => {
+    const cleanup = () => { w.onmessage = null; w.onerror = null; _previewWorkerAbort = null; };
+    const kill = () => { cleanup(); try { w.terminate(); } catch {} if (_previewWorker === w) _previewWorker = null; };
+    _previewWorkerAbort = () => { kill(); resolve(null); };
+    w.onmessage = (e) => {
+      const m = e.data;
+      if (isStale()) { kill(); resolve(null); return; }
+      if (m.type === 'done') { cleanup(); resolve(m.result); }
+      else if (m.type === 'error') { cleanup(); reject(new Error(m.message)); }
+    };
+    w.onerror = (e) => { kill(); reject(new Error((e && e.message) || 'preview worker crashed')); };
     w.postMessage({ cmd: 'run', input });
   });
 }
@@ -5634,7 +5629,7 @@ async function bakeTextures() {
 function adoptBakedGeometry(geometry, bounds, opts = {}) {
   // Invalidate any in-flight async operations tied to the previous mesh.
   precisionToken++;
-  dispPreviewToken++;
+  cancelDisplacementPreviewBuild();
   exportToken++;
   diagToken++;
 

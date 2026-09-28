@@ -116,6 +116,7 @@ js/
   customTextures.js   # "Your textures": uploaded maps kept in this browser (IndexedDB)
   sidebarResize.js    # Drag-to-resize for the right-hand sidebar (settings + gallery share one width)
   previewMaterial.js  # Three.js material for live & displacement preview
+  previewPipeline.js  # 3D-preview mesh build (runs in previewWorker.js)
   mapping.js          # UV projection logic (7 modes)
   displacement.js     # Vertex displacement baking
   subdivision.js      # Adaptive mesh subdivision
