@@ -121,6 +121,7 @@ const settings = {
   mappingBlend:     1,
   seamBandWidth:    0.5,
   textureSmoothing: 0,
+  invertTexture: false,
   // Laplacian smoothing iterations applied to the per-vertex blend normal
   // (only the normal that drives projection-direction blend weights — not
   // the displacement direction). 0 = off, 4–8 = noticeable seam smoothing,
@@ -363,6 +364,7 @@ const seamBandWidthSlider    = document.getElementById('seam-band-width');
 const seamBandWidthVal       = document.getElementById('seam-band-width-val');
 const textureSmoothingSlider = document.getElementById('texture-smoothing');
 const textureSmoothingVal    = document.getElementById('texture-smoothing-val');
+const invertTextureCheckbox = document.getElementById('invert-texture');
 const capAngleSlider         = document.getElementById('cap-angle');
 const capAngleVal            = document.getElementById('cap-angle-val');
 const capAngleRow            = document.getElementById('cap-angle-row');
@@ -1636,6 +1638,10 @@ function wireEvents() {
   linkSlider(seamBlendSlider,        seamBlendVal,        v => { settings.mappingBlend     = v; return v.toFixed(2); });
   linkSlider(seamBandWidthSlider,    seamBandWidthVal,    v => { settings.seamBandWidth    = v; return v.toFixed(2); });
   linkSlider(textureSmoothingSlider, textureSmoothingVal, v => { settings.textureSmoothing = v; return v.toFixed(1); });
+  invertTextureCheckbox.addEventListener('change', () => {
+    settings.invertTexture = invertTextureCheckbox.checked;
+    updatePreview();
+  });
   linkSlider(capAngleSlider,          capAngleVal,          v => { settings.capAngle         = v; return Math.round(v); });
   symmetricDispToggle.addEventListener('change', () => {
     settings.symmetricDisplacement = symmetricDispToggle.checked;
@@ -4522,42 +4528,61 @@ function buildParentFaceMap(subdivGeo) {
 }
 
 function getEffectiveMapEntry() {
-  if (!activeMapEntry || settings.textureSmoothing === 0) {
+  if (!activeMapEntry || (settings.textureSmoothing === 0 && !settings.invertTexture)) {
     _effectiveMapCache    = null;
     _effectiveMapCacheKey = null;
     return activeMapEntry;
   }
   const { fullCanvas, width, height, name } = activeMapEntry;
-  const cacheKey = `${name}_${width}_${height}_${settings.textureSmoothing}`;
-  // Two uploads can share a file name and size, so also check it was blurred from this very map.
+  const cacheKey = `${name}_${width}_${height}_${settings.textureSmoothing}_${settings.invertTexture}`;
+  // Two uploads can share a file name and size, so also check it was derived from this very map.
   if (_effectiveMapCacheKey === cacheKey && _effectiveMapCache?.fullCanvas === fullCanvas) {
     return _effectiveMapCache;
   }
-  // The slider is in pixels of a 512 px map; custom maps can be up to
-  // 2048 px (#89), so scale the radius to blur the same share of the tile.
-  const sigma = settings.textureSmoothing * Math.max(1, Math.max(width, height) / REF_TEXTURE_SIZE);
-  // Surround the tile with wrapped copies of itself before blurring so edge
-  // pixels have correct neighbours and the blurred centre tile is seamlessly
-  // tileable. A 4σ margin covers the blur kernel; capping it (instead of a
-  // full 3×3 tiling) keeps a 2048 px map under iOS's ~16.7 Mpx canvas limit.
-  const padX = Math.min(width,  Math.ceil(4 * sigma) + 2);
-  const padY = Math.min(height, Math.ceil(4 * sigma) + 2);
-  const tiled = document.createElement('canvas');
-  tiled.width  = width  + 2 * padX;
-  tiled.height = height + 2 * padY;
-  const tc = tiled.getContext('2d');
-  for (let row = -1; row <= 1; row++) {
-    for (let col = -1; col <= 1; col++) {
-      tc.drawImage(fullCanvas, padX + col * width, padY + row * height);
-    }
-  }
-  // Blur the padded canvas, then crop out only the centre tile.
-  blurCanvas(tiled, sigma);
   const offscreen = document.createElement('canvas');
   offscreen.width  = width;
   offscreen.height = height;
-  offscreen.getContext('2d').drawImage(tiled, padX, padY, width, height, 0, 0, width, height);
-  const imageData = offscreen.getContext('2d').getImageData(0, 0, width, height);
+  const ctx = offscreen.getContext('2d');
+  if (settings.textureSmoothing > 0) {
+    // The slider is in pixels of a 512 px map; custom maps can be up to
+    // 2048 px (#89), so scale the radius to blur the same share of the tile.
+    const sigma = settings.textureSmoothing * Math.max(1, Math.max(width, height) / REF_TEXTURE_SIZE);
+    // Surround the tile with wrapped copies of itself before blurring so edge
+    // pixels have correct neighbours and the blurred centre tile is seamlessly
+    // tileable. A 4σ margin covers the blur kernel; capping it (instead of a
+    // full 3×3 tiling) keeps a 2048 px map under iOS's ~16.7 Mpx canvas limit.
+    const padX = Math.min(width,  Math.ceil(4 * sigma) + 2);
+    const padY = Math.min(height, Math.ceil(4 * sigma) + 2);
+    const tiled = document.createElement('canvas');
+    tiled.width  = width  + 2 * padX;
+    tiled.height = height + 2 * padY;
+    const tc = tiled.getContext('2d');
+    for (let row = -1; row <= 1; row++) {
+      for (let col = -1; col <= 1; col++) {
+        tc.drawImage(fullCanvas, padX + col * width, padY + row * height);
+      }
+    }
+    // Blur the padded canvas, then crop out only the centre tile.
+    blurCanvas(tiled, sigma);
+    ctx.drawImage(tiled, padX, padY, width, height, 0, 0, width, height);
+  } else {
+    ctx.drawImage(fullCanvas, 0, 0);
+  }
+  const imageData = ctx.getImageData(0, 0, width, height);
+  if (settings.invertTexture) {
+    // Invert the height map itself; amplitude still controls push/pull direction.
+    // Both the GPU preview and CPU bake/export consume these same pixels.
+    const pixels = imageData.data;
+    for (let i = 0; i < pixels.length; i += 4) {
+      pixels[i]     = 255 - pixels[i];
+      pixels[i + 1] = 255 - pixels[i + 1];
+      pixels[i + 2] = 255 - pixels[i + 2];
+      // Height sampling ignores alpha. Keep the processed map opaque so
+      // Canvas2D preserves the same RGB values used by CPU bake/export.
+      pixels[i + 3] = 255;
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
   const texture   = new THREE.CanvasTexture(offscreen);
   texture.wrapS   = texture.wrapT = THREE.RepeatWrapping;
   if (_lastEffectiveTexture) _lastEffectiveTexture.dispose();
@@ -5764,6 +5789,7 @@ const PERSISTED_KEYS = [
   'mappingMode', 'scaleU', 'scaleV', 'lockScale',
   'offsetU', 'offsetV', 'rotation',
   'amplitude', 'textureHeight', 'invertDisplacement',
+  'invertTexture',
   'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'harvestFlatFaces', 'harvestTol', 'preserveUntextured', 'textureSmoothing',
   'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff', 'boundaryFalloffCurve',
   'bottomAngleLimit', 'topAngleLimit',
@@ -5838,6 +5864,10 @@ function applySettingsSnapshot(snap) {
     mappingSelect.value = String(snap.mappingMode);
     mappingSelect.dispatchEvent(new Event('change', { bubbles: true }));
   }
+
+  // Older projects were created with the original texture polarity.
+  invertTextureCheckbox.checked = snap.invertTexture ?? false;
+  invertTextureCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
 
   // invertDisplacement BEFORE amplitude — the amplitude setter reads the flag.
   if (snap.invertDisplacement != null) {
@@ -6001,6 +6031,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   mappingMode: 5, scaleU: 0.5, scaleV: 0.5, lockScale: true,
   offsetU: 0, offsetV: 0, rotation: 0,
   amplitude: 0.5, textureHeight: 0.5, invertDisplacement: false,
+  invertTexture: false,
   symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, harvestFlatFaces: true, harvestTol: 0.005, preserveUntextured: true, textureSmoothing: 0,
   mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
   boundaryFalloffCurve: 'ease',
