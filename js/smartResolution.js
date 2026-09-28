@@ -9,8 +9,9 @@
  *   (a) is fine enough to resolve the active texture's detail at its
  *       current world-space scale, and
  *   (b) keeps the estimated post-subdivision triangle count within a
- *       conservative, device-independent slice of the subdivision safety
- *       cap (see HARD_CAP_TRIANGLES / HARD_CAP_HEADROOM below).
+ *       conservative slice of the subdivision safety cap, which is itself
+ *       derived from the machine's memory budget (see js/memoryBudget.js
+ *       and HARD_CAP_HEADROOM below).
  *
  * The legacy default (bbox-diagonal / 250) ignores both texture frequency
  * and texture period, so it over-meshes smooth textures and under-meshes
@@ -20,28 +21,29 @@
 
 import { analyzeTextureAtRef } from './textureAnalysis.js';
 import { computeSurfaceArea } from './stlLoader.js';
+import { subdivisionCapFor, detectDefaultBudgetBytes, outputCeilingFor } from './memoryBudget.js';
 
-// Conservative BASE of subdivision.js's SAFETY_CAP (which is adaptive since
-// June 2026: 32M on Chrome/Edge machines reporting deviceMemory ≥ 8, 16M
-// elsewhere).  Smart deliberately budgets against the 16M base on every
-// machine so its recommended edge is device-independent — the same project
-// must produce the same suggestion everywhere.
-const HARD_CAP_TRIANGLES = 16_000_000;
-// Smart targets a conservative slice of the OOM guard so the suggestion
-// stays well clear of pipeline peak memory (displacement copies, decimation
-// working set, optional regularize+re-subdivide pass).  Users dragging the
-// resolution slider manually can still push subdivision up to the full
-// safety cap.
+// Smart budgets against the SAME subdivision cap the export will actually
+// enforce, so the suggestion and the pipeline can never disagree.
 //
-// 0.75 → a 12M-triangle budget (~1.7 GB measured pipeline peak at ~145 B/tri
-// after the June 2026 typed-array rewrites).  The previous 0.5 (8M) was sized
-// for the old pipeline, where the same budget cost ~5 GB — so 12M today is
-// still far safer than 8M ever was, while letting fine textures on large
-// models get a meaningfully finer suggested edge.  Kept below 1.0 so a Smart
-// suggestion can never trip the 16M floor cap's "coarser than requested"
-// warning on browsers without the adaptive 32M cap.
+// This used to be pinned to a fixed 16M "so the recommended edge is
+// device-independent — the same project must produce the same suggestion
+// everywhere". That reasoning had a cost the comment did not acknowledge: it
+// made the suggestion independent of the machine AND of the user's explicit
+// wishes, so a workstation with memory to spare was handed the same coarsened
+// edge as a Chromebook. Reproducibility across machines is worth less than
+// getting the resolution the user's hardware can actually deliver — and the
+// suggestion was never truly portable anyway, since the export cap it fed into
+// was itself device-dependent (32M vs 16M).
+//
+// Callers pass `capTriangles` (the page resolves it from the memory budget);
+// omitting it falls back to the auto-detected default.
+// Headroom below the hard cap: the suggestion must leave room for the stages
+// that run at a MULTIPLE of the subdivision peak — the optional regularize +
+// re-subdivide pass in particular can overshoot the first pass's triangle
+// count. 0.75 is unchanged; only the number it multiplies has become honest.
 const HARD_CAP_HEADROOM  = 0.75;
-// Subdivision budget is the OOM guard only (16M).  We deliberately do NOT
+// The subdivision budget is the OOM guard only.  We deliberately do NOT
 // scale by `settings.maxTriangles` here — that would make Smart's recommended
 // edge depend on the slider position, so two clicks of Smart could produce
 // two different edges for the same texture.  Decimation downstream will
@@ -160,12 +162,6 @@ const DECIM_COARSEN = 1.0;
 const DECIM_REF_AMP = 0.5;
 const DECIM_MIN_AMP = 0.1;
 const DECIM_MIN_TRI = 10_000;
-// Recommendation ceiling.  Sized for sensible default file sizes — much
-// smaller than HARD_CAP_TRIANGLES (which is the OOM ceiling for what the
-// pipeline can survive).  Users who want more can drag the Max Triangles
-// slider up to its full range (20M); Smart just won't suggest above this
-// by itself, since the downstream printable mesh rarely needs more.
-const DECIM_MAX_TRI = 2_000_000;
 
 /**
  * @param {object} args
@@ -173,17 +169,21 @@ const DECIM_MAX_TRI = 2_000_000;
  * @param {number} args.pixMm           World-space pixel size, mm.
  * @param {number} args.surfaceArea     Total mesh area, mm².
  * @param {number} args.amplitude       settings.amplitude (signed; magnitude is what matters).
+ * @param {number} [args.maxTri]        Recommendation ceiling; defaults to the
+ *   memory budget's output ceiling (see memoryBudget.outputCeilingFor, and the
+ *   note there on why a flat 2M constant coarsened large parts).
  * @returns {number} Recommended Max Triangles for minimum quality loss.
  */
-export function computeRecommendedMaxTri({ pixelsPerEdge, pixMm, surfaceArea, amplitude }) {
+export function computeRecommendedMaxTri({ pixelsPerEdge, pixMm, surfaceArea, amplitude, maxTri }) {
   if (!(pixelsPerEdge > 0) || !(pixMm > 0) || !(surfaceArea > 0)) return DECIM_MIN_TRI;
+  const ceiling = maxTri > 0 ? maxTri : outputCeilingFor(detectDefaultBudgetBytes());
   const absAmp   = Math.abs(amplitude || 0);
   const ampScale = Math.sqrt(DECIM_REF_AMP / Math.max(absAmp, DECIM_MIN_AMP));
   const targetEdge = DECIM_COARSEN * pixelsPerEdge * pixMm * ampScale;
   const raw = TRIS_PER_AREA_GEOM * surfaceArea / (targetEdge * targetEdge);
   // Round to slider step (10k) and clamp to slider range.
   const stepped = Math.round(raw / 10_000) * 10_000;
-  return Math.max(DECIM_MIN_TRI, Math.min(DECIM_MAX_TRI, stepped));
+  return Math.max(DECIM_MIN_TRI, Math.min(ceiling, stepped));
 }
 
 /**
@@ -258,10 +258,16 @@ export function estimateSubdivisionTriCount(geometry, edge) {
  *   }
  * }}
  */
-export function computeSmartResolution({ geometry, bounds, settings, texture }) {
+export function computeSmartResolution({ geometry, bounds, settings, texture, budgetBytes }) {
   if (!geometry || !bounds || !texture || !texture.imageData) {
     return null;
   }
+
+  // Resolve the budget once: both the subdivision budget below and the output
+  // recommendation must come from the same number, or Smart can suggest an
+  // edge whose subdivision the export then refuses to build.
+  const budget = budgetBytes > 0 ? budgetBytes : detectDefaultBudgetBytes();
+  const capTriangles = subdivisionCapFor(budget);
 
   // 1. Texture detail → pixels-per-edge, judged at the 512 px reference size
   // the heuristic was tuned at (custom maps can be up to 2048 px, #89).
@@ -281,9 +287,9 @@ export function computeSmartResolution({ geometry, bounds, settings, texture }) 
 
   // 4. Surface area & triangle budget.  Budget is purely the OOM guard —
   // intentionally NOT a function of `settings.maxTriangles` so Smart is
-  // idempotent across clicks (see comment on HARD_CAP_TRIANGLES above).
+  // idempotent across clicks (see HARD_CAP_HEADROOM above).
   const surfaceArea = computeSurfaceArea(geometry);
-  const triBudget = HARD_CAP_TRIANGLES * HARD_CAP_HEADROOM;
+  const triBudget = capTriangles * HARD_CAP_HEADROOM;
 
   // Pre-compute per-triangle edges once — reused across all simulator calls.
   const triEdges = computeTriEdges(geometry);
@@ -338,6 +344,7 @@ export function computeSmartResolution({ geometry, bounds, settings, texture }) 
   const recommendedMaxTri = computeRecommendedMaxTri({
     pixelsPerEdge, pixMm, surfaceArea,
     amplitude: settings.amplitude,
+    maxTri: outputCeilingFor(budget),
   });
 
   return {

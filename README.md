@@ -10,6 +10,8 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 
 ## Recent Updates
 
+- Adjustable quality ceiling: the subdivision cap is now a memory budget you can raise (Advanced → Quality Ceiling)
+- "Suggest values" no longer caps output at a flat 2 M triangles regardless of part size
 - Roughly 2× more triangles for the same memory — pipeline peak cut from ~660 to ~330 bytes per subdivided triangle, with bit-identical output
 - STEP import (`.step` / `.stp`) via [meshStep](https://github.com/CNCKitchen/meshStep)
 - Save / load project files (`.bumpmesh`)
@@ -64,7 +66,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 - **Adaptive subdivision** — subdivides edges until they are ≤ a target length; respects sharp creases (>30° dihedral)
 - **QEM decimation** — simplifies the result to a target triangle count using Quadric Error Metrics with boundary protection, link-condition checks, normal-flip rejection, and crease preservation
 - **Mesh diagnostics** — automatic checks for open edges and shell count, with advanced diagnostics and overlay highlights for problem areas
-- **Safety cap** — hard limit of 10 M triangles during subdivision to prevent out-of-memory
+- **Memory budget (quality ceiling)** — the subdivision triangle cap is derived from a memory budget (`js/memoryBudget.js`) and adjustable under **Advanced**, rather than being a hardcoded triangle count. Browsers cannot report free RAM — `navigator.deviceMemory` never returns more than 8 — so the automatic value is a conservative guess that machines with more memory can raise. Two ceilings apply: total memory, and the engine's 2 GB limit on any single typed array, which caps subdivision near 45 M triangles no matter how much RAM is free. Allocation failures degrade to a coarser mesh with a warning instead of failing the export
 
 ### 3D Viewer
 - **Orbit / pan / zoom** controls
@@ -119,6 +121,7 @@ js/
   subdivision.js      # Adaptive mesh subdivision
   decimation.js       # QEM mesh decimation
   meshIndex.js        # Shared vertex welding + integer-pair hash maps
+  memoryBudget.js     # Memory budget -> subdivision/output triangle caps
   exclusion.js        # Face exclusion / inclusion painting
   exporter.js         # Binary STL export
   i18n.js             # Translations (EN / DE)

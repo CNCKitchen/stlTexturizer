@@ -19,6 +19,7 @@
 
 import { THREE } from './threeCompat.js';
 import { QuantizedPointMap, IntPairMap } from './meshIndex.js';
+import { subdivisionCapFor, detectDefaultBudgetBytes } from './memoryBudget.js';
 
 // 10 nm vertex-dedup cells. Below 1e5 (1e4 = 0.1 µm) small-fillet meshes have
 // distinct fillet vertices that round to the same key and merge incorrectly,
@@ -27,25 +28,35 @@ import { QuantizedPointMap, IntPairMap } from './meshIndex.js';
 // scales) so well-formed inputs continue to dedup cleanly.
 const QUANTISE   = 1e5;
 // Absolute OOM guard for the pipeline downstream of subdivide (displacement
-// copy, QEM decimation working set).  Historically fixed at 16M, which was
-// also a hard ceiling from V8's ~16.7M hash-table entry cap in the old
-// edge-marking Set — that structure is gone (integer hash map, no entry cap),
-// so the guard is now purely about memory.
+// copy, QEM decimation working set).
 //
-// Measured pipeline peak (3DBenchy + dots, June 2026): ~145 bytes per
-// subdivided triangle — 16M ≈ 2.9 GB, 32M ≈ 4.3 GB (29M measured at 4.25 GB,
-// completing watertight in ~2 min).  32M therefore fits comfortably on
-// ≥16 GB machines.  navigator.deviceMemory (Chrome/Edge, available on the
-// page and in workers, reports 8 for ANY machine with ≥8 GB) gates the
-// higher cap; browsers without the API (Safari, Firefox) and Node keep the
-// long-proven 16M.  Since the pipeline moved into the export worker, blowing
-// past available memory surfaces as a clean error alert instead of killing
-// the tab, so the worst case at 32M on a marginal machine is a retry at a
-// coarser setting.  The Smart recommender targets a conservative ~4M either
-// way; only manual resolution-slider drags approach these caps.
-const SAFETY_CAP = (typeof navigator !== 'undefined' && navigator.deviceMemory >= 8)
-  ? 32_000_000
-  : 16_000_000;
+// This used to be a hardcoded 16M / 32M pair. It is now DERIVED from a byte
+// budget — see js/memoryBudget.js for why the old constants were unreachable
+// fiction (they assumed 145 B per subdivided triangle; the real figure was
+// 660, since reduced to ~327) and for how the budget is chosen and overridden.
+//
+// Callers may pass an explicit `safetyCap` through subdivide()'s options; the
+// export path always does, because only the page can read the user's stored
+// budget and the pipeline may be running inside a worker. The default here is
+// the auto-detected value, which is what the preview and Node scripts get.
+const DEFAULT_SAFETY_CAP = subdivisionCapFor(detectDefaultBudgetBytes());
+
+/**
+ * Did this error come from a typed array the engine refused to allocate — as
+ * opposed to a genuine bug we must not swallow?
+ *
+ * Engines word it differently and not all of them use RangeError, so match on
+ * the message. Deliberately narrow: anything unrecognised is re-thrown.
+ *
+ *   V8       RangeError: Array buffer allocation failed
+ *            RangeError: Invalid typed array length
+ *   Spidermonkey  RangeError: invalid array length / Error: out of memory
+ *   JSC      RangeError: Out of memory
+ */
+function isAllocationFailure(err) {
+  const msg = (err && err.message) || '';
+  return /allocation failed|out of memory|invalid (typed )?array length|array buffer/i.test(msg);
+}
 
 // ── Growable typed vertex store ──────────────────────────────────────────────
 // Shared by the indexers (which build it) and the subdivision passes (which
@@ -74,7 +85,9 @@ function makeVertStore(initialCap, hasWeights, hasCanon) {
 
 // ── Public entry point ───────────────────────────────────────────────────────
 
-export async function subdivide(geometry, maxEdgeLength, onProgress, faceWeights = null, { fast = false } = {}) {
+export async function subdivide(geometry, maxEdgeLength, onProgress, faceWeights = null, { fast = false, safetyCap = 0 } = {}) {
+  const SAFETY_CAP = safetyCap > 0 ? safetyCap : DEFAULT_SAFETY_CAP;
+
   // Derive per-face exclusion BEFORE toIndexed so we use the untouched
   // non-indexed weights (toIndexed uses MAX-merge which can push boundary
   // vertices to weight 1.0 even on included triangles).
@@ -100,6 +113,11 @@ export async function subdivide(geometry, maxEdgeLength, onProgress, faceWeights
   let currentIndices = indices;
   let currentFaceExcluded = initialFaceExcluded;
   let safetyCapHit = false;
+  // The level before the most recent accepted pass, kept as a fallback for
+  // toNonIndexed (see the try/catch after the loop).
+  let lastGoodIndices = indices;
+  let lastGoodFaceExcluded = initialFaceExcluded;
+  let lastGoodFaceParentId = null;
 
   // Track which original face each subdivided face descends from.
   const initialTriCount = indices.length / 3;
@@ -113,10 +131,36 @@ export async function subdivide(geometry, maxEdgeLength, onProgress, faceWeights
       break;
     }
 
-    const { newIndices, newFaceExcluded, newFaceParentId, changed, capped } = subdividePass(
-      verts, currentIndices, maxEdgeLength, SAFETY_CAP, currentFaceExcluded,
-      posCanonMap, currentFaceParentId
-    );
+    // Keep the pre-pass state so an allocation failure can roll back to it.
+    // Without this, running out of memory anywhere in a pass throws all the way
+    // out of the export and the user gets nothing after minutes of work — even
+    // though the previous, slightly coarser level was complete and usable.
+    const prevIndices = currentIndices;
+    const prevFaceExcluded = currentFaceExcluded;
+    const prevFaceParentId = currentFaceParentId;
+    lastGoodIndices = prevIndices;
+    lastGoodFaceExcluded = prevFaceExcluded;
+    lastGoodFaceParentId = prevFaceParentId;
+
+    let pass;
+    try {
+      pass = subdividePass(
+        verts, currentIndices, maxEdgeLength, SAFETY_CAP, currentFaceExcluded,
+        posCanonMap, currentFaceParentId
+      );
+    } catch (err) {
+      if (!isAllocationFailure(err)) throw err;
+      // Out of memory building this level: keep the last complete one and
+      // report it like any other cap hit, so the caller warns "coarser than
+      // requested" instead of failing the export.
+      currentIndices = prevIndices;
+      currentFaceExcluded = prevFaceExcluded;
+      currentFaceParentId = prevFaceParentId;
+      safetyCapHit = true;
+      break;
+    }
+
+    const { newIndices, newFaceExcluded, newFaceParentId, changed, capped } = pass;
     currentIndices = newIndices;
     if (newFaceExcluded) currentFaceExcluded = newFaceExcluded;
     if (newFaceParentId) currentFaceParentId = newFaceParentId;
@@ -147,8 +191,26 @@ export async function subdivide(geometry, maxEdgeLength, onProgress, faceWeights
     if (!changed || safetyCapHit) break;
   }
 
+  // toNonIndexed is the single largest allocation in the whole subdivider —
+  // Float32Array(T * 9) for positions and again for normals — so it is where an
+  // over-ambitious setting actually dies (a 65 M-triangle mesh needs 2.34 GB in
+  // ONE array, past V8's 2 GB per-allocation ceiling). SAFETY_CAP now accounts
+  // for that, but engines differ; if it still fails, drop back to the last
+  // complete level rather than losing the export.
+  let outGeometry;
+  try {
+    outGeometry = toNonIndexed(verts, currentIndices, currentFaceExcluded);
+  } catch (err) {
+    if (!isAllocationFailure(err) || lastGoodIndices === currentIndices) throw err;
+    currentIndices = lastGoodIndices;
+    currentFaceExcluded = lastGoodFaceExcluded;
+    currentFaceParentId = lastGoodFaceParentId;
+    safetyCapHit = true;
+    outGeometry = toNonIndexed(verts, currentIndices, currentFaceExcluded);
+  }
+
   return {
-    geometry: toNonIndexed(verts, currentIndices, currentFaceExcluded),
+    geometry: outGeometry,
     safetyCapHit,
     faceParentId: new Int32Array(currentFaceParentId),
   };

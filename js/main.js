@@ -31,6 +31,9 @@ import { runFastDiagnostics, runExpensiveDiagnostics,
 import { t, tHtml, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
 import { getScaleReferenceLengths } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
+import { BUDGET_PRESETS_GB, BYTES_PER_GB as GIB, getBudgetBytes, setBudgetBytes,
+         hasBudgetOverride, detectDefaultBudgetBytes, subdivisionCapFor,
+         outputCeilingFor, isStructurallyCapped } from './memoryBudget.js';
 import { APP_VERSION } from './version.js';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 
@@ -113,6 +116,11 @@ const settings = {
   rotation:      0,
   refineLength:  1.0,
   maxTriangles:  750_000,
+  // Subdivision triangle cap, derived from the memory budget (memoryBudget.js).
+  // Resolved on the page — the export may run in a worker, which cannot read
+  // the user's stored budget — and carried into the pipeline via the settings
+  // snapshot. Refreshed by applyMemoryBudget() below.
+  subdivisionCap: subdivisionCapFor(getBudgetBytes()),
   lockScale:     true,
   bottomAngleLimit: 5,
   topAngleLimit:    0,
@@ -384,6 +392,8 @@ const dispPreviewToggle      = document.getElementById('displacement-preview');
 const noDownwardZChk         = document.getElementById('no-downward-z-chk');
 const smoothBottomChk        = document.getElementById('smooth-bottom-chk');
 const smoothBottomRow        = document.getElementById('smooth-bottom-row');
+const memBudgetSelect        = document.getElementById('mem-budget');
+const memBudgetInfo          = document.getElementById('mem-budget-info');
 const harvestFlatChk         = document.getElementById('harvest-flat-chk');
 const harvestTolInput        = document.getElementById('harvest-tol');
 const harvestTolRow          = document.getElementById('harvest-tol-row');
@@ -1049,6 +1059,10 @@ function populateLanguageSelector() {
     document.querySelectorAll('#mapping-mode option[data-i18n-opt]').forEach(opt => {
       opt.textContent = t(opt.dataset.i18nOpt);
     });
+    // Same for the memory-budget picker: its options and readout are built
+    // imperatively (they interpolate numbers), so applyTranslations() can't
+    // reach them either. Rebuilding preserves the current selection.
+    refreshMemoryBudgetLabels();
 
     // Refresh dynamic count text to current language
     if (currentGeometry) {
@@ -1586,6 +1600,7 @@ function wireEvents() {
     // No preview rebuild needed — the snap is a final-export step only.
   });
   syncSmoothBottomToLimit();
+  initMemoryBudgetControl();
   harvestFlatChk.checked = settings.harvestFlatFaces;
   harvestTolRow.classList.toggle('disabled', !settings.harvestFlatFaces);
   harvestFlatChk.addEventListener('change', () => {
@@ -3795,6 +3810,65 @@ function updateMeshDiagnostics(adjData, triCount) {
   meshDiagRunBtn.disabled = false;
 }
 
+// ── Quality ceiling / memory budget ─────────────────────────────────────────
+//
+// The subdivision cap is the single thing that decides how fine an export can
+// get before the pipeline starts handing back a coarser mesh than asked for.
+// It used to be a hardcoded 16M/32M pair that no machine could actually reach
+// (see js/memoryBudget.js); it is now budget ÷ measured-bytes-per-triangle,
+// with the budget under the user's control because no browser API reports free
+// memory. Everything downstream — the export cap, the Smart suggestion, and
+// Smart's output-triangle recommendation — reads from this one number.
+
+/** Re-resolve the cap from the stored budget and refresh the readout. */
+function applyMemoryBudget() {
+  const bytes = getBudgetBytes();
+  settings.subdivisionCap = subdivisionCapFor(bytes);
+  const capM = (settings.subdivisionCap / 1e6).toFixed(1);
+  const outM = (outputCeilingFor(bytes) / 1e6).toFixed(1);
+  // Past ~15 GB the engine's per-allocation ceiling binds instead of the
+  // budget, and raising the setting further changes nothing. Say so, rather
+  // than letting the readout imply the extra memory is being used.
+  memBudgetInfo.textContent = isStructurallyCapped(bytes)
+    ? t('ui.memBudgetInfoCapped', { cap: capM, out: outM })
+    : t('ui.memBudgetInfo', { cap: capM, out: outM });
+  return bytes;
+}
+
+/** (Re)build the picker's options and readout in the active language. */
+function refreshMemoryBudgetLabels() {
+  // Keep whatever is selected across a rebuild; on first build the select is
+  // empty, so fall back to the stored override (or "auto").
+  const wanted = memBudgetSelect.value
+    || (hasBudgetOverride() ? String(Math.round(getBudgetBytes() / GIB)) : 'auto');
+
+  const autoGB = detectDefaultBudgetBytes() / GIB;
+  // "Automatic" first, then every preset — including ones below the automatic
+  // value, since a user sharing the machine with other heavy tabs may want to
+  // give this tool less than the detection suggests.
+  const opts = [`<option value="auto">${t('ui.memBudgetAuto', { n: autoGB })}</option>`];
+  for (const gb of BUDGET_PRESETS_GB) {
+    opts.push(`<option value="${gb}">${t('ui.memBudgetGb', { n: gb })}</option>`);
+  }
+  memBudgetSelect.innerHTML = opts.join('');
+
+  memBudgetSelect.value = wanted;
+  // A stored value that no longer matches an offered preset leaves the select
+  // blank; show "Automatic" rather than an empty box.
+  if (!memBudgetSelect.value) memBudgetSelect.value = 'auto';
+
+  applyMemoryBudget();
+}
+
+function initMemoryBudgetControl() {
+  refreshMemoryBudgetLabels();
+  memBudgetSelect.addEventListener('change', () => {
+    const v = memBudgetSelect.value;
+    setBudgetBytes(v === 'auto' ? null : Number(v) * GIB);
+    applyMemoryBudget();
+  });
+}
+
 function checkResolutionWarning() {
   if (!currentBounds) return;
   const diag = Math.sqrt(
@@ -3825,6 +3899,10 @@ function applySmartResolution() {
     bounds:   currentBounds,
     settings,
     texture:  effective,
+    // Suggest against the same budget the export will enforce, so "budget
+    // capped" in the readout always means the user's actual ceiling — and
+    // raising the ceiling immediately produces a finer suggestion.
+    budgetBytes: applyMemoryBudget(),
   });
   if (!result) return;
 
