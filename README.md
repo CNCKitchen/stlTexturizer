@@ -26,7 +26,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 ## Features
 
 ### Textures
-- **81 built-in seamless textures** in six categories (geometric, patterns, organic, fabric, natural, grip): weaves, knurling, carbon twill, chainmail, scales, bark, wood grain, cobblestone, Hero Patterns and more
+- **88 built-in seamless textures** in six categories (geometric, patterns, organic, fabric, natural, grip): weaves, knurling, carbon twill, chainmail, scales, bark, wood grain, cobblestone, Japandi flutes and ripples, Hero Patterns and more
 - **Texture Gallery** — browse, search and filter the full catalogue in a side panel that takes the settings sidebar's place and stays open while you try textures on the model (click or arrow keys; the model spins on a turntable while you browse); star favorites to pin them in the panel grid, which grows by a row per 4 (saved in the browser)
 - **Custom textures** — upload your own image as a displacement map, or an ideaMaker `.texture` file; uploads are kept under "Your textures" in the gallery (this browser only, and the browser may clear them at any time) where you can star, re-download or delete them
 - **Texture smoothing** — configurable blur to soften the displacement map before applying
@@ -106,7 +106,7 @@ index.html            # Main entry point
 style.css             # Styles (light / dark theme)
 logo.png              # Favicon & header logo
 CNAME                 # Custom domain (bumpmesh.com)
-textures/             # Built-in JPG/PNG displacement map images (81 textures) + thumbs/
+textures/             # Built-in JPG/PNG displacement map images (88 textures) + thumbs/
 js/
   main.js             # App bootstrap & UI wiring
   viewer.js           # Three.js scene / camera / controls
