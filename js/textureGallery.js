@@ -522,7 +522,10 @@ export function initTextureGallery({ onSelect, onSelectCustom, setTurntable }) {
     renderGallery();
     panel.parentElement.classList.add('gallery-open');
     panel.classList.remove('hidden');
-    search.focus({ preventScroll: true });
+    // Type-to-search needs a real keyboard; on touch screens focusing the box would pop up the
+    // on-screen keyboard over the gallery, so the panel itself takes focus there.
+    const typing = window.matchMedia?.('(hover: hover) and (pointer: fine)').matches ?? true;
+    (typing ? search : panel).focus({ preventScroll: true });
     const active = body.querySelector('.preset-swatch.active');
     if (active) active.scrollIntoView({ block: 'center' });
     if (turntableWanted()) setSpin(true);

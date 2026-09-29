@@ -18,7 +18,7 @@ import { REF_TEXTURE_SIZE } from './textureAnalysis.js';
 import { loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextures.js';
 import { initTextureGallery } from './textureGallery.js';
 import { getCustomTextureFile } from './customTextures.js';
-import { initSidebarResize } from './sidebarResize.js';
+import { initSidebarToggle } from './sidebarToggle.js';
 import { createPreviewMaterial, updateMaterial } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { runExportPipeline }  from './exportPipeline.js';
@@ -1132,7 +1132,21 @@ const gallery = initTextureGallery({
   onSelectCustom: (id) => selectCustomTexture(id).then(_scheduleUndoCapture),
   setTurntable,
 });
-initSidebarResize();
+initSidebarToggle();
+
+// The page itself never scrolls, but a mobile browser may still shift it to lift a focused input above
+// the on-screen keyboard, and overflow:hidden leaves the user no way back. Undo any such shift once the
+// keyboard closes, i.e. when the visual viewport grows again.
+if (window.visualViewport) {
+  let vvHeight = visualViewport.height;
+  visualViewport.addEventListener('resize', () => {
+    if (visualViewport.height > vvHeight) {
+      document.scrollingElement?.scrollTo(0, 0);
+      document.body.scrollTop = 0;
+    }
+    vvHeight = visualViewport.height;
+  });
+}
 
 wireEvents();
 showWelcomeIfNeeded();

@@ -49,7 +49,7 @@ export default {
   "gallery.done": "Færdig",
   "gallery.turntable": "Drejeskive",
   "gallery.turntableTitle": "Drej modellen langsomt, mens du kigger",
-  "ui.resizeSidebar": "Træk for at ændre sidepanelets bredde; dobbeltklik nulstiller",
+  "ui.toggleSidebar": "Vis eller skjul sidepanelet",
   "gallery.favCount": "Favoritter: {n}",
   "gallery.addFavourite": "Føj til favoritter",
   "gallery.removeFavourite": "Fjern fra favoritter",

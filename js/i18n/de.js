@@ -49,7 +49,7 @@ export default {
   "gallery.done": "Fertig",
   "gallery.turntable": "Drehteller",
   "gallery.turntableTitle": "Modell beim Stöbern langsam drehen",
-  "ui.resizeSidebar": "Ziehen, um die Breite der Seitenleiste zu ändern; Doppelklick setzt zurück",
+  "ui.toggleSidebar": "Seitenleiste ein- oder ausblenden",
   "gallery.favCount": "Favoriten: {n}",
   "gallery.addFavourite": "Zu Favoriten hinzufügen",
   "gallery.removeFavourite": "Aus Favoriten entfernen",

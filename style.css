@@ -18,8 +18,7 @@
   --danger:       #ff5f5f;
   --success:      #4ade80;
   --radius:       8px;
-  --sidebar-w:    380px;   /* widened per user by js/sidebarResize.js (set on <main>) */
-  --sidebar-min-w: 380px;
+  --sidebar-w:    380px;
   --header-h:     48px;
 }
 
@@ -136,8 +135,17 @@ html, body {
   overflow: hidden;
 }
 
+/* Header + main fill the body exactly. 100vh would overshoot the visible area on phones (it assumes
+   the browser toolbar is hidden), and the browser then scrolls that overflow to lift a focused input
+   above the on-screen keyboard — with no way for the user to scroll back. */
+body {
+  display: flex;
+  flex-direction: column;
+}
+
 /* ── Header ─────────────────────────────────────────────────────────── */
 header {
+  flex-shrink: 0;
   height: var(--header-h);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -176,8 +184,10 @@ header {
 
 /* ── Main layout ─────────────────────────────────────────────────────── */
 main {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
-  height: calc(100vh - var(--header-h));
   overflow: hidden;
 }
 
@@ -267,7 +277,9 @@ main {
   position: absolute;
   bottom: 14px;
   right: 14px;
+  left: 14px;   /* wraps instead of running off a narrow viewport */
   display: flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
   z-index: 20;
@@ -286,7 +298,6 @@ main {
   border-radius: 8px;
   box-shadow: none;
   pointer-events: all;
-  white-space: nowrap;
   transition: background 0.15s, transform 0.15s;
   letter-spacing: 0.01em;
 }
@@ -326,13 +337,14 @@ main {
 }
 
 #viewport-footer {
-  height: 28px;
+  min-height: 28px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: flex;
+  flex-wrap: wrap;   /* a narrow viewport gets a second row instead of clipped text */
   align-items: center;
-  padding: 0 12px;
-  gap: 16px;
+  padding: 4px 12px;
+  gap: 2px 16px;
   flex-shrink: 0;
 }
 
@@ -346,6 +358,11 @@ main {
   margin-left: auto;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* Mouse controls mean nothing on a touch screen. */
+@media (hover: none) {
+  .viewport-controls-hint { display: none; }
 }
 
 .wireframe-toggle {
@@ -436,39 +453,41 @@ main {
 
 /* ── Settings panel ──────────────────────────────────────────────────── */
 /* The settings panel and the gallery that replaces it share one width, so opening the gallery never
-   shifts the viewport. Never narrower than designed; always leaves the viewport 320px. */
+   shifts the viewport. */
 #settings-panel,
 .gallery-panel {
-  width: clamp(var(--sidebar-min-w), var(--sidebar-w), calc(100% - 320px));
+  width: var(--sidebar-w);
 }
 
-.sidebar-resize {
-  position: relative;
-  flex: 0 0 0;
-  z-index: 2;
-  touch-action: none;
-}
-
-/* 8px hit area straddling the sidebar border; the accent line shows on hover, focus and drag. */
-.sidebar-resize::before,
-.sidebar-resize::after {
-  content: '';
+/* Collapse tab on the sidebar's left edge; with the sidebar collapsed it sits on the window's edge. */
+.sidebar-toggle {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 50%;
+  right: var(--sidebar-w);
+  z-index: 5;
+  width: 22px;
+  height: 52px;
+  margin-top: -26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
 }
 
-.sidebar-resize::before { left: -4px; width: 8px; cursor: col-resize; touch-action: none; }
-.sidebar-resize::after  { left: -1px; width: 2px; background: transparent; transition: background 0.15s; pointer-events: none; }
+.sidebar-toggle:hover { color: var(--accent); }
+.sidebar-toggle svg { transition: transform 0.2s; }
 
-.sidebar-resize:hover::after,
-.sidebar-resize:focus-visible::after,
-.sidebar-resize.dragging::after { background: var(--accent); }
-.sidebar-resize:focus-visible { outline: none; }
-
-/* No text selection or canvas pointer grabs while dragging the handle. */
-body.sidebar-resizing { cursor: col-resize; user-select: none; }
-body.sidebar-resizing #viewport { pointer-events: none; }
+main.sidebar-collapsed .sidebar-toggle { right: 0; }
+main.sidebar-collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+main.sidebar-collapsed #settings-panel,
+main.sidebar-collapsed .gallery-panel { display: none; }
 
 #settings-panel {
   flex-shrink: 0;
@@ -713,6 +732,7 @@ main.gallery-open #settings-panel { display: none; }
 }
 
 .gallery-panel.hidden { display: none; }
+.gallery-panel:focus { outline: none; }   /* focused on open where the search box would pop a keyboard */
 
 .gallery-header {
   display: flex;
@@ -1023,6 +1043,58 @@ main.gallery-open #settings-panel { display: none; }
 @media (max-width: 520px) {
   .gallery-panel { padding: 12px 10px 10px; }
   .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
+}
+
+/* Too short for a fixed toolbar over a scrolling grid (landscape phones, the stacked phone layout):
+   the whole panel scrolls, and only the header with Done stays put. */
+@media (max-height: 560px), (max-width: 699px) and (orientation: portrait) {
+  .gallery-panel { overflow-y: auto; padding-top: 0; }
+  .gallery-header {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    padding-top: 12px;
+    padding-bottom: 6px;
+    background: var(--surface);
+  }
+  .gallery-body { flex: none; overflow: visible; }
+}
+
+/* ── Phones ──────────────────────────────────────────────────────────── */
+@media (max-width: 699px) {
+  header {
+    height: auto;
+    min-height: var(--header-h);
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 8px 12px;
+  }
+  .header-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+  .app-version { display: none; }
+}
+
+/* Portrait: the viewport on top, the sidebar below it at full width. */
+@media (max-width: 699px) and (orientation: portrait) {
+  main { flex-direction: column; }
+  #settings-panel,
+  .gallery-panel {
+    width: auto;
+    height: 52%;
+    border-left: 0;
+  }
+  /* The collapse tab becomes a bar across the top of the panel; collapsed, it rests at the bottom. */
+  .sidebar-toggle {
+    position: static;
+    flex-shrink: 0;
+    width: auto;
+    height: 28px;
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+  }
+  .sidebar-toggle svg { transform: rotate(90deg); }
+  main.sidebar-collapsed .sidebar-toggle svg { transform: rotate(-90deg); }
 }
 
 .invert-texture-row {

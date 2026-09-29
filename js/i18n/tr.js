@@ -49,7 +49,7 @@ export default {
   "gallery.done": "Bitti",
   "gallery.turntable": "Döner tabla",
   "gallery.turntableTitle": "Gezinirken modeli yavaşça döndür",
-  "ui.resizeSidebar": "Kenar çubuğunu yeniden boyutlandırmak için sürükleyin; sıfırlamak için çift tıklayın",
+  "ui.toggleSidebar": "Kenar çubuğunu göster veya gizle",
   "gallery.favCount": "Favoriler: {n}",
   "gallery.addFavourite": "Favorilere ekle",
   "gallery.removeFavourite": "Favorilerden kaldır",

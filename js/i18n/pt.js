@@ -49,7 +49,7 @@ export default {
   "gallery.done": "Concluído",
   "gallery.turntable": "Prato giratório",
   "gallery.turntableTitle": "Gira o modelo lentamente enquanto você navega",
-  "ui.resizeSidebar": "Arraste para redimensionar a barra lateral; clique duplo para redefinir",
+  "ui.toggleSidebar": "Mostrar ou ocultar a barra lateral",
   "gallery.favCount": "Favoritos: {n}",
   "gallery.addFavourite": "Adicionar aos favoritos",
   "gallery.removeFavourite": "Remover dos favoritos",

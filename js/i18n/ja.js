@@ -49,7 +49,7 @@ export default {
   "gallery.done": "完了",
   "gallery.turntable": "ターンテーブル",
   "gallery.turntableTitle": "閲覧中にモデルをゆっくり回転させます",
-  "ui.resizeSidebar": "ドラッグでサイドバーの幅を変更（ダブルクリックでリセット）",
+  "ui.toggleSidebar": "サイドバーの表示／非表示",
   "gallery.favCount": "お気に入り {n}",
   "gallery.addFavourite": "お気に入りに追加",
   "gallery.removeFavourite": "お気に入りから削除",

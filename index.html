@@ -173,10 +173,12 @@
     </section>
 
     <!-- â”€â”€â”€ Settings Panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
-    <!-- Drag handle on the sidebar's left edge (js/sidebarResize.js); resizes the settings panel and the gallery alike -->
-    <div id="sidebar-resize" class="sidebar-resize" role="separator" aria-orientation="vertical" tabindex="0"
-      data-i18n-aria-label="ui.resizeSidebar" aria-label="Drag to resize the sidebar; double-click to reset"
-      data-i18n-title="ui.resizeSidebar" title="Drag to resize the sidebar; double-click to reset"></div>
+    <!-- Collapse tab on the sidebar's edge (js/sidebarToggle.js); hides the settings panel or gallery so the viewport gets the room -->
+    <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="settings-panel gallery-panel"
+      data-i18n-aria-label="ui.toggleSidebar" aria-label="Show or hide the sidebar"
+      data-i18n-title="ui.toggleSidebar" title="Show or hide the sidebar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+    </button>
 
     <aside id="settings-panel">
 
@@ -660,7 +662,7 @@
 
     <!-- Texture gallery (filled by js/textureGallery.js). Takes the settings panel's place while open
          so the model stays visible and every pick shows up on it live. -->
-    <aside id="gallery-panel" class="gallery-panel hidden" role="dialog" aria-labelledby="gallery-title">
+    <aside id="gallery-panel" class="gallery-panel hidden" role="dialog" aria-labelledby="gallery-title" tabindex="-1">
       <div class="gallery-header">
         <h2 id="gallery-title" data-i18n="gallery.title">Texture Gallery</h2>
         <button id="gallery-turntable" class="gallery-turntable-btn" type="button" aria-pressed="false"
@@ -803,7 +805,7 @@
         <li><strong>New in v1.3.5</strong> &mdash; a sharper <strong>3D Preview</strong>: it now follows your Resolution setting, so fine textures show their real shape instead of a blurred approximation. It builds in the background, so the app stays responsive while a spinner shows next to the checkbox, and it rebuilds automatically when you change the resolution.</li>
         <li><strong>New in v1.3.4</strong> &mdash; seven Japandi textures: Classic Flutes, Fine Ribs, Wavy Reeds, Sazanami Ripples, Sazanami S-Wave, Tachiwaki and Bamboo Culms. Their lines run vertically, so with Cylindrical mapping they wrap a vase as flutes and ripples. Textures made with Filter Forge now carry an FF badge in the gallery.</li>
         <li><strong>New in v1.3.3</strong> &mdash; the new <strong>Invert texture</strong> option swaps black and white in the map, so dark areas are raised, without editing the image. The old &ldquo;Invert&rdquo; under Texture Depth is now called &ldquo;Reverse direction&rdquo;. A texture picked in the Texture Gallery also shows up among your favorites in the panel. Large 3MF exports use less memory, and every language is now fully translated.</li>
-        <li><strong>New in v1.3.2</strong> &mdash; the Texture Gallery now opens beside your model, so you can click or arrow-key through textures and see each one live; turn on Turntable to spin the model while you browse. Drag the sidebar&rsquo;s edge to make it wider. Maps you upload are kept under &ldquo;Your textures&rdquo; in this browser. Three new stone textures: Cobblestone, Flagstone and Square Setts. Exporting large models uses about half the memory.</li>
+        <li><strong>New in v1.3.2</strong> &mdash; the Texture Gallery now opens beside your model, so you can click or arrow-key through textures and see each one live; turn on Turntable to spin the model while you browse. Maps you upload are kept under &ldquo;Your textures&rdquo; in this browser. Three new stone textures: Cobblestone, Flagstone and Square Setts. Exporting large models uses about half the memory.</li>
         <li><strong>New textures &amp; Texture Gallery</strong> &mdash; 54 new textures, from knurling and carbon twill to chainmail, bark and dozens of Hero Patterns. Browse them all in the new Texture Gallery with search and categories, and star your favorites to pin them to the panel.</li>
         <li><strong>Smooth masking brush</strong> &mdash; the circle brush now has a Hardness setting: lower it to fade the mask out toward the brush rim for soft, gradual texture borders instead of hard triangle edges. Enable Precision for smooth gradients on coarse meshes.</li>
         <li><strong>ideaMaker textures</strong> &mdash; load .texture files from the <a href="https://www.ideamaker.io/texture" target="_blank" rel="noopener">ideaMaker texture library</a> directly with Upload custom map.</li>

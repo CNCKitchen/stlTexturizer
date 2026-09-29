@@ -49,7 +49,7 @@ export default {
   "gallery.done": "Готово",
   "gallery.turntable": "Обертання",
   "gallery.turntableTitle": "Повільно обертати модель під час перегляду",
-  "ui.resizeSidebar": "Перетягніть, щоб змінити ширину бічної панелі; подвійне клацання — скидання",
+  "ui.toggleSidebar": "Показати або сховати бічну панель",
   "gallery.favCount": "Обране: {n}",
   "gallery.addFavourite": "Додати до обраного",
   "gallery.removeFavourite": "Прибрати з обраного",

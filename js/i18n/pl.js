@@ -44,7 +44,7 @@ export default {
   "gallery.done": "Gotowe",
   "gallery.turntable": "Obrotnica",
   "gallery.turntableTitle": "Powoli obracaj model podczas przeglądania",
-  "ui.resizeSidebar": "Przeciągnij, aby zmienić szerokość panelu bocznego; dwuklik przywraca domyślną",
+  "ui.toggleSidebar": "Pokaż lub ukryj panel boczny",
   "gallery.favCount": "Ulubione: {n}",
   "gallery.addFavourite": "Dodaj do ulubionych",
   "gallery.removeFavourite": "Usuń z ulubionych",

@@ -49,7 +49,7 @@ export default {
   "gallery.done": "Terminé",
   "gallery.turntable": "Plateau tournant",
   "gallery.turntableTitle": "Faire tourner lentement le modèle pendant la navigation",
-  "ui.resizeSidebar": "Faites glisser pour redimensionner le panneau latéral ; double-clic pour réinitialiser",
+  "ui.toggleSidebar": "Afficher ou masquer le panneau latéral",
   "gallery.favCount": "Favoris : {n}",
   "gallery.addFavourite": "Ajouter aux favoris",
   "gallery.removeFavourite": "Retirer des favoris",

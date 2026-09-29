@@ -49,7 +49,7 @@ export default {
   "gallery.done": "完成",
   "gallery.turntable": "转台",
   "gallery.turntableTitle": "浏览时缓慢旋转模型",
-  "ui.resizeSidebar": "拖动以调整侧边栏宽度；双击恢复默认",
+  "ui.toggleSidebar": "显示或隐藏侧边栏",
   "gallery.favCount": "收藏 {n}",
   "gallery.addFavourite": "加入收藏",
   "gallery.removeFavourite": "取消收藏",

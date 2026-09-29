@@ -114,7 +114,7 @@ js/
   presetTextures.js   # Built-in texture presets (categories, credits, default favorites) + custom upload
   textureGallery.js   # Favorites grid + Texture Gallery side panel
   customTextures.js   # "Your textures": uploaded maps kept in this browser (IndexedDB)
-  sidebarResize.js    # Drag-to-resize for the right-hand sidebar (settings + gallery share one width)
+  sidebarToggle.js    # Collapse / expand tab for the right-hand sidebar (settings or gallery)
   previewMaterial.js  # Three.js material for live & displacement preview
   previewPipeline.js  # 3D-preview mesh build (runs in previewWorker.js)
   mapping.js          # UV projection logic (7 modes)

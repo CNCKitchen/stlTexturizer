@@ -49,7 +49,7 @@ export default {
   "gallery.done": "완료",
   "gallery.turntable": "턴테이블",
   "gallery.turntableTitle": "둘러보는 동안 모델을 천천히 회전합니다",
-  "ui.resizeSidebar": "드래그하여 사이드바 너비 조정 (더블클릭하면 초기화)",
+  "ui.toggleSidebar": "사이드바 표시/숨기기",
   "gallery.favCount": "즐겨찾기 {n}",
   "gallery.addFavourite": "즐겨찾기에 추가",
   "gallery.removeFavourite": "즐겨찾기에서 제거",

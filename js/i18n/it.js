@@ -49,7 +49,7 @@ export default {
   "gallery.done": "Fatto",
   "gallery.turntable": "Piatto rotante",
   "gallery.turntableTitle": "Ruota lentamente il modello mentre sfogli",
-  "ui.resizeSidebar": "Trascina per ridimensionare la barra laterale; doppio clic per ripristinare",
+  "ui.toggleSidebar": "Mostra o nascondi la barra laterale",
   "gallery.favCount": "Preferiti: {n}",
   "gallery.addFavourite": "Aggiungi ai preferiti",
   "gallery.removeFavourite": "Rimuovi dai preferiti",

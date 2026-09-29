@@ -49,7 +49,7 @@ export default {
   "gallery.done": "Готово",
   "gallery.turntable": "Вращение",
   "gallery.turntableTitle": "Медленно вращать модель во время просмотра",
-  "ui.resizeSidebar": "Перетащите, чтобы изменить ширину боковой панели; двойной щелчок — сброс",
+  "ui.toggleSidebar": "Показать или скрыть боковую панель",
   "gallery.favCount": "Избранное: {n}",
   "gallery.addFavourite": "Добавить в избранное",
   "gallery.removeFavourite": "Убрать из избранного",

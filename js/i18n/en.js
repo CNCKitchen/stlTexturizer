@@ -49,7 +49,7 @@ export default {
   "gallery.done": "Done",
   "gallery.turntable": "Turntable",
   "gallery.turntableTitle": "Slowly spin the model while you browse",
-  "ui.resizeSidebar": "Drag to resize the sidebar; double-click to reset",
+  "ui.toggleSidebar": "Show or hide the sidebar",
   "gallery.favCount": "Favorites: {n}",
   "gallery.addFavourite": "Add to favorites",
   "gallery.removeFavourite": "Remove from favorites",
