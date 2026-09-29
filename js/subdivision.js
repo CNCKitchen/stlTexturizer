@@ -18,9 +18,9 @@
  */
 
 import { THREE } from './threeCompat.js';
-import { QuantizedPointMap } from './meshIndex.js';
+import { QuantizedPointMap, IntPairMap } from './meshIndex.js';
 
-// 10 µm vertex-dedup cells. Below 1e5 (= 100 µm) small-fillet meshes have
+// 10 nm vertex-dedup cells. Below 1e5 (1e4 = 0.1 µm) small-fillet meshes have
 // distinct fillet vertices that round to the same key and merge incorrectly,
 // producing zero-length edges and non-manifold artifacts after displacement.
 // 1e5 still tolerates float32 round-trip noise (~1e-4 mm worst case at metre
@@ -180,7 +180,11 @@ function subdividePass(verts, indices, maxEdgeLength, safetyCap, faceExcluded = 
   // Midpoint cache keyed by the RAW (unordered) parent-vertex pair — sharp-edge
   // cluster copies of the same position get their own midpoints (different
   // normals), exactly as before.
-  const midCache = new QuantizedPointMap(1, 1 << 16);
+  // Both tables below are keyed on a pair of vertex ids, so they use the
+  // Int32-keyed IntPairMap (12 B/slot) rather than QuantizedPointMap's
+  // 3 × Float64 layout (28 B/slot) — on dense passes these are the largest
+  // structures in the subdivider after the index buffers themselves.
+  const midCache = new IntPairMap(1 << 16);
 
   // verts.pos/canon are safe to cache for reads of pre-pass vertices: growth
   // reallocates but copies, and steps 1/1.5 only touch pre-pass indices.
@@ -193,15 +197,15 @@ function subdividePass(verts, indices, maxEdgeLength, safetyCap, faceExcluded = 
   // Keys are the (lo, hi) id pair fed to an integer-keyed hash set — no V8
   // Set/Map entry cap, so very dense passes no longer need a RangeError
   // bail-out (the predicted-count cap below handles oversized passes).
-  const splitEdges = new QuantizedPointMap(1, 1 << 16);
+  const splitEdges = new IntPairMap(1 << 16);
   const markEdge = (a, b) => {
     const u = canonIdx ? canonIdx[a] : a, v = canonIdx ? canonIdx[b] : b;
-    if (u < v) splitEdges.getOrSet(u, v, 0, 1);
-    else       splitEdges.getOrSet(v, u, 0, 1);
+    if (u < v) splitEdges.getOrSet(u, v, 1);
+    else       splitEdges.getOrSet(v, u, 1);
   };
   const isMarked = (a, b) => {
     const u = canonIdx ? canonIdx[a] : a, v = canonIdx ? canonIdx[b] : b;
-    return (u < v ? splitEdges.get(u, v, 0) : splitEdges.get(v, u, 0)) !== -1;
+    return (u < v ? splitEdges.get(u, v) : splitEdges.get(v, u)) !== -1;
   };
 
   // ── Step 1: globally mark edges that need splitting ─────────────────────
@@ -368,7 +372,7 @@ function edgeLenSq(pos, a, b) {
 
 function getMidpoint(verts, cache, a, b, posCanonMap) {
   const lo = a < b ? a : b, hi = a < b ? b : a;
-  const cached = cache.get(lo, hi, 0);
+  const cached = cache.get(lo, hi);
   if (cached !== -1) return cached;
 
   const pos = verts.pos, nrm = verts.nrm;
@@ -396,7 +400,7 @@ function getMidpoint(verts, cache, a, b, posCanonMap) {
   }
   verts.count = idx + 1;
 
-  cache.getOrSet(lo, hi, 0, idx);
+  cache.getOrSet(lo, hi, idx);
   return idx;
 }
 

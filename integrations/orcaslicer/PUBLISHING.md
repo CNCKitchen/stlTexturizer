@@ -12,17 +12,20 @@ From this directory run:
 python build_package.py
 ```
 
-The command validates plugin metadata and runtime versions, runs a clean wheel
-build and creates:
+The command validates plugin metadata and runtime versions, builds the wheel and creates:
 
 ```text
-dist/plugin-hub-0.1.0/
-  bumpmesh-0.1.0-py3-none-any.whl
-  BumpMesh.png
-  description.md
-  CHANGELOG.md
-  LICENSE
-  package-metadata.json
+dist/release-0.1.2/
+  wheels/bumpmesh-0.1.2-py3-none-any.whl
+  bumpmesh-0.1.2/
+    bumpmesh_plugin.py
+    BumpMesh.png
+    description.md
+    CHANGELOG.md
+    LICENSE
+    package-metadata.json
+    SHA256SUMS
+  RELEASE_NOTES.md
   SHA256SUMS
 ```
 
@@ -30,13 +33,13 @@ dist/plugin-hub-0.1.0/
 
 | Field | Value |
 |---|---|
-| Plugin file | `bumpmesh-0.1.0-py3-none-any.whl` |
+| Plugin file | `bumpmesh-0.1.2-py3-none-any.whl` |
 | Plugin image | `BumpMesh.png` |
 | Name | `BumpMesh` |
 | Description | Contents of `description.md` |
-| Version | `0.1.0` |
+| Version | `0.1.2` |
 | Type | Plugin Page, when that type is available in Orca Cloud |
-| Compatible OrcaSlicer version | Windows x64 nightly at `f05444dc94bc325a4eef1ec1dafc33e1331caec9`; later stable version after validation |
+| Tested OrcaSlicer build | Windows 2.5.0-dev build 824b216f, plugin 0.1.2 |
 | Changelog | The matching version section from `CHANGELOG.md` |
 | Suggested tags | `modeling`, `textures`, `utility` |
 
@@ -51,6 +54,13 @@ The image is a PNG under the Plugin Hub 2 MB limit.
 4. Verify page creation, model transfer, restart and disable/re-enable lifecycle.
 5. Make the listing public only after the complete check passes.
 
-Plugin Pages is merged into OrcaSlicer main. Do not claim compatibility with a
-stable OrcaSlicer release until the capability is included and the complete
-workflow is validated there.
+Plugin Pages is merged upstream. Record the exact tested build; do not infer
+runtime acceptance from packaging checks. The matching web application is bundled in the wheel; validate its asset hash
+as well as the Python module. No deployment to bumpmesh.com is required.
+
+The 0.1.2 candidate is unpublished and passed the owner's startup and model
+round-trip check on 2026-09-30. The accepted wheel SHA-256 is
+`930883fd1f840b079d55ef20b5f6f8a741c4fa033e15b3c3cde6e979277a0f1f`.
+The installed runtime was verified against this package. Rebuilding creates a
+new artifact that requires its own acceptance. Publication remains a separate
+decision and requires CNC Kitchen's agreement.

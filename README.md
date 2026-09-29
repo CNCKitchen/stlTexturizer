@@ -10,6 +10,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 
 ## Recent Updates
 
+- Roughly 2× more triangles for the same memory — pipeline peak cut from ~660 to ~330 bytes per subdivided triangle, with bit-identical output
 - STEP import (`.step` / `.stp`) via [meshStep](https://github.com/CNCKitchen/meshStep)
 - Save / load project files (`.bumpmesh`)
 - Undo / redo history
@@ -25,8 +26,9 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 ## Features
 
 ### Textures
-- **24 built-in seamless textures** — basket, brick, bubble, carbon fiber, crystal, dots, grid, grip surface, hexagon, hexagons, isogrid, knitting, knurling, leather 2, noise, stripes (×2 variants), voronoi, weave (×3 variants), wood (×3 variants)
-- **Custom textures** — upload your own image as a displacement map
+- **96 built-in seamless textures** in seven categories (geometric, patterns, organic, fabric, natural, grip, molded): weaves, knurling, carbon twill, chainmail, scales, bark, wood grain, cobblestone, Japandi flutes and ripples, mold grains (sand matte, VDI spark erosion, leather, haircell), Hero Patterns and more
+- **Texture Gallery** — browse, search and filter the full catalogue in a side panel that takes the settings sidebar's place and stays open while you try textures on the model (click or arrow keys; the model spins on a turntable while you browse); star favorites to pin them in the panel grid, which grows by a row per 4 (saved in the browser)
+- **Custom textures** — upload your own image as a displacement map, or an ideaMaker `.texture` file; uploads are kept under "Your textures" in the gallery (this browser only, and the browser may clear them at any time) where you can star, re-download or delete them
 - **Texture smoothing** — configurable blur to soften the displacement map before applying
 
 ### Projection Modes
@@ -93,10 +95,11 @@ opens BumpMesh as a Plugin Page and transfers printable model geometry from the
 current OrcaSlicer project into BumpMesh. The normal website remains unchanged;
 the bridge is enabled only inside the plugin's embedded page.
 
-The return trip is currently manual: export STL or 3MF from BumpMesh and import
-it into OrcaSlicer. OrcaSlicer's current plugin API exposes model meshes as
-read-only snapshots and does not yet provide a supported model import or
-replacement hook.
+On Windows, the plugin offers **Return to OrcaSlicer** to request import of
+the textured STL as a new object through OrcaSlicer's single-instance file-open
+channel. The original object is preserved. This experimental workflow was
+tested with plugin 0.1.2 in OrcaSlicer 2.5.0-dev build 824b216f. Other platforms
+use STL or 3MF export and manual import. The Python model API remains read-only.
 
 ## Usage
 
@@ -116,17 +119,22 @@ index.html            # Main entry point
 style.css             # Styles (light / dark theme)
 logo.png              # Favicon & header logo
 CNAME                 # Custom domain (bumpmesh.com)
-textures/             # Built-in JPG/PNG displacement map images (24 textures)
+textures/             # Built-in JPG/PNG displacement map images (96 textures) + thumbs/
 js/
   main.js             # App bootstrap & UI wiring
   viewer.js           # Three.js scene / camera / controls
   stlLoader.js        # Binary & ASCII STL parser
-  presetTextures.js   # Built-in texture presets + custom upload
+  presetTextures.js   # Built-in texture presets (categories, credits, default favorites) + custom upload
+  textureGallery.js   # Favorites grid + Texture Gallery side panel
+  customTextures.js   # "Your textures": uploaded maps kept in this browser (IndexedDB)
+  sidebarToggle.js    # Collapse / expand tab for the right-hand sidebar (settings or gallery)
   previewMaterial.js  # Three.js material for live & displacement preview
+  previewPipeline.js  # 3D-preview mesh build (runs in previewWorker.js)
   mapping.js          # UV projection logic (7 modes)
   displacement.js     # Vertex displacement baking
   subdivision.js      # Adaptive mesh subdivision
   decimation.js       # QEM mesh decimation
+  meshIndex.js        # Shared vertex welding + integer-pair hash maps
   exclusion.js        # Face exclusion / inclusion painting
   exporter.js         # Binary STL export
   i18n.js             # Translations (EN / DE)
@@ -168,7 +176,7 @@ php -S localhost:8000
 
 Open http://localhost:8000 in your browser and you're ready to go.
 
-> **Tip:** Any static server will work — the app has no server-side dependencies.
+> **Tip:** Any static server will work — the app has no server-side dependencies. After updating a local copy, hard-reload once (Ctrl+F5 / Cmd+Shift+R): most simple servers don't send cache headers, so the browser may otherwise mix new and old files.
 
 **Docker / Podman**
 ```bash
@@ -190,6 +198,12 @@ Loaded via CDN ([jsDelivr](https://www.jsdelivr.com/)) — no build step or npm 
 | [fflate](https://github.com/101arrowz/fflate) | 0.8.2 | MIT | ZIP compression & decompression for 3MF import/export |
 
 All dependencies are MIT-licensed.
+
+## Texture Credits
+
+- Textures marked **HP** in the gallery are based on [Hero Patterns](https://heropatterns.com/) by Steve Schoger, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The SVG patterns were rasterised and converted to seamless heightmaps.
+- Textures marked **CC0** come from [ambientCG](https://ambientcg.com/) and [Poly Haven](https://polyhaven.com/) and are in the public domain (CC0 1.0). Thank you to both projects.
+- Textures marked **FF** (Basket, Brick, Bubble, Crystal, Leather 2, Weave 3) were made with [Filter Forge](https://www.filterforge.com/).
 
 ## License
 

@@ -31,6 +31,10 @@ let _hoverMaterial = null;
 let _needsRender = true;
 let _diagEdges = null;       // LineSegments2 for open/non-manifold edges
 let _diagFaces = [];         // Array of THREE.Mesh overlays for face highlights
+let _turntable = null;       // { last, onStop } while the camera auto-orbits the model
+
+const _TURNTABLE_RAD_PER_S = (2 * Math.PI) / 24;   // one revolution every 24 s
+const _Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 // Turntable pitch clamp: keep the view direction at least this far (radians)
 // away from ±world Z. At the pole itself the up direction is ambiguous and
@@ -171,7 +175,8 @@ function buildDimensions(box, groundZ, scale) {
 
 export function initViewer(canvas) {
   // Renderer
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+  // 'high-performance' asks hybrid-GPU laptops for the discrete GPU (#75).
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -230,7 +235,7 @@ export function initViewer(canvas) {
   controls.minPolarAngle = _POLAR_EPS;
   controls.maxPolarAngle = Math.PI - _POLAR_EPS;
 
-  // Raycast-based orbit pivot: when left-drag starts on the model, orbit
+  // Raycast-based orbit pivot: when a drag starts on the model, orbit
   // around the surface point under the cursor instead of the default target.
   // We disable OrbitControls' own rotation and handle it manually so that
   // neither the camera view nor the target "snaps" to the clicked point.
@@ -248,25 +253,23 @@ export function initViewer(canvas) {
   _pivotMarker.visible = false;
   scene.add(_pivotMarker);
 
-  renderer.domElement.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || !controls.enabled) return;
-    if (!currentMesh) return;
+  // Surface point under the given client coords, else the last pivot, else null.
+  function _pickPivot(clientX, clientY) {
+    if (!currentMesh) return null;
     const rect = renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(
-      ((e.clientX - rect.left) / rect.width)  *  2 - 1,
-      ((e.clientY - rect.top)  / rect.height) * -2 + 1,
+      ((clientX - rect.left) / rect.width)  *  2 - 1,
+      ((clientY - rect.top)  / rect.height) * -2 + 1,
     );
     _orbitRaycaster.setFromCamera(ndc, camera);
     const hits = _orbitRaycaster.intersectObject(currentMesh);
-    if (hits.length) {
-      _customPivot = hits[0].point.clone();
-      _lastKnownPivot = _customPivot.clone();
-    } else if (_lastKnownPivot) {
-      _customPivot = _lastKnownPivot.clone();
-    } else {
-      return; // no pivot available yet, fall back to OrbitControls default
-    }
-    _lastPointer = { x: e.clientX, y: e.clientY };
+    if (hits.length) _lastKnownPivot = hits[0].point.clone();
+    return _lastKnownPivot ? _lastKnownPivot.clone() : null;
+  }
+
+  function _beginOrbit(pivot, clientX, clientY) {
+    _customPivot = pivot;
+    _lastPointer = { x: clientX, y: clientY };
     controls.enableRotate = false;   // we'll rotate manually
 
     // Show marker, sized as ~1.5 % of the visible frustum height
@@ -277,13 +280,13 @@ export function initViewer(canvas) {
     _pivotMarker.scale.setScalar(markerScale);
     _pivotMarker.visible = true;
     _needsRender = true;
-  });
+  }
 
-  document.addEventListener('pointermove', (e) => {
-    if (!_customPivot || !_lastPointer || !controls.enabled) return;
-    const dx = e.clientX - _lastPointer.x;
-    const dy = e.clientY - _lastPointer.y;
-    _lastPointer = { x: e.clientX, y: e.clientY };
+  // Orbit camera and target around _customPivot for a pointer move to (clientX, clientY).
+  function _orbitTo(clientX, clientY) {
+    const dx = clientX - _lastPointer.x;
+    const dy = clientY - _lastPointer.y;
+    _lastPointer = { x: clientX, y: clientY };
     if (dx === 0 && dy === 0) return;
 
     const rotSpeed = 0.005;
@@ -321,52 +324,65 @@ export function initViewer(canvas) {
     camera.quaternion.premultiply(_tmpQ1);
     camera.updateMatrixWorld();
     _needsRender = true;
+  }
+
+  function _endOrbit() {
+    _customPivot  = null;
+    _lastPointer  = null;
+    controls.enableRotate = true;
+    // Re-orthonormalize against float drift; a no-op visually since the
+    // pitch clamp guarantees we are never at/over a pole.
+    camera.up.set(0, 0, 1);
+    camera.lookAt(controls.target);
+    _pivotMarker.visible = false;
+    _needsRender = true;
+  }
+
+  // Mouse / pen: left-drag orbits from the moment of the press.
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch' || e.button !== 0 || !controls.enabled) return;
+    const pivot = _pickPivot(e.clientX, e.clientY);
+    if (!pivot) return; // no pivot available yet, fall back to OrbitControls default
+    _beginOrbit(pivot, e.clientX, e.clientY);
   });
 
-  document.addEventListener('pointerup', () => {
-    if (_customPivot) {
-      _customPivot  = null;
-      _lastPointer  = null;
-      controls.enableRotate = true;
-      // Re-orthonormalize against float drift; a no-op visually since the
-      // pitch clamp guarantees we are never at/over a pole.
-      camera.up.set(0, 0, 1);
-      camera.lookAt(controls.target);
-      _pivotMarker.visible = false;
-      _needsRender = true;
-    }
+  document.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch' || !_customPivot || !controls.enabled) return;
+    _orbitTo(e.clientX, e.clientY);
   });
 
-  // Pinch-to-zoom + two-finger pan for touch devices
-  let _pinchDist = null;
-  let _pinchMid  = null;  // { x, y } client coords of two-finger midpoint
+  document.addEventListener('pointerup', (e) => {
+    if (e.pointerType !== 'touch' && _customPivot) _endOrbit();
+  });
 
-  renderer.domElement.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 2) {
-      const t0 = e.touches[0], t1 = e.touches[1];
-      _pinchDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-      _pinchMid  = { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
-      controls.enabled = false;  // suppress OrbitControls during two-finger gesture
-      e.preventDefault();
-    }
-  }, { passive: false });
+  // ── Touch: one finger orbits, two fingers pan + pinch-zoom ──────────────
+  // All touch input is handled here on pointer events; OrbitControls' own
+  // touch handling is switched off so the two can't fight over the camera.
+  // A gesture only engages once the fingers have moved _TOUCH_SLOP px, so a
+  // resting or tapping finger never nudges the view, and fingers still down
+  // after a pinch stay inert until all are lifted (they never lift at exactly
+  // the same time, and the straggler would otherwise spin the part).
+  controls.touches = { ONE: null, TWO: null };
+  const _TOUCH_SLOP = 10;        // CSS px
+  const _touchPts = new Map();   // pointerId -> { x, y } client coords, in touch order
+  let _touchMode  = null;        // null | 'pending' | 'orbit' | 'pinch' | 'idle'
+  let _touchStart = null;        // { x, y } where the one-finger gesture began
+  let _pinch      = null;        // { dist, x, y, live } of the first two fingers
 
-  renderer.domElement.addEventListener('touchmove', (e) => {
-    if (e.touches.length !== 2 || _pinchDist === null) return;
-    e.preventDefault();
-    const t0 = e.touches[0], t1 = e.touches[1];
+  // Separation and midpoint of the first two fingers down.
+  const _pinchFrame = () => {
+    const [a, b] = _touchPts.values();
+    return { dist: Math.hypot(b.x - a.x, b.y - a.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
+
+  // Pan so the world point under the previous finger midpoint follows it,
+  // then zoom by the change in finger separation about the new midpoint.
+  function _touchPanZoom(prev, cur) {
     const rect = renderer.domElement.getBoundingClientRect();
-
-    const newDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-    const midX    = (t0.clientX + t1.clientX) / 2;
-    const midY    = (t0.clientY + t1.clientY) / 2;
-
-    // ── Pan: shift camera so the world point under the old midpoint
-    //         is now under the new midpoint ──────────────────────────
-    const prevNdcX =  ((_pinchMid.x - rect.left) / rect.width)  * 2 - 1;
-    const prevNdcY = -((_pinchMid.y - rect.top)  / rect.height) * 2 + 1;
-    const curNdcX  =  ((midX - rect.left) / rect.width)  * 2 - 1;
-    const curNdcY  = -((midY - rect.top)  / rect.height) * 2 + 1;
+    const prevNdcX =  ((prev.x - rect.left) / rect.width)  * 2 - 1;
+    const prevNdcY = -((prev.y - rect.top)  / rect.height) * 2 + 1;
+    const curNdcX  =  ((cur.x - rect.left) / rect.width)  * 2 - 1;
+    const curNdcY  = -((cur.y - rect.top)  / rect.height) * 2 + 1;
 
     if (_isPerspective) {
       // Pan on the plane through controls.target perpendicular to the view direction
@@ -392,8 +408,7 @@ export function initViewer(canvas) {
       controls.target.add(_tmpV1);
     }
 
-    // ── Zoom: zoom toward the current midpoint ────────────────────────
-    const factor = newDist / _pinchDist;
+    const factor = cur.dist / prev.dist;
     if (_isPerspective) {
       _tmpV3.set(curNdcX, curNdcY, 0.5).unproject(camera);
       _tmpV3.sub(camera.position).normalize();
@@ -411,19 +426,66 @@ export function initViewer(canvas) {
       controls.target.add(_tmpV3);
     }
 
-    _pinchDist = newDist;
-    _pinchMid  = { x: midX, y: midY };
     controls.update();
     _needsRender = true;
-  }, { passive: false });
+  }
 
-  renderer.domElement.addEventListener('touchend', (e) => {
-    if (e.touches.length < 2) {
-      _pinchDist = null;
-      _pinchMid  = null;
-      controls.enabled = true;
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || !controls.enabled) return;
+    if (e.isPrimary) {   // first finger of a new gesture: drop anything stale
+      if (_touchMode === 'orbit') _endOrbit();
+      _touchPts.clear();
+    }
+    _touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (_touchPts.size === 1) {
+      _touchMode  = 'pending';
+      _touchStart = { x: e.clientX, y: e.clientY };
+    } else if (_touchPts.size === 2) {
+      if (_touchMode === 'orbit') _endOrbit();
+      _touchMode = 'pinch';
+      _pinch = { ..._pinchFrame(), live: false };
     }
   });
+
+  document.addEventListener('pointermove', (e) => {
+    const pt = _touchPts.get(e.pointerId);
+    if (!pt) return;
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    if (!controls.enabled) return;
+
+    if (_touchMode === 'pending') {
+      if (Math.hypot(pt.x - _touchStart.x, pt.y - _touchStart.y) < _TOUCH_SLOP) return;
+      // Pivot on the surface where the finger landed, not where it has slid
+      // to. Orbiting starts from here, so the slop isn't replayed as a jump.
+      _beginOrbit(_pickPivot(_touchStart.x, _touchStart.y) ?? controls.target.clone(), pt.x, pt.y);
+      if (!currentMesh) _pivotMarker.visible = false;
+      _touchMode = 'orbit';
+    } else if (_touchMode === 'orbit') {
+      _orbitTo(pt.x, pt.y);
+    } else if (_touchMode === 'pinch') {
+      const cur = _pinchFrame();
+      if (!_pinch.live &&
+          Math.hypot(cur.x - _pinch.x, cur.y - _pinch.y) < _TOUCH_SLOP &&
+          Math.abs(cur.dist - _pinch.dist) < _TOUCH_SLOP) return;
+      if (_pinch.live) _touchPanZoom(_pinch, cur);
+      _pinch = { ...cur, live: true };
+    }
+  });
+
+  const _touchEnd = (e) => {
+    if (!_touchPts.delete(e.pointerId)) return;
+    if (_touchMode === 'orbit') _endOrbit();
+    _touchMode = _touchPts.size ? 'idle' : null;
+  };
+  document.addEventListener('pointerup', _touchEnd);
+  document.addEventListener('pointercancel', _touchEnd);
+
+  // touch-action: none keeps most browsers from page-zooming on a pinch over
+  // the canvas; this covers the ones that still try.
+  const _blockMultiTouch = (e) => { if (e.touches.length > 1) e.preventDefault(); };
+  renderer.domElement.addEventListener('touchstart', _blockMultiTouch, { passive: false });
+  renderer.domElement.addEventListener('touchmove',  _blockMultiTouch, { passive: false });
 
   // Cursor-centric zoom: zoom toward the mouse pointer instead of screen centre
   renderer.domElement.addEventListener('wheel', (e) => {
@@ -467,15 +529,55 @@ export function initViewer(canvas) {
   // Rotation gizmo interaction
   _initGizmoInteraction();
 
+  // Any direct manipulation of the view hands control back to the user.
+  const stopTurntable = () => {
+    if (!_turntable) return;
+    const { onStop } = _turntable;
+    _turntable = null;
+    onStop?.();
+  };
+  renderer.domElement.addEventListener('pointerdown', stopTurntable);
+  renderer.domElement.addEventListener('wheel', stopTurntable, { passive: true });
+
   // Render loop
   (function animate() {
     requestAnimationFrame(animate);
+    if (_turntable) _stepTurntable();
     controls.update();
     if (_needsRender) {
       _needsRender = false;
       renderer.render(scene, camera);
     }
   })();
+}
+
+/** Yaw the camera (and orbit target) around the vertical axis through the model centre, so the
+ *  model spins in place on screen however the view was panned or zoomed. */
+function _stepTurntable() {
+  const now = performance.now();
+  const dt = Math.min((now - _turntable.last) / 1000, 0.1);   // no jump after a background tab
+  _turntable.last = now;
+  if (!currentMesh || dt <= 0) return;
+
+  const geo = currentMesh.geometry;
+  if (!geo.boundingSphere) geo.computeBoundingSphere();
+  const pivot = _tmpV4.copy(geo.boundingSphere.center).applyMatrix4(currentMesh.matrixWorld);
+
+  _tmpQ1.setFromAxisAngle(_Z_AXIS, dt * _TURNTABLE_RAD_PER_S);
+  camera.position.sub(pivot).applyQuaternion(_tmpQ1).add(pivot);
+  controls.target.sub(pivot).applyQuaternion(_tmpQ1).add(pivot);
+  camera.quaternion.premultiply(_tmpQ1);
+  _needsRender = true;
+}
+
+/**
+ * Start or stop the turntable. `onStop` fires once when the user grabs, pans or zooms the view,
+ * which ends the spin; it does not fire for setTurntable(false).
+ * @param {boolean} on
+ * @param {() => void} [onStop]
+ */
+export function setTurntable(on, onStop = null) {
+  _turntable = on ? { last: performance.now(), onStop } : null;
 }
 
 function onResize() {
@@ -658,6 +760,29 @@ function fitCamera(sphere) {
   perspCamera.lookAt(sphere.center);
 
   controls.update();
+}
+
+/**
+ * True when WebGL runs on a CPU rasteriser (SwiftShader, WARP, llvmpipe):
+ * hardware acceleration off, GPU blocklisted, or the GPU process crashed —
+ * the viewer then crawls at a few fps (#75). failIfMajorPerformanceCaveat is
+ * the reliable signal; the renderer string is a fallback and may be masked
+ * by privacy settings (Brave).
+ */
+export function isSoftwareRendering() {
+  try {
+    const probe = document.createElement('canvas');
+    const hw = probe.getContext('webgl2', { failIfMajorPerformanceCaveat: true })
+            || probe.getContext('webgl',  { failIfMajorPerformanceCaveat: true });
+    if (!hw) return true;
+    hw.getExtension('WEBGL_lose_context')?.loseContext();
+    const gl = renderer.getContext();
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    return /swiftshader|llvmpipe|softpipe|basic render|\bwarp\b/i.test(name);
+  } catch {
+    return false;
+  }
 }
 
 export function requestRender() { _needsRender = true; }

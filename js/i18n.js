@@ -7,20 +7,22 @@
 // Only display names live here; full strings are lazy-loaded per language.
 
 export const TRANSLATIONS = {
-  en: { 'lang.name': 'English' },
-  de: { 'lang.name': 'Deutsch' },
   da: { 'lang.name': 'Dansk' },
-  it: { 'lang.name': 'Italiano' },
+  de: { 'lang.name': 'Deutsch' },
+  en: { 'lang.name': 'English' },
   es: { 'lang.name': 'Español' },
-  pt: { 'lang.name': 'Português' },
   fr: { 'lang.name': 'Français' },
+  it: { 'lang.name': 'Italiano' },
+  nl: { 'lang.name': 'Nederlands' },
+  pl: { 'lang.name': 'Polski' },
+  pt: { 'lang.name': 'Português' },
+  fi: { 'lang.name': 'Suomi' },
   tr: { 'lang.name': 'Türkçe' },
-  ja: { 'lang.name': '日本語' },
-  ko: { 'lang.name': '한국어' },
-  uk: { 'lang.name': 'Українська' },
   ru: { 'lang.name': 'Русский' },
+  uk: { 'lang.name': 'Українська' },
+  ja: { 'lang.name': '日本語' },
   zh: { 'lang.name': '简体中文' },
-  pl: { 'lang.name': 'Polish' },
+  ko: { 'lang.name': '한국어' },
 };
 
 // ── Module state ──────────────────────────────────────────────────────────────

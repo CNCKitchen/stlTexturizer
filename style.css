@@ -135,8 +135,17 @@ html, body {
   overflow: hidden;
 }
 
+/* Header + main fill the body exactly. 100vh would overshoot the visible area on phones (it assumes
+   the browser toolbar is hidden), and the browser then scrolls that overflow to lift a focused input
+   above the on-screen keyboard — with no way for the user to scroll back. */
+body {
+  display: flex;
+  flex-direction: column;
+}
+
 /* ── Header ─────────────────────────────────────────────────────────── */
 header {
+  flex-shrink: 0;
   height: var(--header-h);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -175,8 +184,10 @@ header {
 
 /* ── Main layout ─────────────────────────────────────────────────────── */
 main {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
-  height: calc(100vh - var(--header-h));
   overflow: hidden;
 }
 
@@ -190,6 +201,20 @@ main {
   box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
   z-index: 1000;
   transform: translate(0, 0);
+}
+
+/* Soft brush: the dashed ring marks the hardness core — full strength inside,
+   fading out toward the outer rim. */
+#brush-cursor.soft::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--brush-hardness, 1) * 100%);
+  height: calc(var(--brush-hardness, 1) * 100%);
+  transform: translate(-50%, -50%);
+  border: 1px dashed rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
 }
 
 #viewport-section {
@@ -252,7 +277,9 @@ main {
   position: absolute;
   bottom: 14px;
   right: 14px;
+  left: 14px;   /* wraps instead of running off a narrow viewport */
   display: flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
   z-index: 20;
@@ -271,7 +298,6 @@ main {
   border-radius: 8px;
   box-shadow: none;
   pointer-events: all;
-  white-space: nowrap;
   transition: background 0.15s, transform 0.15s;
   letter-spacing: 0.01em;
 }
@@ -311,13 +337,14 @@ main {
 }
 
 #viewport-footer {
-  height: 28px;
+  min-height: 28px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: flex;
+  flex-wrap: wrap;   /* a narrow viewport gets a second row instead of clipped text */
   align-items: center;
-  padding: 0 12px;
-  gap: 16px;
+  padding: 4px 12px;
+  gap: 2px 16px;
   flex-shrink: 0;
 }
 
@@ -331,6 +358,11 @@ main {
   margin-left: auto;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* Mouse controls mean nothing on a touch screen. */
+@media (hover: none) {
+  .viewport-controls-hint { display: none; }
 }
 
 .wireframe-toggle {
@@ -420,8 +452,44 @@ main {
 }
 
 /* ── Settings panel ──────────────────────────────────────────────────── */
-#settings-panel {
+/* The settings panel and the gallery that replaces it share one width, so opening the gallery never
+   shifts the viewport. */
+#settings-panel,
+.gallery-panel {
   width: var(--sidebar-w);
+}
+
+/* Collapse tab on the sidebar's left edge; with the sidebar collapsed it sits on the window's edge. */
+.sidebar-toggle {
+  position: absolute;
+  top: 50%;
+  right: var(--sidebar-w);
+  z-index: 5;
+  width: 22px;
+  height: 52px;
+  margin-top: -26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.sidebar-toggle:hover { color: var(--accent); }
+.sidebar-toggle svg { transition: transform 0.2s; }
+
+main.sidebar-collapsed .sidebar-toggle { right: 0; }
+main.sidebar-collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+main.sidebar-collapsed #settings-panel,
+main.sidebar-collapsed .gallery-panel { display: none; }
+
+#settings-panel {
   flex-shrink: 0;
   background: var(--surface);
   border-left: 1px solid var(--border);
@@ -510,12 +578,24 @@ main {
   cursor: pointer;
 }
 
-/* ── Preset grid ─────────────────────────────────────────────────────── */
+/* ── Preset grid (favourites, 4 wide, grows by rows) ─────────────────── */
 .preset-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 3px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
   margin-bottom: 10px;
+}
+
+.preset-grid-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 14px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.5;
 }
 
 .preset-swatch {
@@ -530,12 +610,14 @@ main {
 
 .preset-swatch:hover { border-color: var(--text-muted); transform: scale(1.04); }
 .preset-swatch.active { border-color: var(--accent); }
+.preset-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.preset-swatch canvas {
+.preset-swatch canvas,
+.preset-swatch img {
   width: 100%;
   height: 100%;
   display: block;
-  image-rendering: pixelated;
+  object-fit: cover;
 }
 
 .preset-swatch .preset-label {
@@ -545,9 +627,12 @@ main {
   right: 0;
   background: rgba(0,0,0,0.6);
   color: #fff;
-  font-size: 8px;
+  font-size: 10px;
   text-align: center;
-  padding: 1px 0;
+  padding: 2px 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -562,7 +647,7 @@ main {
   100% { opacity: .15; }
 }
 
-.preset-swatch.preset-loading canvas {
+.preset-swatch.preset-loading {
   background: var(--border);
   animation: preset-swatch-shimmer 1.2s ease-in-out infinite;
 }
@@ -613,11 +698,407 @@ main {
   border-color: var(--accent);
 }
 
-.active-map-name {
-  margin-top: 8px;
-  font-size: 11px;
+.map-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gallery-open-btn { font: inherit; font-size: 12px; }
+
+.gallery-open-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
   color: var(--text-muted);
-  word-break: break-all;
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+/* ── Texture gallery side panel ──────────────────────────────────────── */
+/* Non-modal: it takes the settings panel's slot (and width, see #settings-panel), so the viewport
+   stays put and orbitable while picks apply live. */
+main.gallery-open #settings-panel { display: none; }
+
+.gallery-panel {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+
+.gallery-panel.hidden { display: none; }
+.gallery-panel:focus { outline: none; }   /* focused on open where the search box would pop a keyboard */
+
+.gallery-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gallery-header h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gallery-turntable-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.gallery-turntable-btn:hover { color: var(--text); border-color: var(--text-muted); }
+
+.gallery-turntable-btn[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.gallery-turntable-btn[aria-pressed="true"] svg { animation: gallery-spin 2.4s linear infinite; }
+
+@keyframes gallery-spin { to { transform: rotate(360deg); } }
+
+.gallery-done-btn {
+  padding: 5px 14px;
+  background: var(--accent);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.gallery-done-btn:hover { filter: brightness(1.12); }
+
+.gallery-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.gallery-search {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.gallery-search:focus { outline: none; border-color: var(--accent); }
+
+.gallery-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.gallery-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.gallery-chip:hover { color: var(--text); border-color: var(--text-muted); }
+
+.gallery-chip[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.gallery-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.gallery-fav-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gallery-link-btn {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.gallery-link-btn:hover { text-decoration: underline; }
+
+.gallery-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.gallery-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 14px 0 6px;
+}
+
+.gallery-section-title:first-child { margin-top: 2px; }
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px 8px;
+}
+
+.gallery-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gallery-name {
+  font-size: 11px;
+  color: var(--text);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gallery-star {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  font-size: 14px;
+  line-height: 24px;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.gallery-star:hover { transform: scale(1.12); }
+.gallery-star[aria-pressed="true"] { color: #ffc940; }
+
+/* Download / delete on the user's own textures, stacked in the top-left corner opposite the star. */
+.gallery-tool {
+  position: absolute;
+  left: 5px;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s, background 0.15s;
+}
+
+.gallery-tool-download { top: 5px; }
+.gallery-tool-delete { top: 33px; }
+.gallery-tool:hover { transform: scale(1.12); }
+.gallery-tool-delete:hover { background: var(--danger); }
+
+/* Unstarred stars and tile tools only appear on hover/focus where hovering exists; touch keeps them visible. */
+@media (hover: hover) {
+  .gallery-star[aria-pressed="false"],
+  .gallery-tool { opacity: 0; }
+  .gallery-tile:hover .gallery-star,
+  .gallery-star:focus-visible,
+  .gallery-tile:hover .gallery-tool,
+  .gallery-tool:focus-visible { opacity: 1; }
+}
+
+.gallery-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  pointer-events: none;
+}
+
+.gallery-empty {
+  margin: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ── Your textures (uploads kept in this browser, js/customTextures.js) ── */
+.gallery-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 14px 0 6px;
+}
+
+.gallery-section-head:first-child { margin-top: 2px; }
+.gallery-section-head .gallery-section-title { margin: 0; min-width: 0; }
+
+.gallery-danger-link {
+  font-size: 11px;
+  color: var(--danger);
+  white-space: nowrap;
+}
+
+.gallery-custom-note {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  background: color-mix(in srgb, #f59e0b 8%, var(--surface2));
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+}
+
+.gallery-custom-note-warn {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface2));
+  border-left-color: var(--danger);
+}
+
+.gallery-custom-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.gallery-custom-empty p { margin: 0; line-height: 1.5; }
+
+.gallery-credits {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.gallery-credits strong { color: var(--text); }
+.gallery-credits a { color: var(--accent); text-decoration: none; }
+.gallery-credits a:hover { text-decoration: underline; }
+
+@media (max-width: 520px) {
+  .gallery-panel { padding: 12px 10px 10px; }
+  .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
+}
+
+/* Too short for a fixed toolbar over a scrolling grid (landscape phones, the stacked phone layout):
+   the whole panel scrolls, and only the header with Done stays put. */
+@media (max-height: 560px), (max-width: 699px) and (orientation: portrait) {
+  .gallery-panel { overflow-y: auto; padding-top: 0; }
+  .gallery-header {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    padding-top: 12px;
+    padding-bottom: 6px;
+    background: var(--surface);
+  }
+  .gallery-body { flex: none; overflow: visible; }
+}
+
+/* ── Phones ──────────────────────────────────────────────────────────── */
+@media (max-width: 699px) {
+  header {
+    height: auto;
+    min-height: var(--header-h);
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 8px 12px;
+  }
+  .header-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+  .app-version { display: none; }
+}
+
+/* Portrait: the viewport on top, the sidebar below it at full width. */
+@media (max-width: 699px) and (orientation: portrait) {
+  main { flex-direction: column; }
+  #settings-panel,
+  .gallery-panel {
+    width: auto;
+    height: 52%;
+    border-left: 0;
+  }
+  /* The collapse tab becomes a bar across the top of the panel; collapsed, it rests at the bottom. */
+  .sidebar-toggle {
+    position: static;
+    flex-shrink: 0;
+    width: auto;
+    height: 28px;
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+  }
+  .sidebar-toggle svg { transform: rotate(90deg); }
+  main.sidebar-collapsed .sidebar-toggle svg { transform: rotate(-90deg); }
+}
+
+.invert-texture-row {
+  margin-top: 12px;
 }
 
 /* ── Form rows ───────────────────────────────────────────────────────── */
@@ -663,6 +1144,9 @@ main {
 
 .slider-row input[type="range"] {
   flex: 1;
+  /* Firefox won't shrink a range below its 12em intrinsic width, so rows with
+     long labels pushed the value box out of the panel (#16). */
+  min-width: 0;
   -webkit-appearance: none;
   appearance: none;
   height: 3px;
@@ -819,6 +1303,12 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   flex: 1 1 0;
   width: auto;
   min-width: 0;
+}
+.orca-embedded .export-buttons {
+  flex-wrap: wrap;
+}
+.orca-embedded .export-buttons .export-btn {
+  flex: 0 1 auto;
 }
 /* ── Lock / proportional-scale button ───────────────────────────────────── */
 .lock-btn {
@@ -1073,6 +1563,39 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 
 .mesh-diagnostics.hidden { display: none; }
 
+/* Software-WebGL notice (#75) */
+.gpu-warning {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  width: max-content;
+  max-width: min(560px, calc(100% - 28px));
+  border-radius: var(--radius);
+  padding: 10px 30px 10px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  background: color-mix(in srgb, #f59e0b 15%, var(--surface2));
+  border: 1px solid #f59e0b;
+  color: #f59e0b;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+.gpu-warning.hidden { display: none; }
+.gpu-warning-dismiss {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.gpu-warning-dismiss:hover { opacity: 1; }
+
 /* Severity themes — applied directly to the popup container */
 .mesh-diagnostics.diag-ok {
   background: color-mix(in srgb, #22c55e 12%, var(--surface2));
@@ -1308,7 +1831,8 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
 /* Hide utility (used by JS to show/hide exclusion sub-rows) */
 .form-row.hidden { display: none; }
 
-#harvest-tol-row.disabled {
+#harvest-tol-row.disabled,
+#smooth-bottom-row.disabled {
   opacity: 0.45;
   pointer-events: none;
 }
@@ -1441,6 +1965,17 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   line-height: 1.6;
   margin: 0;
 }
+
+/* Inline store link in the body text — deliberately not named sponsor-*,
+   since adblocker cosmetic filters hide those and take the buttons with them. */
+.modal-text-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.modal-text-link:hover { color: var(--accent-hover); }
 
 .sponsor-link {
   display: block;

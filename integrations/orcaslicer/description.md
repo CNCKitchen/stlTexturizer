@@ -1,24 +1,32 @@
 # BumpMesh for OrcaSlicer
 
-Open [BumpMesh by CNC Kitchen](https://bumpmesh.com/) as a full-size page inside
-OrcaSlicer and transfer printable geometry from the current project directly
-into the BumpMesh texturing workspace.
+Add physical surface textures to your 3D prints with
+[BumpMesh by CNC Kitchen](https://github.com/CNCKitchen/stlTexturizer), directly
+inside OrcaSlicer. Texture is applied to the mesh itself, so the exported model
+contains the surface detail for slicing and printing.
 
-- Select an OrcaSlicer model and load it into BumpMesh without first exporting a
-  source file.
-- Apply, preview and tune BumpMesh displacement textures using its complete
-  WebGL interface.
-- Follow OrcaSlicer's interface language and initial light or dark appearance.
-- Keep model processing inside the embedded BumpMesh browser application; the
-  model is not uploaded to an external processing service.
+- Load a printable object from the current OrcaSlicer project, or open an STL,
+  OBJ, 3MF or STEP file.
+- Browse the texture gallery beside the model or use your own displacement image.
+- Adjust texture size, depth, rotation, inversion and projection, with a 3D preview.
+- Mask flat surfaces or paint areas that should remain untextured.
+- Export the textured model as STL or 3MF. On Windows, use **Return to
+  OrcaSlicer** to request import as a new object while retaining the original.
+- Start in OrcaSlicer's language and light or dark theme, and switch languages
+  within BumpMesh.
 
-After processing, export STL or 3MF from BumpMesh and import the result into
-OrcaSlicer. Automatic return to the build plate is not yet available because
-the current OrcaSlicer plugin API exposes model geometry as read-only snapshots.
+Model processing takes place locally in the embedded browser. Models and
+texture images are not uploaded to a processing service. The matching BumpMesh
+application is included in the plugin package.
 
-**Requirements:** An OrcaSlicer build containing the Plugin Pages API and an
-internet connection to `bumpmesh.com`.
+**Requirements:** An OrcaSlicer build with Plugin Pages and internet access to
+`cdn.jsdelivr.net` for JavaScript libraries. Direct return is Windows-only;
+other platforms use file export and manual import. Returned geometry does not
+carry over OrcaSlicer paint, modifiers or object settings.
 
-**Development status:** Experimental integration for the Plugin Pages API now
-available in OrcaSlicer main/nightly builds. Publish compatibility only for an
-OrcaSlicer build on which the complete workflow has been tested.
+**Development status:** Experimental. The Windows load-and-return workflow has
+been tested in OrcaSlicer. Compatibility with other builds may vary.
+
+BumpMesh is created by Stefan Hermann / CNC Kitchen and distributed under
+AGPL-3.0. [Website](https://bumpmesh.com/) ·
+[Source code](https://github.com/CNCKitchen/stlTexturizer)

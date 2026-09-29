@@ -3,17 +3,18 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { zipSync, strToU8 } from 'fflate';
+import { strToU8 } from 'fflate';
 import { QuantizedPointMap } from './meshIndex.js';
+import { zipChunks } from './zipStream.js';
 
 /**
  * Trigger a browser download for a binary buffer.
- * @param {ArrayBuffer|Uint8Array} buffer
+ * @param {ArrayBuffer|Uint8Array|Blob} buffer
  * @param {string} filename
  * @param {string} [mime]
  */
 function triggerDownload(buffer, filename, mime = 'application/octet-stream') {
-  const blob = new Blob([buffer], { type: mime });
+  const blob = buffer instanceof Blob ? buffer : new Blob([buffer], { type: mime });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
@@ -37,7 +38,7 @@ function triggerDownload(buffer, filename, mime = 'application/octet-stream') {
  * @param {THREE.BufferGeometry} geometry  – non-indexed with position + normal
  * @param {string} [filename]
  */
-export function exportSTL(geometry, filename = 'textured.stl') {
+export function exportSTL(geometry, filename = 'textured.stl', deliver = triggerDownload) {
   const posArr = geometry.attributes.position.array;
   const norArr = geometry.attributes.normal
     ? geometry.attributes.normal.array
@@ -84,7 +85,7 @@ export function exportSTL(geometry, filename = 'textured.stl') {
     // Attribute byte count: 0 (already zero-filled)
   }
 
-  triggerDownload(buffer, filename);
+  return deliver(buffer, filename);
 }
 
 /**
@@ -97,9 +98,13 @@ export function exportSTL(geometry, filename = 'textured.stl') {
  *
  * @param {THREE.BufferGeometry} geometry  – non-indexed with position attribute
  * @param {string} [filename]
+ * @param {() => boolean} [shouldAbort]
+ * @returns {Promise<void>}
  */
-export function export3MF(geometry, filename = 'textured.3mf') {
+export async function export3MF(geometry, filename = 'textured.3mf', shouldAbort = () => false) {
+  if (shouldAbort()) throw new Error('Aborted');
   const posArr = geometry.attributes.position.array;
+
   const triCount = (posArr.length / 9) | 0;
 
   // ── Deduplicate vertices ─────────────────────────────────────────────────
@@ -125,87 +130,6 @@ export function export3MF(geometry, filename = 'textured.3mf') {
     }
   }
 
-  const vertCount = uniqueXYZ.length / 3;
-
-  // ── Build 3dmodel.model XML as Uint8Array chunks ─────────────────────────
-  // A single concatenated string would exceed V8's max-string-length limit
-  // (~512 MiB) for meshes around 10M+ triangles, throwing "Invalid string
-  // length".  Encode chunks to UTF-8 bytes as we go, flushing the small
-  // staging string every ~1 MiB so it never grows large enough to trip the
-  // limit.  Final concat is byte-wise (no string-length cap).
-  const enc = new TextEncoder();
-  const byteChunks = [];
-  let totalBytes = 0;
-  let pending = '';
-  const FLUSH_THRESHOLD = 1 << 20; // 1 MiB
-
-  function flush() {
-    if (!pending) return;
-    const b = enc.encode(pending);
-    byteChunks.push(b);
-    totalBytes += b.length;
-    pending = '';
-  }
-  function emit(s) {
-    pending += s;
-    if (pending.length >= FLUSH_THRESHOLD) flush();
-  }
-
-  emit(
-    '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<model unit="millimeter" xml:lang="en-US" ' +
-    'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n' +
-    '<resources>\n' +
-    '<object id="1" type="model">\n' +
-    '<mesh>\n' +
-    '<vertices>\n'
-  );
-
-  // Vertices: trim trailing zeros to keep the file compact.
-  const fmt = (n) => {
-    // 4 decimals matches the dedup precision; strip trailing zeros and ".".
-    let s = n.toFixed(4);
-    if (s.indexOf('.') !== -1) s = s.replace(/0+$/, '').replace(/\.$/, '');
-    return s;
-  };
-  for (let i = 0; i < vertCount; i++) {
-    const b = i * 3;
-    emit(
-      '<vertex x="' + fmt(uniqueXYZ[b]) +
-      '" y="'       + fmt(uniqueXYZ[b + 1]) +
-      '" z="'       + fmt(uniqueXYZ[b + 2]) +
-      '"/>\n'
-    );
-  }
-
-  emit('</vertices>\n<triangles>\n');
-
-  for (let i = 0; i < triCount; i++) {
-    const b = i * 3;
-    emit(
-      '<triangle v1="' + triIdx[b] +
-      '" v2="'         + triIdx[b + 1] +
-      '" v3="'         + triIdx[b + 2] +
-      '"/>\n'
-    );
-  }
-
-  emit(
-    '</triangles>\n' +
-    '</mesh>\n' +
-    '</object>\n' +
-    '</resources>\n' +
-    '<build>\n<item objectid="1"/>\n</build>\n' +
-    '</model>\n'
-  );
-  flush();
-
-  const modelBytes = new Uint8Array(totalBytes);
-  {
-    let off = 0;
-    for (const b of byteChunks) { modelBytes.set(b, off); off += b.length; }
-  }
-
   // ── Static package files ─────────────────────────────────────────────────
   const contentTypesXml =
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
@@ -222,15 +146,41 @@ export function export3MF(geometry, filename = 'textured.3mf') {
     '</Relationships>\n';
 
   // ── Zip and download ─────────────────────────────────────────────────────
-  const zipped = zipSync({
-    '[Content_Types].xml': strToU8(contentTypesXml),
-    '_rels/.rels':         strToU8(relsXml),
-    '3D/3dmodel.model':    modelBytes,
-  }, { level: 6 });
+  const blob = await zipChunks([
+    ['[Content_Types].xml', [strToU8(contentTypesXml)]],
+    ['_rels/.rels', [strToU8(relsXml)]],
+    ['3D/3dmodel.model', modelChunks(uniqueXYZ, triIdx)],
+  ], shouldAbort);
+  if (shouldAbort()) throw new Error('Aborted');
+  triggerDownload(blob, filename);
+}
 
-  triggerDownload(
-    zipped,
-    filename,
-    'application/vnd.ms-package.3dmanufacturing-3dmodel+xml'
-  );
+// Generate bounded XML chunks directly into the compressor. Keeping all XML
+// chunks and then concatenating them used two full uncompressed mesh copies.
+function* modelChunks(vertices, indices) {
+  const enc = new TextEncoder();
+  const threshold = 1 << 20;
+  let pending = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<model unit="millimeter" xml:lang="en-US" ' +
+    'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n' +
+    '<resources>\n<object id="1" type="model">\n<mesh>\n<vertices>\n';
+  const fmt = (n) => {
+    // 4 decimals matches the dedup precision; strip trailing zeros and ".".
+    let s = n.toFixed(4);
+    if (s.indexOf('.') !== -1) s = s.replace(/0+$/, '').replace(/\.$/, '');
+    return s;
+  };
+  for (let i = 0; i < vertices.length; i += 3) {
+    // Preserve the existing four-decimal coordinate representation.
+    pending += `<vertex x="${fmt(vertices[i])}" y="${fmt(vertices[i+1])}" z="${fmt(vertices[i+2])}"/>\n`;
+    if (pending.length >= threshold) { yield enc.encode(pending); pending = ''; }
+  }
+  pending += '</vertices>\n<triangles>\n';
+  for (let i = 0; i < indices.length; i += 3) {
+    pending += `<triangle v1="${indices[i]}" v2="${indices[i+1]}" v3="${indices[i+2]}"/>\n`;
+    if (pending.length >= threshold) { yield enc.encode(pending); pending = ''; }
+  }
+  pending += '</triangles>\n</mesh>\n</object>\n</resources>\n' +
+    '<build>\n<item objectid="1"/>\n</build>\n</model>\n';
+  yield enc.encode(pending);
 }
