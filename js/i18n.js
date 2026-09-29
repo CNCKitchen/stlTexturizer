@@ -11,6 +11,7 @@ export const TRANSLATIONS = {
   de: { 'lang.name': 'Deutsch' },
   en: { 'lang.name': 'English' },
   es: { 'lang.name': 'Español' },
+  fi: { 'lang.name': 'Suomi' },
   fr: { 'lang.name': 'Français' },
   it: { 'lang.name': 'Italiano' },
   ja: { 'lang.name': '日本語' },
