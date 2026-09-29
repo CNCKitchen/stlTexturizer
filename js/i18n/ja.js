@@ -45,6 +45,7 @@ export default {
   "gallery.catFabric": "ファブリック",
   "gallery.catNatural": "自然素材",
   "gallery.catGrip": "グリップ",
+  "gallery.catMold": "金型シボ",
   "gallery.hint": "テクスチャをクリックするとモデル上で試せます。矢印キーで順に切り替えられます。星を付けたテクスチャはパネルに固定されます。",
   "gallery.done": "完了",
   "gallery.turntable": "ターンテーブル",

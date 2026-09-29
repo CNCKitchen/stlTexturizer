@@ -45,6 +45,7 @@ export default {
   "gallery.catFabric": "Stof",
   "gallery.catNatural": "Natuur",
   "gallery.catGrip": "Grip",
+  "gallery.catMold": "Matrijstextuur",
   "gallery.hint": "Klik op een textuur om die op je model uit te proberen; met de pijltjestoetsen blader je erdoorheen. Geef je favorieten een ster om ze in het paneel vast te zetten.",
   "gallery.done": "Klaar",
   "gallery.turntable": "Draaitafel",

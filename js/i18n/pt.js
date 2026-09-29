@@ -45,6 +45,7 @@ export default {
   "gallery.catFabric": "Tecidos",
   "gallery.catNatural": "Naturais",
   "gallery.catGrip": "Aderência",
+  "gallery.catMold": "Moldadas",
   "gallery.hint": "Clique em uma textura para testá-la no seu modelo; as setas do teclado percorrem as opções. Marque seus favoritos com uma estrela para fixá-los no painel.",
   "gallery.done": "Concluído",
   "gallery.turntable": "Prato giratório",

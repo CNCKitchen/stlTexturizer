@@ -45,6 +45,7 @@ export default {
   "gallery.catFabric": "Stoff",
   "gallery.catNatural": "Natur",
   "gallery.catGrip": "Grip",
+  "gallery.catMold": "Narbung",
   "gallery.hint": "Klicke auf eine Textur, um sie am Modell auszuprobieren; mit den Pfeiltasten blätterst du durch. Markiere deine Favoriten mit einem Stern, um sie im Panel anzuheften.",
   "gallery.done": "Fertig",
   "gallery.turntable": "Drehteller",

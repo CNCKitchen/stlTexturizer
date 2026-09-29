@@ -45,6 +45,7 @@ export default {
   "gallery.catFabric": "Fabric",
   "gallery.catNatural": "Natural",
   "gallery.catGrip": "Grip",
+  "gallery.catMold": "Molded",
   "gallery.hint": "Click a texture to try it on your model; arrow keys flip through them. Star your favorites to pin them to the panel.",
   "gallery.done": "Done",
   "gallery.turntable": "Turntable",

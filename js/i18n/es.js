@@ -45,6 +45,7 @@ export default {
   "gallery.catFabric": "Tejidos",
   "gallery.catNatural": "Naturales",
   "gallery.catGrip": "Agarre",
+  "gallery.catMold": "Moldeadas",
   "gallery.hint": "Haz clic en una textura para probarla en tu modelo; las flechas del teclado las recorren. Marca tus favoritos con una estrella para fijarlos en el panel.",
   "gallery.done": "Listo",
   "gallery.turntable": "Plato giratorio",
