@@ -11,18 +11,18 @@ export const TRANSLATIONS = {
   de: { 'lang.name': 'Deutsch' },
   en: { 'lang.name': 'English' },
   es: { 'lang.name': 'Español' },
-  fi: { 'lang.name': 'Suomi' },
   fr: { 'lang.name': 'Français' },
   it: { 'lang.name': 'Italiano' },
-  ja: { 'lang.name': '日本語' },
-  ko: { 'lang.name': '한국어' },
   nl: { 'lang.name': 'Nederlands' },
   pl: { 'lang.name': 'Polski' },
   pt: { 'lang.name': 'Português' },
-  ru: { 'lang.name': 'Русский' },
+  fi: { 'lang.name': 'Suomi' },
   tr: { 'lang.name': 'Türkçe' },
+  ru: { 'lang.name': 'Русский' },
   uk: { 'lang.name': 'Українська' },
+  ja: { 'lang.name': '日本語' },
   zh: { 'lang.name': '简体中文' },
+  ko: { 'lang.name': '한국어' },
 };
 
 // ── Module state ──────────────────────────────────────────────────────────────
