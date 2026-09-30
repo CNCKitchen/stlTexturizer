@@ -23,6 +23,7 @@ export const TRANSLATIONS = {
   ja: { 'lang.name': '日本語' },
   zh: { 'lang.name': '简体中文' },
   ko: { 'lang.name': '한국어' },
+  ro: { 'lang.name': 'Română'}
 };
 
 // ── Module state ──────────────────────────────────────────────────────────────
