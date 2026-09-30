@@ -2059,6 +2059,7 @@ function wireEvents() {
     isPainting = false;
     _strokeLastPoint = null;
     getControls().enabled = true;
+    _flushPaintRefresh();
     // Capture the completed stroke synchronously so quick consecutive strokes
     // each get their own undo entry — the debounced window-pointerup capture
     // would otherwise collapse strokes that finish within UNDO_DEBOUNCE_MS.
@@ -2330,6 +2331,18 @@ function _refreshPaintGeometry() {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(flat.positions, 3));
     geo.setAttribute('normal',   new THREE.BufferAttribute(flat.normals, 3));
+    // Flat face normals for the shader's angle masking: a leaf lies in its
+    // parent's plane, so copy the base face's normal instead of recomputing.
+    if (triangleFaceNormals) {
+      const fn = new Float32Array(flat.triCount * 9);
+      for (let t = 0; t < flat.triCount; t++) {
+        const f = flat.faceParentId[t] * 3;
+        const x = triangleFaceNormals[f], y = triangleFaceNormals[f + 1], z = triangleFaceNormals[f + 2];
+        const o = t * 9;
+        fn[o] = x; fn[o + 1] = y; fn[o + 2] = z; fn[o + 3] = x; fn[o + 4] = y; fn[o + 5] = z; fn[o + 6] = x; fn[o + 7] = y; fn[o + 8] = z;
+      }
+      geo.setAttribute('faceNormal', new THREE.Float32BufferAttribute(fn, 3));
+    }
     if (paintGeometry) paintGeometry.dispose();
     paintGeometry = geo;
     paintFlat = flat;
@@ -2347,13 +2360,16 @@ function _layerPaintOn(slot, geometry) {
   if (!paintTree || slot < 0 || !geometry) return { paint: null, hard: null };
   const key = slot + ':' + (geometry === currentGeometry ? 'base' : geometry === paintGeometry ? 'paint' : geometry === dispPreviewGeometry ? 'disp' : 'x');
   const hit = _paintCoverCache.get(key);
-  if (hit && hit.version === paintTree.paintVersion && hit.geometry === geometry) return hit;
+  // A stroke only changes the active layer's paint; the others' is valid
+  // until the structure (and with it the flattened mesh) changes.
+  const version = slot === _activeSlot() ? paintTree.paintVersion : -1 - paintTree.structureVersion;
+  if (hit && hit.version === version && hit.geometry === geometry) return hit;
   let r;
   if (geometry === paintGeometry && paintFlat) r = paintTree.flatPaint(slot, paintFlat);
   else if (geometry === currentGeometry) r = paintTree.basePaint(slot);
   else if (geometry === dispPreviewGeometry && dispPreviewParentMap) r = _sampledPaint(slot, geometry, dispPreviewParentMap);
   else r = { paint: null, hard: null };
-  r.version = paintTree.paintVersion;
+  r.version = version;
   r.geometry = geometry;
   _paintCoverCache.set(key, r);
   return r;
@@ -2386,11 +2402,15 @@ function _sampledPaint(slot, geometry, parentMap) {
  */
 function _layerCoverOn(i, geometry) {
   const includeOnly = i === activeLayer ? selectionMode : !!layers[i].includeOnly;
-  const { paint, hard } = _layerPaintOn(_slotOf(i), geometry);
+  const src = _layerPaintOn(_slotOf(i), geometry);
+  if (src.coverFor === includeOnly && src.cover !== undefined) return { cover: src.cover, hardMasked: src.hardMasked };
+  const { paint, hard } = src;
   const triCount = geometry.attributes.position.count / 3;
   if (!paint) {
-    if (!includeOnly) return { cover: null, hardMasked: null };
-    return { cover: new Float32Array(triCount * 3), hardMasked: new Uint8Array(triCount).fill(1) };
+    src.coverFor = includeOnly;
+    src.cover = includeOnly ? new Float32Array(triCount * 3) : null;
+    src.hardMasked = includeOnly ? new Uint8Array(triCount).fill(1) : null;
+    return { cover: src.cover, hardMasked: src.hardMasked };
   }
   const cover = new Float32Array(paint.length);
   const hardMasked = new Uint8Array(triCount);
@@ -2403,6 +2423,7 @@ function _layerCoverOn(i, geometry) {
     for (let k = 0; k < paint.length; k++) cover[k] = 1 - paint[k];
     hardMasked.set(hard);
   }
+  src.coverFor = includeOnly; src.cover = cover; src.hardMasked = hardMasked;
   return { cover, hardMasked };
 }
 
@@ -2905,6 +2926,21 @@ function paintAt(e) {
 
   _lastPaintHitPoint = hit.point.clone();
   _strokeLastPoint = _lastPaintHitPoint;
+  _schedulePaintRefresh();
+}
+
+// Several mouse events can land in one frame; the tree takes every one of
+// them, the display (flatten + attributes) is refreshed once per frame.
+let _paintRefreshRaf = 0;
+function _schedulePaintRefresh() {
+  if (_paintRefreshRaf) return;
+  _paintRefreshRaf = requestAnimationFrame(() => {
+    _paintRefreshRaf = 0;
+    refreshExclusionOverlay();
+  });
+}
+function _flushPaintRefresh() {
+  if (_paintRefreshRaf) { cancelAnimationFrame(_paintRefreshRaf); _paintRefreshRaf = 0; }
   refreshExclusionOverlay();
 }
 
@@ -6379,6 +6415,9 @@ function _undoSnapshotsEqual(a, b) {
 function _commitUndoCapture() {
   _undoCaptureTimer = null;
   if (_undoApplyDepth > 0) return;
+  // A stroke in progress commits on its own mouseup; a debounced capture from
+  // just before it must not cut the stroke into two steps.
+  if (isPainting) { _scheduleUndoCapture(); return; }
   const next = _captureUndoSnapshot();
   if (_baselineSnapshot && _undoSnapshotsEqual(_baselineSnapshot, next)) return;
   if (_baselineSnapshot) {
