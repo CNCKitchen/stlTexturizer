@@ -109,3 +109,53 @@ Where the decimation savings came from, all behaviour-preserving:
   cannot do this — it frees GPU resources, not the JS typed arrays.
 
 Verify any change here with `bench-pipeline.mjs` fingerprints, not by eye.
+
+## Texture layers (`js/main.js`, `js/displacement.js`, `js/previewMaterial.js`)
+
+A layer is a texture plus its own projection/displacement settings
+(`LAYER_KEYS`) and its own painted surface. The **active** layer is the live
+sidebar state (`settings.*`, `activeMapEntry`, `selectionMode`); switching
+layers stores that into `layers[activeLayer]` and re-applies the other
+layer's record through `applySettingsSnapshot`, the same code path a project
+load uses. Everything else in `settings` (resolution, triangle limit, angle
+masks, bottom handling, regularize knobs) is global.
+
+Composition is per welded vertex, in layer order: a layer **covers** the
+layers below where its weight (mask × falloff × angle mask) lets it through,
+or **adds** to them (`blendAdd`). `applyDisplacementLayers` does this on the
+CPU; the preview shader (four samplers, per-layer uniform arrays, `layerMask`
+/ `layerFalloff` vec4 attributes) does the same on the GPU. With one layer the
+single-texture arithmetic is untouched — the bench fingerprint must not move.
+
+The export pipeline takes `layers` (per-layer image, settings, per-corner
+`exclude`, per-face `hardFaces`); each layer's mask is carried onto the
+refined mesh through the parent-face map like soft paint always was.
+`faceWeights` then marks the faces **no** layer textures (subdivision skip,
+preserve-untextured lock). An unsplit single visible active layer still uses
+the original inputs (`imageData` + `faceWeights` + `softExclude`).
+
+## Paint tree (`js/paintTree.js`)
+
+Surface masks live in a per-triangle split tree over the base mesh, after
+PrusaSlicer's TriangleSelector. The circle brush splits only the triangles it
+partly covers (1/2/3 long edges → 2/3/4 children, same scheme as
+subdivision), down to `radius / 5` (finer across a soft brush's fade band),
+paints fully covered triangles whole, and merges uniform children back after
+every dab. Midpoints are shared through an `IntPairMap` and reference-counted
+(the map has no delete); `flatten()` splits any leaf with a neighbour's
+midpoint hanging on its edge, so the flattened mesh is watertight.
+
+One tree serves all layers: structure shared, hard state per node and soft
+coverage per vertex per layer. Two rules keep layers independent: a split
+hands the parent's state to the children and gives a new midpoint the
+average coverage of its edge; a stroke **refines first, paints second** —
+splitting after painting would average a fresh vertex with a far one and
+plant coverage outside the brush (the soft brush also refines one extra
+edge-limit ring so the fade can't leak across a big outer triangle).
+
+The viewer shows the flattened tree (`paintGeometry`) whenever a face is
+split, else the base mesh; the display refresh is coalesced per animation
+frame. Export runs over the flattened mesh. Undo snapshots and `paint.json`
+in project files hold `serialize()` (DFS split codes, states, coverage in
+replay order); `deserialize()` doubles as compaction of merged-away nodes.
+The base mesh is never modified, so face indices stay valid across strokes.

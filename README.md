@@ -52,13 +52,20 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 - **3D displacement preview** — real-time GPU-accelerated preview toggle showing actual vertex displacement
 - **Amplitude overlap warning** — alerts when depth exceeds 10 % of the smallest model dimension
 
+### Texture Layers
+- **Several textures on one model** — up to four layers, each with its own texture, projection, size, height and painted surface; the sidebar always edits the highlighted layer
+- **Cover or add** — a layer covers the layers below where it is painted, or adds its relief to them
+- **New layers start empty** in Include Only mode with the fill tool ready: click the surfaces the texture should cover
+- Layers, their paint and their textures are saved in `.bumpmesh` projects; **Bake Textures** flattens them into the mesh when needed
+
 ### Surface Masking
 - **Angle masking** — suppress texture on near-horizontal top and/or bottom faces (0°–90° threshold each)
-- **Face exclusion / inclusion painting** — paint individual faces to exclude (orange) or exclusively include (green) them
-  - Brush tool — single-triangle click or adjustable-radius circle brush
-  - Bucket fill — flood-fills adjacent faces up to a configurable dihedral-angle threshold
-  - Erase — hold Shift to undo painted faces
-  - Clear all — reset masking
+- **Surface painting** — paint surfaces to exclude (orange) or exclusively include them
+  - Circle brush — refines the mesh under the stroke itself (after PrusaSlicer's paint-on tool), so the stroke edge is as fine on a 12-triangle cube as on a scan; the base mesh is never modified
+  - Hardness — a soft brush fades the mask out toward the rim for gradual texture borders
+  - Single-triangle brush and bucket fill — flood-fills adjacent faces up to a configurable dihedral-angle threshold
+  - Erase — hold Shift to undo painted surfaces
+  - Clear all — reset the layer's paint
 
 ### Mesh Processing
 - **Adaptive subdivision** — subdivides edges until they are ≤ a target length; respects sharp creases (>30° dihedral)
