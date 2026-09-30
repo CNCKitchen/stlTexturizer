@@ -121,10 +121,12 @@ const sharedGLSL = /* glsl */`
     uv -= 0.5;
     uv  = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
     uv += 0.5;
-    if (l == 0) return texture2D(map0, uv).r;
-    if (l == 1) return texture2D(map1, uv).r;
-    if (l == 2) return texture2D(map2, uv).r;
-    return texture2D(map3, uv).r;
+    float h = 0.0;
+    if      (l == 0) h = texture2D(map0, uv).r;
+    else if (l == 1) h = texture2D(map1, uv).r;
+    else if (l == 2) h = texture2D(map2, uv).r;
+    else             h = texture2D(map3, uv).r;
+    return h;
   }
 
   // Compute layer l's raw height (0..1 grey) at a world-space point.
@@ -347,6 +349,21 @@ const fragmentShader = /* glsl */`
 
   #include <clipping_planes_pars_fragment>
 
+  // Fold layer l's screen-space height gradient (scaled by its amplitude and
+  // weighted by wl) into the running bump sums with the over/add recurrence.
+  void bumpLayer(int l, vec3 PN, float wl, inout float dhx, inout float dhy, inout float coverSum) {
+    float hRaw = computeHeightAtPoint(l, vModelPos, PN, vModelNormal);
+    float gx = dFdx(hRaw) * layerAmp[l];
+    float gy = dFdy(hRaw) * layerAmp[l];
+    if (layerAdd[l] == 1) {
+      dhx += gx * wl; dhy += gy * wl; coverSum += wl;
+    } else {
+      dhx = dhx * (1.0 - wl) + gx * wl;
+      dhy = dhy * (1.0 - wl) + gy * wl;
+      coverSum = coverSum * (1.0 - wl) + wl;
+    }
+  }
+
   void main() {
     // Flip normal for back faces so flipped-winding geometry still lights correctly.
     vec3 N = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
@@ -397,21 +414,16 @@ const fragmentShader = /* glsl */`
     // so the bump matches the composited relief. coverSum tracks how much of
     // the fragment any layer textures (shading blends to the smooth normal
     // where nothing does).
+    //
+    // One straight-line block per layer, NOT a loop: ANGLE's Direct3D
+    // backend (Chrome/Edge on Windows) turns dFdx/dFdy inside a loop that
+    // breaks on a uniform into code that silently yields zero, which made the
+    // preview surface look flat while the silhouette still displaced.
     float dhx = 0.0, dhy = 0.0, coverSum = 0.0;
-    for (int l = 0; l < MAX_LAYERS; l++) {
-      if (l >= layerCount) break;
-      float hRaw = computeHeightAtPoint(l, vModelPos, PN, vModelNormal);
-      float gx = dFdx(hRaw) * layerAmp[l];
-      float gy = dFdy(hRaw) * layerAmp[l];
-      float wl = w[l];
-      if (layerAdd[l] == 1) {
-        dhx += gx * wl; dhy += gy * wl; coverSum += wl;
-      } else {
-        dhx = dhx * (1.0 - wl) + gx * wl;
-        dhy = dhy * (1.0 - wl) + gy * wl;
-        coverSum = coverSum * (1.0 - wl) + wl;
-      }
-    }
+    bumpLayer(0, PN, w.x, dhx, dhy, coverSum);
+    if (layerCount > 1) bumpLayer(1, PN, w.y, dhx, dhy, coverSum);
+    if (layerCount > 2) bumpLayer(2, PN, w.z, dhx, dhy, coverSum);
+    if (layerCount > 3) bumpLayer(3, PN, w.w, dhx, dhy, coverSum);
     coverSum = clamp(coverSum, 0.0, 1.0);
 
     vec3 dp1 = dFdx(vViewPos);
