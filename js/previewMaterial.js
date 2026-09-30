@@ -335,7 +335,7 @@ const fragmentShader = /* glsl */`
   uniform float     boundaryEdgeTexWidth;
   uniform float     boundaryFalloffDist;
   uniform int       boundaryFalloffCurve; // 0 = linear, 1 = s-curve, 2 = ease-in
-  uniform float     maskTint;             // strength of the mask colouring (weaker with several layers)
+  uniform int       layeredTint;          // 1 = several layers: surfaces the active layer leaves alone are neutral grey
 
   varying vec3  vModelPos;
   varying vec3  vModelNormal;
@@ -458,8 +458,13 @@ const fragmentShader = /* glsl */`
     // are perfectly consistent everywhere.  Mask tinting is applied AFTER
     // lighting as a colour blend so masked areas keep the same glossy look.
     vec3 tealBase      = vec3(0.22, 0.68, 0.68);
-    vec3 userMaskColor = vec3(0.85, 0.40, 0.15);
-    vec3 angleMaskColor = vec3(0.45, 0.48, 0.50);
+    // Single layer: the familiar orange (painted out) and dark grey (angle
+    // mask). Several layers: everything the active layer does not cover is a
+    // plain neutral grey, so "teal = active layer" reads at a glance and the
+    // other layers' relief still shows through the shading.
+    vec3 inactiveGrey  = vec3(0.55, 0.57, 0.59);
+    vec3 userMaskColor = layeredTint == 1 ? inactiveGrey : vec3(0.85, 0.40, 0.15);
+    vec3 angleMaskColor = layeredTint == 1 ? inactiveGrey : vec3(0.45, 0.48, 0.50);
 
     vec3 L1 = normalize(vec3( 0.5,  0.8,  1.0));
     vec3 L2 = normalize(vec3(-0.5, -0.2, -0.6));
@@ -481,7 +486,7 @@ const fragmentShader = /* glsl */`
     // compute the same lighting with that base.
     float userMask   = activeLayer == 0 ? vLayerMask.x : activeLayer == 1 ? vLayerMask.y : activeLayer == 2 ? vLayerMask.z : vLayerMask.w;
     float activeMask = activeLayer == 0 ? w.x : activeLayer == 1 ? w.y : activeLayer == 2 ? w.z : w.w;
-    float maskEffect = (1.0 - activeMask) * maskTint; // 0 = fully textured, 1 = fully masked
+    float maskEffect = 1.0 - activeMask; // 0 = fully textured, 1 = fully masked
     // Any user-mask coverage (hard 0 or soft-brush fractions) tints in the
     // user colour; only fully unmasked pixels defer to the boundary type.
     float effectiveMaskType = mix(vMaskType, 0.0, step(0.001, 1.0 - userMask));
@@ -531,7 +536,8 @@ export function createPreviewMaterial(layers, settings) {
  * @param {object} settings  { bounds, bottomAngleLimit, topAngleLimit,
  *   noDownwardZ, useDisplacement, activeLayer (index into `layers`),
  *   boundaryFalloff, boundaryFalloffCurve (the active layer's, for the
- *   per-fragment edge falloff), maskTint }
+ *   per-fragment edge falloff), layeredTint (grey instead of orange for
+ *   surfaces outside the active layer) }
  */
 export function updateMaterial(material, layers, settings) {
   const u = material.uniforms;
@@ -579,7 +585,7 @@ export function updateMaterial(material, layers, settings) {
   u.useDisplacement.value  = settings.useDisplacement  ? 1 : 0;
   u.boundaryFalloffDist.value  = settings.boundaryFalloff ?? 0.0;
   u.boundaryFalloffCurve.value = FALLOFF_CURVE_INDEX[settings.boundaryFalloffCurve] ?? 0;
-  u.maskTint.value = settings.maskTint ?? 1.0;
+  u.layeredTint.value = settings.layeredTint ? 1 : 0;
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
@@ -617,7 +623,7 @@ function buildUniforms() {
     boundaryEdgeTexWidth: { value: 1.0 },
     boundaryFalloffDist:  { value: 0.0 },
     boundaryFalloffCurve: { value: 0 },
-    maskTint:             { value: 1.0 },
+    layeredTint:          { value: 0 },
   };
 }
 

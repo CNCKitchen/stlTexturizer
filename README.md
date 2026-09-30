@@ -53,7 +53,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 - **Amplitude overlap warning** — alerts when depth exceeds 10 % of the smallest model dimension
 
 ### Texture Layers
-- **Several textures on one model** — up to four layers, each with its own texture, projection, size, height and painted surface; the sidebar always edits the highlighted layer
+- **Several textures on one model** — up to four layers, each with its own texture, projection, size, height and painted surface; the sidebar always edits the highlighted layer, whose surfaces show in teal while everything else is grey
 - **Cover or add** — a layer covers the layers below where it is painted, or adds its relief to them
 - **New layers start empty** in Include Only mode with the fill tool ready: click the surfaces the texture should cover
 - Layers, their paint and their textures are saved in `.bumpmesh` projects; **Bake Textures** flattens them into the mesh when needed

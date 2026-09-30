@@ -4631,9 +4631,9 @@ function _materialSettings(preview) {
     // Per-fragment edge falloff (bump-only mode) follows the active layer.
     boundaryFalloff:      settings.boundaryFalloff,
     boundaryFalloffCurve: settings.boundaryFalloffCurve,
-    // With several layers the mask tint is toned down so the other layers'
-    // relief stays visible under it.
-    maskTint: preview.count > 1 ? 0.45 : 1.0,
+    // With several layers, surfaces the active layer does not cover are
+    // shown in neutral grey instead of the single-layer orange/dark grey.
+    layeredTint: preview.count > 1,
   };
 }
 
