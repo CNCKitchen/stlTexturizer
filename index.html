@@ -242,6 +242,17 @@
       <section class="panel-section">
         <h2 data-i18n="sections.displacementMap">Displacement Map</h2>
 
+        <!-- Texture layers: every layer has its own texture, projection/displacement settings and
+             surface mask; the sidebar always edits the highlighted one (js/main.js _renderLayerStrip) -->
+        <div id="layer-strip" class="layer-strip">
+          <div id="layer-list" class="layer-list" role="list"></div>
+          <button id="layer-add-btn" class="layer-add-btn" type="button"
+            data-i18n-title="layers.addTitle" title="Add a layer with its own texture, settings and surface">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span data-i18n="layers.add">Add layer</span>
+          </button>
+        </div>
+
         <!-- Favourites grid (4 wide, grows by rows), filled by js/textureGallery.js -->
         <div id="preset-grid" class="preset-grid"></div>
 

@@ -15,39 +15,58 @@ export const MODE_SPHERICAL   = 4;
 export const MODE_TRIPLANAR   = 5;
 export const MODE_CUBIC       = 6;
 
+/** Texture layers the preview can composite at once (one vec4 attribute channel each). */
+export const MAX_LAYERS = 4;
+
 // ── GLSL source ──────────────────────────────────────────────────────────────
 //
 // Preview strategy, two modes:
 //   1. Bump-only (default):  UV projection & bump mapping in the fragment shader.
 //      The underlying geometry is never modified; amplitude scales bump intensity.
 //   2. Displacement preview: The vertex shader samples the same displacement
-//      texture and physically moves each vertex along its smooth normal.
+//      textures and physically moves each vertex along its smooth normal.
 //      Fragment shader adds reduced bump mapping for sub-vertex detail.
+//
+// Texture layers: up to MAX_LAYERS height maps, each with its own projection
+// settings (uniform arrays indexed by layer) and its own per-vertex mask and
+// boundary falloff (one channel of the layerMask / layerFalloff vec4
+// attributes). Heights are composited in layer order the same way
+// displacement.js does it: a layer covers the ones below where its weight
+// lets it through ("over"), or adds to them (layerAdd). With one layer this
+// is the plain single-texture preview.
 //
 // The shared GLSL block below is included in BOTH shaders so UV math,
 // projection modes, and texture sampling stay identical.
 
 const sharedGLSL = /* glsl */`
-  uniform sampler2D displacementMap;
-  uniform int       mappingMode;
-  uniform vec2      scaleUV;
-  uniform float     amplitude;
-  uniform vec2      offsetUV;
-  uniform float     rotation;
+  #define MAX_LAYERS 4
+
+  uniform sampler2D map0;
+  uniform sampler2D map1;
+  uniform sampler2D map2;
+  uniform sampler2D map3;
+  uniform int       layerCount;
+  uniform int       activeLayer;
+  uniform int       layerMode[MAX_LAYERS];
+  uniform vec2      layerScale[MAX_LAYERS];
+  uniform float     layerAmp[MAX_LAYERS];
+  uniform vec2      layerOffset[MAX_LAYERS];
+  uniform float     layerRot[MAX_LAYERS];
+  uniform vec2      layerCylCenter[MAX_LAYERS];
+  uniform float     layerCylRadius[MAX_LAYERS];
+  uniform float     layerBlend[MAX_LAYERS];
+  uniform float     layerSeamBand[MAX_LAYERS];
+  uniform float     layerCapAngle[MAX_LAYERS];
+  uniform int       layerSymmetric[MAX_LAYERS];
+  uniform vec2      layerAspect[MAX_LAYERS];
+  uniform int       layerAdd[MAX_LAYERS];
   uniform vec3      boundsMin;
   uniform vec3      boundsSize;
   uniform vec3      boundsCenter;
-  uniform vec2      cylinderCenter;
-  uniform float     cylinderRadius;
   uniform float     bottomAngleLimit;
   uniform float     topAngleLimit;
-  uniform float     mappingBlend;
-  uniform float     seamBandWidth;
-  uniform float     capAngle;
-  uniform int       symmetricDisplacement;
   uniform int       noDownwardZ;
   uniform int       useDisplacement;
-  uniform vec2      textureAspect;
 
   const float PI     = 3.14159265358979;
   const float TWO_PI = 6.28318530717959;
@@ -60,7 +79,7 @@ const sharedGLSL = /* glsl */`
     return 2;
   }
 
-  vec3 cubicBlendWeights(vec3 n) {
+  vec3 cubicBlendWeights(vec3 n, float mappingBlend, float seamBandWidth) {
     vec3 absN = abs(n);
     int axis = dominantCubicAxis(n);
     float primary = axis == 0 ? absN.x : axis == 1 ? absN.y : absN.z;
@@ -95,38 +114,44 @@ const sharedGLSL = /* glsl */`
     return blendedWeights / (dot(blendedWeights, vec3(1.0)) + 1e-6);
   }
 
-  // Sample after applying scale + tiling (aspect-corrected)
-  float sampleMap(vec2 rawUV) {
-    vec2 uv = (rawUV * textureAspect) / scaleUV + offsetUV;
-    float c = cos(rotation); float s = sin(rotation);
+  // Sample layer l after applying scale + tiling (aspect-corrected)
+  float sampleMap(int l, vec2 rawUV) {
+    vec2 uv = (rawUV * layerAspect[l]) / layerScale[l] + layerOffset[l];
+    float c = cos(layerRot[l]); float s = sin(layerRot[l]);
     uv -= 0.5;
     uv  = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
     uv += 0.5;
-    return texture2D(displacementMap, uv).r;
+    if (l == 0) return texture2D(map0, uv).r;
+    if (l == 1) return texture2D(map1, uv).r;
+    if (l == 2) return texture2D(map2, uv).r;
+    return texture2D(map3, uv).r;
   }
 
-  // Compute displacement height at a world-space point.
+  // Compute layer l's raw height (0..1 grey) at a world-space point.
   // projN  = face-stable projection normal (for axis selection)
   // blendN = smooth / interpolated normal  (for blend weights)
-  float computeHeightAtPoint(vec3 pos, vec3 projN, vec3 blendN) {
+  float computeHeightAtPoint(int l, vec3 pos, vec3 projN, vec3 blendN) {
+    int mappingMode = layerMode[l];
+    float mappingBlend = layerBlend[l];
+    float seamBandWidth = layerSeamBand[l];
     vec3 rel = pos - boundsCenter;
     float maxDim = max(boundsSize.x, max(boundsSize.y, boundsSize.z));
     float md = max(maxDim, 1e-4);
 
     if (mappingMode == 0) {
-      return sampleMap(vec2((pos.x - boundsMin.x) / md, (pos.y - boundsMin.y) / md));
+      return sampleMap(l, vec2((pos.x - boundsMin.x) / md, (pos.y - boundsMin.y) / md));
 
     } else if (mappingMode == 1) {
-      return sampleMap(vec2((pos.x - boundsMin.x) / md, (pos.z - boundsMin.z) / md));
+      return sampleMap(l, vec2((pos.x - boundsMin.x) / md, (pos.z - boundsMin.z) / md));
 
     } else if (mappingMode == 2) {
-      return sampleMap(vec2((pos.y - boundsMin.y) / md, (pos.z - boundsMin.z) / md));
+      return sampleMap(l, vec2((pos.y - boundsMin.y) / md, (pos.z - boundsMin.z) / md));
 
     } else if (mappingMode == 3) {
       // Cylinder axis is +Z. Center XY and radius are user-controllable so
       // pie-slice / off-center parts can be projected without distortion.
-      vec2 cylRel2 = pos.xy - cylinderCenter;
-      float r = max(cylinderRadius, 1e-4);
+      vec2 cylRel2 = pos.xy - layerCylCenter[l];
+      float r = max(layerCylRadius[l], 1e-4);
       float C = TWO_PI * r;
       float u_cyl = atan(cylRel2.y, cylRel2.x) / TWO_PI + 0.5;
       float v_cyl = (pos.z - boundsMin.z) / C;
@@ -140,18 +165,18 @@ const sharedGLSL = /* glsl */`
       if (seamBand > 0.001 && seamDist < seamBand) {
         float d = u_cyl < 0.5 ? u_cyl : u_cyl - 1.0;
         float t = smoothstep(0.0, 1.0, (d + seamBand) / (2.0 * seamBand));
-        float hLeft  = sampleMap(vec2(1.0 + d, v_cyl));
-        float hRight = sampleMap(vec2(d, v_cyl));
+        float hLeft  = sampleMap(l, vec2(1.0 + d, v_cyl));
+        float hRight = sampleMap(l, vec2(d, v_cyl));
         hSide = mix(hLeft, hRight, t);
       } else {
-        hSide = sampleMap(vec2(u_cyl, v_cyl));
+        hSide = sampleMap(l, vec2(u_cyl, v_cyl));
       }
 
       if (mappingBlend < 0.001) return hSide;
-      float capThreshold = cos(radians(capAngle));
+      float capThreshold = cos(radians(layerCapAngle[l]));
       float blendHalf = seamBandWidth * 0.5;
       float capW = smoothstep(capThreshold - blendHalf, capThreshold + blendHalf, abs(blendN.z));
-      float hCap  = sampleMap(vec2(cylRel2.x / C + 0.5, cylRel2.y / C + 0.5));
+      float hCap  = sampleMap(l, vec2(cylRel2.x / C + 0.5, cylRel2.y / C + 0.5));
       return mix(hSide, hCap, capW);
 
     } else if (mappingMode == 4) {
@@ -166,11 +191,11 @@ const sharedGLSL = /* glsl */`
       if (seamBand > 0.001 && seamDist < seamBand) {
         float d = u_sph < 0.5 ? u_sph : u_sph - 1.0;
         float t = smoothstep(0.0, 1.0, (d + seamBand) / (2.0 * seamBand));
-        float hLeft  = sampleMap(vec2(1.0 + d, v_sph));
-        float hRight = sampleMap(vec2(d, v_sph));
+        float hLeft  = sampleMap(l, vec2(1.0 + d, v_sph));
+        float hRight = sampleMap(l, vec2(d, v_sph));
         return mix(hLeft, hRight, t);
       }
-      return sampleMap(vec2(u_sph, v_sph));
+      return sampleMap(l, vec2(u_sph, v_sph));
 
     } else if (mappingMode == 5) {
       vec3 blend = abs(projN);
@@ -183,9 +208,9 @@ const sharedGLSL = /* glsl */`
       if (projN.y > 0.0) xzU = -xzU;
       float xyU = (pos.x - boundsMin.x) / md;
       if (projN.z < 0.0) xyU = -xyU;
-      float hXY = sampleMap(vec2(xyU, (pos.y - boundsMin.y) / md));
-      float hXZ = sampleMap(vec2(xzU, (pos.z - boundsMin.z) / md));
-      float hYZ = sampleMap(vec2(yzU, (pos.z - boundsMin.z) / md));
+      float hXY = sampleMap(l, vec2(xyU, (pos.y - boundsMin.y) / md));
+      float hXZ = sampleMap(l, vec2(xzU, (pos.z - boundsMin.z) / md));
+      float hYZ = sampleMap(l, vec2(yzU, (pos.z - boundsMin.z) / md));
       return hXY * blend.z + hXZ * blend.y + hYZ * blend.x;
 
     } else {
@@ -196,18 +221,40 @@ const sharedGLSL = /* glsl */`
       if (projN.y > 0.0) xzU = -xzU;
       float xyU = (pos.x - boundsMin.x) / md;
       if (projN.z < 0.0) xyU = -xyU;
-      float hYZ = sampleMap(vec2(yzU, (pos.z - boundsMin.z) / md));
-      float hXZ = sampleMap(vec2(xzU, (pos.z - boundsMin.z) / md));
-      float hXY = sampleMap(vec2(xyU, (pos.y - boundsMin.y) / md));
+      float hYZ = sampleMap(l, vec2(yzU, (pos.z - boundsMin.z) / md));
+      float hXZ = sampleMap(l, vec2(xzU, (pos.z - boundsMin.z) / md));
+      float hXY = sampleMap(l, vec2(xyU, (pos.y - boundsMin.y) / md));
       vec3 bN = blendN;
       vec3 absFaceN = abs(projN);
       float facePrimary = max(absFaceN.x, max(absFaceN.y, absFaceN.z));
       float faceSecondary = absFaceN.x + absFaceN.y + absFaceN.z - facePrimary
                           - min(absFaceN.x, min(absFaceN.y, absFaceN.z));
       if (facePrimary - faceSecondary <= CUBIC_AXIS_EPSILON) bN = projN;
-      vec3 wts = cubicBlendWeights(bN);
+      vec3 wts = cubicBlendWeights(bN, mappingBlend, seamBandWidth);
       return hYZ * wts.x + hXZ * wts.y + hXY * wts.z;
     }
+  }
+
+  // Layer l's signed height in mm at a point (grey, centred if symmetric,
+  // times the layer's amplitude) — before any mask weight.
+  float layerHeightMm(int l, vec3 pos, vec3 projN, vec3 blendN) {
+    float h = computeHeightAtPoint(l, pos, projN, blendN);
+    if (layerSymmetric[l] == 1) h = h - 0.5;
+    return h * layerAmp[l];
+  }
+
+  // Composite the layers' heights with per-layer weights w (mask × falloff ×
+  // angle mask): later layers cover the ones below, or add to them.
+  float compositeHeight(vec3 pos, vec3 projN, vec3 blendN, vec4 w) {
+    float H = 0.0;
+    for (int l = 0; l < MAX_LAYERS; l++) {
+      if (l >= layerCount) break;
+      float wl = w[l];
+      float hl = layerHeightMm(l, pos, projN, blendN) * wl;
+      if (layerAdd[l] == 1) H += hl;
+      else H = H * (1.0 - wl) + hl;
+    }
+    return H;
   }
 `;
 
@@ -217,8 +264,8 @@ const vertexShader = /* glsl */`
 
   attribute vec3  smoothNormal;
   attribute vec3  faceNormal;
-  attribute float faceMask;
-  attribute float boundaryFalloffAttr;
+  attribute vec4  layerMask;      // per-layer user mask (0 = excluded, 1 = textured, between = soft brush)
+  attribute vec4  layerFalloff;   // per-layer boundary falloff (0 at a mask edge → 1 beyond the falloff distance)
   attribute float boundaryMaskTypeAttr;
 
   varying vec3  vModelPos;    // ORIGINAL model-space position → UV computation in fragment
@@ -226,8 +273,9 @@ const vertexShader = /* glsl */`
   varying vec3  vViewPos;     // view-space position (possibly displaced) → TBN & specular
   varying vec3  vNormal;      // view-space normal → lighting
   varying vec3  vSmoothNormal; // view-space smooth normal → smooth shading on masked faces
-  varying float vFaceMask;    // combined mask (angle + user exclusion + boundary falloff)
-  varying float vUserMask;    // raw user-exclusion mask (0 = user-excluded, 1 = included, between = soft brush)
+  varying vec4  vLayerMask;
+  varying vec4  vLayerFalloff;
+  varying float vAngleMask;   // angle mask (hard per-face)
   varying float vMaskType;    // boundary mask type (0 = user mask, 1 = angle mask)
 
   #include <clipping_planes_pars_vertex>
@@ -246,20 +294,18 @@ const vertexShader = /* glsl */`
       angleMask = min(angleMask, surfaceAngle > bottomAngleLimit ? 1.0 : 0.0);
     if (fN.z >= 0.0 && topAngleLimit >= 1.0)
       angleMask = min(angleMask, surfaceAngle > topAngleLimit ? 1.0 : 0.0);
-    float totalMask = angleMask * faceMask * boundaryFalloffAttr;
-    vFaceMask = totalMask;
-    vUserMask = faceMask;
-    vMaskType = boundaryMaskTypeAttr;
+    vLayerMask    = layerMask;
+    vLayerFalloff = layerFalloff;
+    vAngleMask    = angleMask;
+    vMaskType     = boundaryMaskTypeAttr;
 
     if (useDisplacement == 1) {
-      float h = computeHeightAtPoint(position, safeN, safeN);
-      if (symmetricDisplacement == 1) h = h - 0.5;
-      h *= totalMask;
+      float h = compositeHeight(position, safeN, safeN, layerMask * layerFalloff * angleMask);
 
       // Displace along smooth normal so all copies of the same position
       // arrive at the same point (watertight, no cracks).
       vec3 sN = length(smoothNormal) > 1e-6 ? normalize(smoothNormal) : safeN;
-      pos = position + sN * h * amplitude;
+      pos = position + sN * h;
       // Overhang protection: never move a vertex below its original Z.
       if (noDownwardZ == 1 && pos.z < position.z) pos.z = position.z;
     }
@@ -287,47 +333,37 @@ const fragmentShader = /* glsl */`
   uniform float     boundaryEdgeTexWidth;
   uniform float     boundaryFalloffDist;
   uniform int       boundaryFalloffCurve; // 0 = linear, 1 = s-curve, 2 = ease-in
+  uniform float     maskTint;             // strength of the mask colouring (weaker with several layers)
 
   varying vec3  vModelPos;
   varying vec3  vModelNormal;
   varying vec3  vViewPos;
   varying vec3  vNormal;
   varying vec3  vSmoothNormal;
-  varying float vFaceMask;
-  varying float vUserMask;
+  varying vec4  vLayerMask;
+  varying vec4  vLayerFalloff;
+  varying float vAngleMask;
   varying float vMaskType;
 
   #include <clipping_planes_pars_fragment>
 
-  // Fragment-only wrapper: compute face-stable projection normal via dFdx
-  // then delegate to the shared height function.
-  float getHeight() {
+  void main() {
+    // Flip normal for back faces so flipped-winding geometry still lights correctly.
+    vec3 N = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
+
+    // Face-stable projection normal via dFdx, shared by every layer.
     vec3 _dpx = dFdx(vModelPos);
     vec3 _dpy = dFdy(vModelPos);
     vec3 _fN  = cross(_dpx, _dpy);
     vec3 PN   = length(_fN) > 1e-10 ? normalize(_fN) : vModelNormal;
-    return computeHeightAtPoint(vModelPos, PN, vModelNormal);
-  }
 
-  void main() {
-    // Flip normal for back faces so flipped-winding geometry still lights correctly.
-    vec3 N = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
-    float h = getHeight();
-    if (symmetricDisplacement == 1) h = h - 0.5;
+    // Per-layer weights: user mask × boundary falloff × angle mask.
+    vec4 w = vLayerMask * vLayerFalloff * vAngleMask;
 
-    // ── Bump mapping via screen-space height derivatives ──────────────────
-    // Compute derivatives on the RAW (unmasked) height so that screen-space
-    // 2×2 pixel quads spanning masked/unmasked boundaries don't produce
-    // large derivative spikes that bleed bump artifacts across the edge.
-    float dhx = dFdx(h);
-    float dhy = dFdy(h);
-
-    // ── Combined mask (angle + user exclusion) from vertex shader ────────
-    float maskBlend = vFaceMask;
-
-    // Per-fragment boundary falloff for bump-only mode.  On coarse meshes the
-    // vertex attribute cannot produce a gradient (too few vertices), so we
-    // compute the distance from each pixel to the nearest boundary edge.
+    // Per-fragment boundary falloff for bump-only mode, on the active layer.
+    // On coarse meshes the vertex attribute cannot produce a gradient (too
+    // few vertices), so we compute the distance from each pixel to the
+    // nearest boundary edge.
     if (useDisplacement == 0 && boundaryFalloffDist > 0.001 && boundaryEdgeCount > 0) {
       float minDist = boundaryFalloffDist;
       for (int i = 0; i < 64; i++) {
@@ -347,12 +383,36 @@ const fragmentShader = /* glsl */`
       // export ramp in displacement.js.
       if      (boundaryFalloffCurve == 1) bf = bf * bf * (3.0 - 2.0 * bf);
       else if (boundaryFalloffCurve == 2) bf = bf * bf;
-      maskBlend *= bf;
+      if      (activeLayer == 0) w.x *= bf;
+      else if (activeLayer == 1) w.y *= bf;
+      else if (activeLayer == 2) w.z *= bf;
+      else                       w.w *= bf;
     }
 
-    h *= maskBlend;
-    dhx *= maskBlend;
-    dhy *= maskBlend;
+    // ── Bump mapping via screen-space height derivatives ──────────────────
+    // Derivatives are taken on each layer's RAW height and weighted
+    // afterwards, so 2×2 pixel quads spanning mask boundaries don't produce
+    // large derivative spikes that bleed bump artifacts across the edge.
+    // The weighted sums follow the same over/add recurrence as the height,
+    // so the bump matches the composited relief. coverSum tracks how much of
+    // the fragment any layer textures (shading blends to the smooth normal
+    // where nothing does).
+    float dhx = 0.0, dhy = 0.0, coverSum = 0.0;
+    for (int l = 0; l < MAX_LAYERS; l++) {
+      if (l >= layerCount) break;
+      float hRaw = computeHeightAtPoint(l, vModelPos, PN, vModelNormal);
+      float gx = dFdx(hRaw) * layerAmp[l];
+      float gy = dFdy(hRaw) * layerAmp[l];
+      float wl = w[l];
+      if (layerAdd[l] == 1) {
+        dhx += gx * wl; dhy += gy * wl; coverSum += wl;
+      } else {
+        dhx = dhx * (1.0 - wl) + gx * wl;
+        dhy = dhy * (1.0 - wl) + gy * wl;
+        coverSum = coverSum * (1.0 - wl) + wl;
+      }
+    }
+    coverSum = clamp(coverSum, 0.0, 1.0);
 
     vec3 dp1 = dFdx(vViewPos);
     vec3 dp2 = dFdy(vViewPos);
@@ -368,8 +428,8 @@ const fragmentShader = /* glsl */`
     // is already physical; bump only adds sub-vertex fine detail.
     float posScale = max(length(dp1) + length(dp2), 1e-6);
     float bumpStr  = useDisplacement == 1
-      ? amplitude * 2.0 / posScale
-      : amplitude * 6.0 / posScale;
+      ? 2.0 / posScale
+      : 6.0 / posScale;
 
     vec3 bumpVec = N - bumpStr * (dhx * T + dhy * B);
     vec3 bumpN = length(bumpVec) > 1e-6 ? normalize(bumpVec) : N;
@@ -378,7 +438,7 @@ const fragmentShader = /* glsl */`
     // back to the flat face normal → faceted/static look.  Blend toward
     // the smooth interpolated normal so masked areas get smooth shading.
     vec3 smoothN = normalize(vSmoothNormal) * (gl_FrontFacing ? 1.0 : -1.0);
-    bumpN = mix(smoothN, bumpN, maskBlend);
+    bumpN = mix(smoothN, bumpN, coverSum);
 
     // ── Shading ───────────────────────────────────────────────────────────
     // Compute lighting identically for ALL surfaces using the teal base so
@@ -405,11 +465,14 @@ const fragmentShader = /* glsl */`
                  + tealBase * diff2 * vec3(0.80, 0.60, 0.50) * 0.15
                  + vec3(spec);
 
-    // Mask tint: pick colour by mask type, compute same lighting with that base
-    float maskEffect = 1.0 - maskBlend; // 0 = fully textured, 1 = fully masked
+    // Mask tint shows the ACTIVE layer's mask: pick colour by mask type,
+    // compute the same lighting with that base.
+    float userMask   = activeLayer == 0 ? vLayerMask.x : activeLayer == 1 ? vLayerMask.y : activeLayer == 2 ? vLayerMask.z : vLayerMask.w;
+    float activeMask = activeLayer == 0 ? w.x : activeLayer == 1 ? w.y : activeLayer == 2 ? w.z : w.w;
+    float maskEffect = (1.0 - activeMask) * maskTint; // 0 = fully textured, 1 = fully masked
     // Any user-mask coverage (hard 0 or soft-brush fractions) tints in the
     // user colour; only fully unmasked pixels defer to the boundary type.
-    float effectiveMaskType = mix(vMaskType, 0.0, step(0.001, 1.0 - vUserMask));
+    float effectiveMaskType = mix(vMaskType, 0.0, step(0.001, 1.0 - userMask));
     vec3 maskBase = mix(userMaskColor, angleMaskColor, effectiveMaskType);
     vec3 litMask = maskBase * 0.55
                  + maskBase * diff1 * vec3(1.00, 0.96, 0.88) * 0.55
@@ -429,108 +492,130 @@ const fragmentShader = /* glsl */`
 
 /**
  * Create a ShaderMaterial for the displacement preview.
- * @param {THREE.Texture|null} displacementTexture
- * @param {object} settings  – { mappingMode, scaleU, scaleV, amplitude, offsetU, offsetV, bounds }
+ * @param {Array<object>} layers  see updateMaterial
+ * @param {object} settings       global settings, see updateMaterial
  */
-export function createPreviewMaterial(displacementTexture, settings) {
+export function createPreviewMaterial(layers, settings) {
   const mat = new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
-    uniforms: buildUniforms(displacementTexture, settings),
+    uniforms: buildUniforms(),
     side: THREE.DoubleSide,
     clipping: true, // section view (viewer.js sets clippingPlanes)
   });
+  updateMaterial(mat, layers, settings);
   return mat;
 }
 
 /**
  * Update existing ShaderMaterial uniforms in-place (no recreate).
+ *
+ * @param {THREE.ShaderMaterial} material
+ * @param {Array<object>} layers  visible texture layers in composition order
+ *   (at most MAX_LAYERS), each: { texture, mappingMode, scaleU, scaleV,
+ *   offsetU, offsetV, rotation, amplitude, symmetricDisplacement,
+ *   mappingBlend, seamBandWidth, capAngle, cylinderCenterX, cylinderCenterY,
+ *   cylinderRadius, textureAspectU, textureAspectV, blendAdd }
+ * @param {object} settings  { bounds, bottomAngleLimit, topAngleLimit,
+ *   noDownwardZ, useDisplacement, activeLayer (index into `layers`),
+ *   boundaryFalloff, boundaryFalloffCurve (the active layer's, for the
+ *   per-fragment edge falloff), maskTint }
  */
-export function updateMaterial(material, displacementTexture, settings) {
+export function updateMaterial(material, layers, settings) {
   const u = material.uniforms;
-  if (displacementTexture && u.displacementMap.value !== displacementTexture) {
-    u.displacementMap.value = displacementTexture;
-  }
-  u.mappingMode.value   = settings.mappingMode;
-  // settings.scaleU/scaleV are absolute mm; the shader works in normalized
-  // UV space, so convert to the mode's relative factors on the CPU.
-  {
-    const b = settings.bounds || { size: { x: 1, y: 1, z: 1 } };
-    const rel = scaleMmToRelative(settings.mappingMode, settings, b);
-    u.scaleUV.value.set(rel.u, rel.v);
-  }
-  u.amplitude.value     = settings.amplitude;
-  u.offsetUV.value.set(settings.offsetU, settings.offsetV);
-  u.rotation.value      = (settings.rotation ?? 0) * Math.PI / 180;
-  if (settings.bounds) {
-    u.boundsMin.value.copy(settings.bounds.min);
-    u.boundsSize.value.copy(settings.bounds.size);
-    u.boundsCenter.value.copy(settings.bounds.center);
-    const cx = settings.cylinderCenterX ?? settings.bounds.center.x;
-    const cy = settings.cylinderCenterY ?? settings.bounds.center.y;
-    const cr = settings.cylinderRadius
-      ?? Math.max(settings.bounds.size.x, settings.bounds.size.y) * 0.5;
-    u.cylinderCenter.value.set(cx, cy);
-    u.cylinderRadius.value = cr;
-  }
-  u.bottomAngleLimit.value = settings.bottomAngleLimit ?? 5.0;
-  u.topAngleLimit.value    = settings.topAngleLimit    ?? 0.0;
-  u.mappingBlend.value            = settings.mappingBlend            ?? 0.0;
-  u.seamBandWidth.value           = settings.seamBandWidth           ?? 0.35;
-  u.capAngle.value                = settings.capAngle                ?? 20.0;
-  u.symmetricDisplacement.value   = settings.symmetricDisplacement   ? 1 : 0;
-  u.noDownwardZ.value             = settings.noDownwardZ             ? 1 : 0;
-  u.useDisplacement.value         = settings.useDisplacement         ? 1 : 0;
-  u.textureAspect.value.set(settings.textureAspectU ?? 1, settings.textureAspectV ?? 1);
-  u.boundaryFalloffDist.value       = settings.boundaryFalloff           ?? 0.0;
-  u.boundaryFalloffCurve.value      = FALLOFF_CURVE_INDEX[settings.boundaryFalloffCurve] ?? 0;
-}
-
-// ── Internal ──────────────────────────────────────────────────────────────────
-
-function buildUniforms(tex, settings) {
   const b = settings.bounds || {
     min:    new THREE.Vector3(),
     size:   new THREE.Vector3(1, 1, 1),
     center: new THREE.Vector3(),
   };
-  const relScale = scaleMmToRelative(settings.mappingMode ?? MODE_TRIPLANAR, settings, b);
+  const n = Math.min(layers.length, MAX_LAYERS);
+  u.layerCount.value  = n;
+  u.activeLayer.value = Math.max(0, Math.min(n - 1, settings.activeLayer ?? 0));
+  for (let l = 0; l < MAX_LAYERS; l++) {
+    const L = l < n ? layers[l] : null;
+    const mapU = u['map' + l];
+    const tex = L && L.texture ? L.texture : _fallbackTexture();
+    if (mapU.value !== tex) mapU.value = tex;
+    const mode = L ? (L.mappingMode ?? MODE_TRIPLANAR) : MODE_TRIPLANAR;
+    u.layerMode.value[l] = mode;
+    // scaleU/scaleV are absolute mm; the shader works in normalized UV
+    // space, so convert to the mode's relative factors on the CPU.
+    const rel = L ? scaleMmToRelative(mode, L, b) : { u: 1, v: 1 };
+    u.layerScale.value[l * 2]     = rel.u;
+    u.layerScale.value[l * 2 + 1] = rel.v;
+    u.layerAmp.value[l]           = L ? (L.amplitude ?? 0) : 0;
+    u.layerOffset.value[l * 2]     = L ? (L.offsetU ?? 0) : 0;
+    u.layerOffset.value[l * 2 + 1] = L ? (L.offsetV ?? 0) : 0;
+    u.layerRot.value[l]            = L ? (L.rotation ?? 0) * Math.PI / 180 : 0;
+    u.layerCylCenter.value[l * 2]     = L ? (L.cylinderCenterX ?? b.center.x) : 0;
+    u.layerCylCenter.value[l * 2 + 1] = L ? (L.cylinderCenterY ?? b.center.y) : 0;
+    u.layerCylRadius.value[l]  = L ? (L.cylinderRadius ?? Math.max(b.size.x, b.size.y) * 0.5) : 1;
+    u.layerBlend.value[l]      = L ? (L.mappingBlend ?? 0) : 0;
+    u.layerSeamBand.value[l]   = L ? (L.seamBandWidth ?? 0.35) : 0.35;
+    u.layerCapAngle.value[l]   = L ? (L.capAngle ?? 20) : 20;
+    u.layerSymmetric.value[l]  = L && L.symmetricDisplacement ? 1 : 0;
+    u.layerAspect.value[l * 2]     = L ? (L.textureAspectU ?? 1) : 1;
+    u.layerAspect.value[l * 2 + 1] = L ? (L.textureAspectV ?? 1) : 1;
+    u.layerAdd.value[l]        = L && L.blendAdd ? 1 : 0;
+  }
+  u.boundsMin.value.copy(b.min);
+  u.boundsSize.value.copy(b.size);
+  u.boundsCenter.value.copy(b.center);
+  u.bottomAngleLimit.value = settings.bottomAngleLimit ?? 5.0;
+  u.topAngleLimit.value    = settings.topAngleLimit    ?? 0.0;
+  u.noDownwardZ.value      = settings.noDownwardZ      ? 1 : 0;
+  u.useDisplacement.value  = settings.useDisplacement  ? 1 : 0;
+  u.boundaryFalloffDist.value  = settings.boundaryFalloff ?? 0.0;
+  u.boundaryFalloffCurve.value = FALLOFF_CURVE_INDEX[settings.boundaryFalloffCurve] ?? 0;
+  u.maskTint.value = settings.maskTint ?? 1.0;
+}
+
+// ── Internal ──────────────────────────────────────────────────────────────────
+
+function buildUniforms() {
   return {
-    displacementMap: { value: tex || createFallbackTexture() },
-    mappingMode:     { value: settings.mappingMode ?? MODE_TRIPLANAR },
-    scaleUV:         { value: new THREE.Vector2(relScale.u, relScale.v) },
-    amplitude:       { value: settings.amplitude ?? 1.0 },
-    offsetUV:        { value: new THREE.Vector2(settings.offsetU ?? 0, settings.offsetV ?? 0) },
-    rotation:        { value: ((settings.rotation ?? 0) * Math.PI / 180) },
-    boundsMin:        { value: b.min.clone() },
-    boundsSize:       { value: b.size.clone() },
-    boundsCenter:     { value: b.center.clone() },
-    cylinderCenter:   { value: new THREE.Vector2(
-                          settings.cylinderCenterX ?? b.center.x,
-                          settings.cylinderCenterY ?? b.center.y) },
-    cylinderRadius:   { value: settings.cylinderRadius
-                          ?? Math.max(b.size.x, b.size.y) * 0.5 },
-    bottomAngleLimit: { value: settings.bottomAngleLimit ?? 5.0 },
-    topAngleLimit:    { value: settings.topAngleLimit    ?? 0.0 },
-    mappingBlend:             { value: settings.mappingBlend            ?? 0.0 },
-    seamBandWidth:            { value: settings.seamBandWidth            ?? 0.35 },
-    capAngle:                 { value: settings.capAngle                 ?? 20.0 },
-    symmetricDisplacement:    { value: settings.symmetricDisplacement   ? 1 : 0 },
-    noDownwardZ:              { value: settings.noDownwardZ             ? 1 : 0 },
-    useDisplacement:          { value: settings.useDisplacement         ? 1 : 0 },
-    textureAspect:            { value: new THREE.Vector2(settings.textureAspectU ?? 1, settings.textureAspectV ?? 1) },
-    boundaryEdgeTex:          { value: createFallbackDataTexture() },
-    boundaryEdgeCount:        { value: 0 },
-    boundaryEdgeTexWidth:     { value: 1.0 },
-    boundaryFalloffDist:        { value: settings.boundaryFalloff ?? 0.0 },
-    boundaryFalloffCurve:       { value: FALLOFF_CURVE_INDEX[settings.boundaryFalloffCurve] ?? 0 },
+    map0: { value: _fallbackTexture() },
+    map1: { value: _fallbackTexture() },
+    map2: { value: _fallbackTexture() },
+    map3: { value: _fallbackTexture() },
+    layerCount:     { value: 0 },
+    activeLayer:    { value: 0 },
+    layerMode:      { value: new Int32Array(MAX_LAYERS) },
+    layerScale:     { value: new Float32Array(MAX_LAYERS * 2) },
+    layerAmp:       { value: new Float32Array(MAX_LAYERS) },
+    layerOffset:    { value: new Float32Array(MAX_LAYERS * 2) },
+    layerRot:       { value: new Float32Array(MAX_LAYERS) },
+    layerCylCenter: { value: new Float32Array(MAX_LAYERS * 2) },
+    layerCylRadius: { value: new Float32Array(MAX_LAYERS) },
+    layerBlend:     { value: new Float32Array(MAX_LAYERS) },
+    layerSeamBand:  { value: new Float32Array(MAX_LAYERS) },
+    layerCapAngle:  { value: new Float32Array(MAX_LAYERS) },
+    layerSymmetric: { value: new Int32Array(MAX_LAYERS) },
+    layerAspect:    { value: new Float32Array(MAX_LAYERS * 2) },
+    layerAdd:       { value: new Int32Array(MAX_LAYERS) },
+    boundsMin:        { value: new THREE.Vector3() },
+    boundsSize:       { value: new THREE.Vector3(1, 1, 1) },
+    boundsCenter:     { value: new THREE.Vector3() },
+    bottomAngleLimit: { value: 5.0 },
+    topAngleLimit:    { value: 0.0 },
+    noDownwardZ:      { value: 0 },
+    useDisplacement:  { value: 0 },
+    boundaryEdgeTex:      { value: createFallbackDataTexture() },
+    boundaryEdgeCount:    { value: 0 },
+    boundaryEdgeTexWidth: { value: 1.0 },
+    boundaryFalloffDist:  { value: 0.0 },
+    boundaryFalloffCurve: { value: 0 },
+    maskTint:             { value: 1.0 },
   };
 }
 
 // Maps settings.boundaryFalloffCurve to the shader's integer uniform.
 const FALLOFF_CURVE_INDEX = { linear: 0, scurve: 1, ease: 2 };
 
-function createFallbackTexture() {
+// One shared mid-grey texture for unused layer slots (never displaces).
+let _fallback = null;
+function _fallbackTexture() {
+  if (_fallback) return _fallback;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 4;
   const ctx = canvas.getContext('2d');
@@ -538,6 +623,7 @@ function createFallbackTexture() {
   ctx.fillRect(0, 0, 4, 4);
   const t = new THREE.CanvasTexture(canvas);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  _fallback = t;
   return t;
 }
 

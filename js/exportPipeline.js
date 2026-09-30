@@ -22,6 +22,17 @@
  *                 (softMask.js), interpolated onto the refined mesh
  *   imageData     ImageData-like {data, width, height}
  *   imgWidth, imgHeight  texture dimensions
+ *   layers        optional, several textures composited per vertex
+ *                 (displacement.js applyDisplacementLayers). Replaces
+ *                 imageData/imgWidth/imgHeight/softExclude; faceWeights then
+ *                 marks the faces NO layer textures. Each entry:
+ *                   imageData, imgWidth, imgHeight, settings (per-layer),
+ *                   exclude   Float32Array|null per-corner exclusion on the
+ *                             SOURCE mesh (1 = untextured), carried onto the
+ *                             refined mesh through the parent-face map
+ *                   hardFaces Uint8Array|null per source face, 1 = fully
+ *                             untextured by the layer's hard mask
+ *                   blendAdd  boolean
  *   settings      plain settings snapshot (structured-clone safe)
  *   bounds        {min,max,size,center} as {x,y,z} objects or Vector3s
  *   regularizeOpts  opts object for regularizeMesh
@@ -42,7 +53,7 @@ import { THREE } from './threeCompat.js';
 import { QuantizedPointMap } from './meshIndex.js';
 import { subdivide } from './subdivision.js';
 import { regularizeMesh } from './regularize.js';
-import { applyDisplacement } from './displacement.js';
+import { applyDisplacement, applyDisplacementLayers } from './displacement.js';
 import { decimate } from './decimation.js';
 import { resolveTJunctions, countEdgeDefects, countAreaSlivers } from './meshRepair.js';
 import { interpolateFromParents } from './softMask.js';
@@ -223,9 +234,10 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     ));
     if (shouldAbort()) return null;
 
-    // Soft-brush paint reaches the refined mesh through the parent-face map,
-    // so it needs real parents in export mode too.
-    const trackParents = mode === 'bake' || !!input.softExclude;
+    // Soft-brush paint (and every layer's mask) reaches the refined mesh
+    // through the parent-face map, so it needs real parents in export mode too.
+    const layers = Array.isArray(input.layers) && input.layers.length ? input.layers : null;
+    const trackParents = mode === 'bake' || !!input.softExclude || !!layers;
 
     // Regularize sub-slivers, then re-subdivide stretched edges. Skipped when
     // the Advanced toggle is off. Without parent tracking a zero parent map
@@ -267,15 +279,38 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     const subTriCount = subdivided.attributes.position.count / 3;
     onEvent('displace', 0, { triCount: subTriCount });
     await yieldFrame();
-    displaced = applyDisplacement(
-      subdivided,
-      input.imageData,
-      input.imgWidth,
-      input.imgHeight,
-      settings,
-      bounds,
-      (p) => onEvent('displace', p, { triCount: subTriCount })
-    );
+    if (layers) {
+      // Carry each layer's mask from the source mesh onto the refined one:
+      // per-corner exclusion by barycentric interpolation inside the parent
+      // triangle (exact for uniform parents), hard-mask flags by parent.
+      const subPos = subdivided.attributes.position.array;
+      const refined = layers.map((l) => {
+        let hardFaces = null;
+        if (l.hardFaces) {
+          hardFaces = new Uint8Array(faceParentId.length);
+          for (let i = 0; i < hardFaces.length; i++) hardFaces[i] = l.hardFaces[faceParentId[i]];
+        }
+        return {
+          imageData: l.imageData, imgWidth: l.imgWidth, imgHeight: l.imgHeight,
+          settings: l.settings, blendAdd: !!l.blendAdd, hardFaces,
+          exclude: l.exclude ? interpolateFromParents(subPos, faceParentId, input.positions, l.exclude) : null,
+        };
+      });
+      displaced = applyDisplacementLayers(
+        subdivided, refined, settings, bounds,
+        (p) => onEvent('displace', p, { triCount: subTriCount })
+      );
+    } else {
+      displaced = applyDisplacement(
+        subdivided,
+        input.imageData,
+        input.imgWidth,
+        input.imgHeight,
+        settings,
+        bounds,
+        (p) => onEvent('displace', p, { triCount: subTriCount })
+      );
+    }
     if (shouldAbort()) return null;
 
     // Preserve-untextured (beta): capture the per-face exclusion mask before

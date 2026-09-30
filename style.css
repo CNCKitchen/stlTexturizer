@@ -754,6 +754,123 @@ main.sidebar-collapsed .gallery-panel { display: none; }
   padding: 1px 6px;
 }
 
+/* ── Texture layers strip ─────────────────────────────────────────────── */
+.layer-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.layer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px 3px 4px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.layer-row:hover { border-color: var(--text-muted); }
+.layer-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.layer-row.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface2));
+}
+
+.layer-row.hidden-layer .layer-thumb,
+.layer-row.hidden-layer .layer-name { opacity: 0.45; }
+
+.layer-thumb {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 5px;
+  background: var(--bg);
+  image-rendering: auto;
+}
+
+.layer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  min-width: 22px;
+  padding: 0 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.layer-btn:hover {
+  color: var(--text);
+  background: var(--bg);
+  border-color: var(--border);
+}
+
+.layer-btn.layer-del:hover { color: var(--danger); }
+
+.layer-btn.layer-blend {
+  padding: 0 7px;
+  border-color: var(--border);
+  letter-spacing: 0.02em;
+}
+
+.layer-btn.layer-blend.add {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.layer-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.layer-add-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--surface2);
+}
+
+.layer-add-btn:disabled { opacity: 0.45; cursor: default; }
+
 /* ── Texture gallery side panel ──────────────────────────────────────── */
 /* Non-modal: it takes the settings panel's slot (and width, see #settings-panel), so the viewport
    stays put and orbitable while picks apply live. */
