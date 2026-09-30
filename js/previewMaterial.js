@@ -230,6 +230,8 @@ const vertexShader = /* glsl */`
   varying float vUserMask;    // raw user-exclusion mask (0 = user-excluded, 1 = included, between = soft brush)
   varying float vMaskType;    // boundary mask type (0 = user mask, 1 = angle mask)
 
+  #include <clipping_planes_pars_vertex>
+
   void main() {
     vec3 safeN = length(normal) > 1e-6 ? normalize(normal) : vec3(0.0, 0.0, 1.0);
     // Use the true geometric face normal for angle masking so that
@@ -265,12 +267,14 @@ const vertexShader = /* glsl */`
     // Always pass the ORIGINAL position for UV computation in the fragment shader.
     vModelPos    = position;
     vModelNormal = fN;
-    vec4 mvPos   = modelViewMatrix * vec4(pos, 1.0);
-    vViewPos     = mvPos.xyz;
+    // Clipped (section view) on the displaced position, so the cut follows the preview surface.
+    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+    #include <clipping_planes_vertex>
+    vViewPos     = mvPosition.xyz;
     vNormal      = normalize(normalMatrix * fN);
     vec3 sN = length(smoothNormal) > 1e-6 ? normalize(smoothNormal) : safeN;
     vSmoothNormal = normalize(normalMatrix * sN);
-    gl_Position  = projectionMatrix * mvPos;
+    gl_Position  = projectionMatrix * mvPosition;
   }
 `;
 
@@ -292,6 +296,8 @@ const fragmentShader = /* glsl */`
   varying float vFaceMask;
   varying float vUserMask;
   varying float vMaskType;
+
+  #include <clipping_planes_pars_fragment>
 
   // Fragment-only wrapper: compute face-stable projection normal via dFdx
   // then delegate to the shared height function.
@@ -413,6 +419,8 @@ const fragmentShader = /* glsl */`
     // Blend: 100% mask colour at the boundary, fading to 0% at falloff distance
     vec3 color = mix(litTeal, litMask, maskEffect);
 
+    // Section view: discard last, so every dFdx/dFdy above ran in uniform control flow.
+    #include <clipping_planes_fragment>
     gl_FragColor = vec4(color, 1.0);
   }
 `;
@@ -430,6 +438,7 @@ export function createPreviewMaterial(displacementTexture, settings) {
     fragmentShader,
     uniforms: buildUniforms(displacementTexture, settings),
     side: THREE.DoubleSide,
+    clipping: true, // section view (viewer.js sets clippingPlanes)
   });
   return mat;
 }

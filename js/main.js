@@ -9,7 +9,9 @@ import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWirefram
          setExclusionOverlay, setHoverPreview, setViewerTheme,
          setProjection, requestRender,
          clearDiagOverlays, setDiagEdges, addDiagFaces,
-         setRotationGizmo, isGizmoDragging, isSoftwareRendering, setTurntable } from './viewer.js';
+         setRotationGizmo, isGizmoDragging, isSoftwareRendering, setTurntable,
+         setSectionView, setSectionAxis, flipSection, setSectionHandlesLocked,
+         sectionVisibleHits } from './viewer.js';
 import { loadModelFile, computeBounds, getTriangleCount }  from './stlLoader.js';
 import { estimateStep } from './stepLoader.js';
 import { resolveStepSettings } from './stepConvert.js';
@@ -332,6 +334,8 @@ const advancedSection  = document.getElementById('advanced-section');
 const advancedToggle   = document.getElementById('advanced-toggle');
 const wireframeToggle  = document.getElementById('wireframe-toggle');
 const projectionToggle = document.getElementById('projection-toggle');
+const sectionToggle    = document.getElementById('section-toggle');
+const sectionControls  = document.getElementById('section-controls');
 const placeOnFaceBtn   = document.getElementById('place-on-face-btn');
 const rotateBtn        = document.getElementById('rotate-btn');
 const rotateControls   = document.getElementById('rotate-controls');
@@ -1817,6 +1821,22 @@ function wireEvents() {
   // ── Projection toggle ──
   projectionToggle.addEventListener('change', () => setProjection(projectionToggle.checked));
 
+  // ── Section view ──
+  sectionToggle.addEventListener('change', () => {
+    // The plane handles hide while a click tool is active; switching the cut on
+    // hands the mouse to them so it can be placed first.
+    if (sectionToggle.checked) {
+      if (exclusionTool) setExclusionTool(null);
+      if (placeOnFaceActive) togglePlaceOnFace(false);
+    }
+    setSectionView(sectionToggle.checked);
+    sectionControls.classList.toggle('hidden', !sectionToggle.checked);
+  });
+  sectionControls.querySelectorAll('[data-section-axis]').forEach(btn => {
+    btn.addEventListener('click', () => setSectionAxis(btn.dataset.sectionAxis));
+  });
+  document.getElementById('section-flip').addEventListener('click', flipSection);
+
   // ── Exclusion tool wiring ─────────────────────────────────────────────────
 
   exclBrushBtn.addEventListener('click', () => setExclusionTool('brush'));
@@ -2140,6 +2160,7 @@ function updateMaskModeButtons() {
 function setExclusionTool(tool) {
   // Clicking the active tool toggles it off; passing null always deactivates
   exclusionTool = (exclusionTool === tool) ? null : tool;
+  setSectionHandlesLocked(!!exclusionTool || placeOnFaceActive);
 
   // Deactivate place-on-face and rotate if an exclusion tool is being activated
   if (exclusionTool && placeOnFaceActive) togglePlaceOnFace(false);
@@ -2210,6 +2231,8 @@ function _canvasNDC(e) {
 // face normal (in world space) points toward the camera ray origin.
 const _normalMatrix = new THREE.Matrix3();
 function getFrontFaceHit(hits, mesh) {
+  // Section view: the cut-away side isn't there, and the cut face covers what's behind it.
+  hits = sectionVisibleHits(hits, _raycaster.ray);
   if (!hits.length) return null;
   _normalMatrix.getNormalMatrix(mesh.matrixWorld);
   for (const hit of hits) {
@@ -2771,6 +2794,7 @@ function _clearShiftLinePreview() {
 function togglePlaceOnFace(active) {
   placeOnFaceActive = active;
   placeOnFaceBtn.classList.toggle('active', active);
+  setSectionHandlesLocked(!!exclusionTool || active);
 
   if (active) {
     // Deactivate exclusion tool

@@ -69,6 +69,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 ### 3D Viewer
 - **Orbit / pan / zoom** controls
 - **Wireframe toggle** — visualise mesh topology
+- **Section view** — cut the model open with a plane to see which inner surfaces (holes, cavities, the inside of hollow parts) get textured, and mask them right through the cut; X/Y/Z snap, flip, and drag handles to move or tilt the cut
 - **Mesh info** — live triangle count, file size, bounding-box dimensions
 - **Grid & axes indicator** — X = red, Y = green, Z = blue
 - **Place on Face** — click a face to orient it downward onto the print bed

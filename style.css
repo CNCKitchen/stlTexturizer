@@ -375,6 +375,45 @@ main {
   user-select: none;
 }
 
+/* Section view: axis snaps + flip beside the toggle while it is on. The axis
+   letters wear the colours of the viewport's axes indicator. */
+.section-controls {
+  display: flex;
+  align-items: center;
+  margin-left: -10px;   /* reads as part of the toggle, not a new footer item */
+}
+.section-controls.hidden { display: none; }
+.section-btn {
+  height: 20px;
+  min-width: 24px;
+  padding: 0 7px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-left: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.section-btn:first-child {
+  border-left: 1px solid var(--border);
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+.section-btn:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-weight: 400;
+}
+.section-btn:hover { background: var(--border); color: var(--text); }
+.section-btn[data-section-axis="x"] { color: #ff5f5f; }
+.section-btn[data-section-axis="y"] { color: #4ade80; }
+.section-btn[data-section-axis="z"] { color: #5b9bff; }
+[data-theme="light"] .section-btn[data-section-axis="x"] { color: #d93025; }
+[data-theme="light"] .section-btn[data-section-axis="y"] { color: #1a7f3c; }
+[data-theme="light"] .section-btn[data-section-axis="z"] { color: #2563eb; }
+
 .place-on-face-btn {
   display: flex;
   align-items: center;

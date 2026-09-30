@@ -8,6 +8,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LineSegments2 }  from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial }   from 'three/addons/lines/LineMaterial.js';
+import { SectionController } from './section.js';
 
 // Pre-allocated temp objects for hot-path event handlers (avoid GC pressure)
 const _tmpQ1 = new THREE.Quaternion();
@@ -32,6 +33,17 @@ let _needsRender = true;
 let _diagEdges = null;       // LineSegments2 for open/non-manifold edges
 let _diagFaces = [];         // Array of THREE.Mesh overlays for face highlights
 let _turntable = null;       // { last, onStop } while the camera auto-orbits the model
+let _section = null;         // SectionController (section.js): clipping plane + cap + gizmo
+let _sectionToolLock = false; // a pick tool owns left clicks: the section handles step aside
+
+// Shared by every material that belongs to the model (mesh, wireframe, mask and
+// diagnostic overlays): empty = no cut, [plane] while the section view is on.
+// three.js swaps shader programs by itself when the plane count changes.
+const _clipPlanes = [];
+function _clip(material) {
+  if (material) material.clippingPlanes = _clipPlanes;
+  return material;
+}
 
 const _TURNTABLE_RAD_PER_S = (2 * Math.PI) / 24;   // one revolution every 24 s
 const _Z_AXIS = new THREE.Vector3(0, 0, 1);
@@ -176,7 +188,9 @@ function buildDimensions(box, groundZ, scale) {
 export function initViewer(canvas) {
   // Renderer
   // 'high-performance' asks hybrid-GPU laptops for the discrete GPU (#75).
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
+  // stencil: the section view's filled cut face (off by default since r163).
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, stencil: true, powerPreference: 'high-performance' });
+  renderer.localClippingEnabled = true;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -262,8 +276,9 @@ export function initViewer(canvas) {
       ((clientY - rect.top)  / rect.height) * -2 + 1,
     );
     _orbitRaycaster.setFromCamera(ndc, camera);
-    const hits = _orbitRaycaster.intersectObject(currentMesh);
-    if (hits.length) _lastKnownPivot = hits[0].point.clone();
+    const { hits, onCap } = _sectionHits(_orbitRaycaster.intersectObject(currentMesh), _orbitRaycaster.ray);
+    if (onCap) _lastKnownPivot = _orbitRaycaster.ray.intersectPlane(_section.plane, new THREE.Vector3()) ?? _lastKnownPivot;
+    else if (hits.length) _lastKnownPivot = hits[0].point.clone();
     return _lastKnownPivot ? _lastKnownPivot.clone() : null;
   }
 
@@ -529,6 +544,28 @@ export function initViewer(canvas) {
   // Rotation gizmo interaction
   _initGizmoInteraction();
 
+  _section = new SectionController({
+    scene,
+    camera: () => camera,
+    domElement: renderer.domElement,
+    requestRender,
+    onDraggingChanged: (dragging) => { controls.enabled = !dragging; },
+    bounds: () => {
+      if (!currentMesh) return null;
+      const geo = currentMesh.geometry;
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      const box = geo.boundingBox;
+      return { center: box.getCenter(new THREE.Vector3()), diag: box.getSize(new THREE.Vector3()).length() };
+    },
+  });
+  // A mouse press on a hovered plane handle belongs to the gizmo: switch the
+  // orbit off before OrbitControls and the custom pivot orbit see the event
+  // (capture runs first at the target). Touch has no hover; there the drag
+  // start disables the controls before the touch slop lets an orbit begin.
+  renderer.domElement.addEventListener('pointerdown', (e) => {
+    if (e.button === 0 && _section.busy()) controls.enabled = false;
+  }, { capture: true });
+
   // Any direct manipulation of the view hands control back to the user.
   const stopTurntable = () => {
     if (!_turntable) return;
@@ -640,7 +677,7 @@ export function loadGeometry(geometry, material) {
 
   if (!geometry.attributes.normal) geometry.computeVertexNormals();
 
-  currentMesh = new THREE.Mesh(geometry, mat);
+  currentMesh = new THREE.Mesh(geometry, _clip(mat));
   currentMesh.castShadow = true;
   currentMesh.receiveShadow = true;
   meshGroup.add(currentMesh);
@@ -675,6 +712,10 @@ export function loadGeometry(geometry, material) {
   if (dimensionGroup) { disposeGroup(dimensionGroup); scene.remove(dimensionGroup); }
   dimensionGroup = buildDimensions(box, groundZ, sphere.radius);
   scene.add(dimensionGroup);
+
+  // New model or pose: the section plane re-centres through it.
+  _section.setTarget(currentMesh);
+  _section.refit();
   requestRender();
 }
 
@@ -687,12 +728,13 @@ export function setMeshMaterial(material) {
   if (currentMesh.material && currentMesh.material.dispose) {
     currentMesh.material.dispose();
   }
-  currentMesh.material = material || new THREE.MeshStandardMaterial({
+  currentMesh.material = _clip(material || new THREE.MeshStandardMaterial({
     color: 0xaaaacc,
     roughness: 0.6,
     metalness: 0.1,
     side: THREE.DoubleSide,
-  });
+  }));
+  _section.setTarget(currentMesh);
   requestRender();
 }
 
@@ -706,6 +748,7 @@ export function setMeshGeometry(geometry) {
   if (!currentMesh) return;
   if (!geometry.attributes.normal) geometry.computeVertexNormals();
   currentMesh.geometry = geometry;
+  _section.setTarget(currentMesh);
   // Rebuild wireframe overlay to match the new geometry
   if (wireframeLines) {
     meshGroup.remove(wireframeLines);
@@ -821,6 +864,7 @@ export function setProjection(perspective) {
 
   camera = newCam;
   controls.object = camera;
+  _section?.setCamera(camera);
   const sz = renderer.getSize(new THREE.Vector2());
   const aspect = sz.x / sz.y;
   if (perspective) {
@@ -878,7 +922,7 @@ export function setExclusionOverlay(overlayGeo, color = 0xff6600, opacity = 1.0)
   }
   if (!overlayGeo || overlayGeo.attributes.position.count === 0) { requestRender(); return; }
   if (!_exclMaterial) {
-    _exclMaterial = new THREE.MeshLambertMaterial({
+    _exclMaterial = _clip(new THREE.MeshLambertMaterial({
       color,
       side: THREE.DoubleSide,
       transparent: opacity < 1.0,
@@ -886,7 +930,7 @@ export function setExclusionOverlay(overlayGeo, color = 0xff6600, opacity = 1.0)
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
-    });
+    }));
   } else {
     _exclMaterial.color.set(color);
     _exclMaterial.opacity = opacity;
@@ -912,7 +956,7 @@ export function setHoverPreview(overlayGeo, color = 0xffee00) {
   }
   if (!overlayGeo || overlayGeo.attributes.position.count === 0) { requestRender(); return; }
   if (!_hoverMaterial) {
-    _hoverMaterial = new THREE.MeshBasicMaterial({
+    _hoverMaterial = _clip(new THREE.MeshBasicMaterial({
       color,
       side: THREE.DoubleSide,
       transparent: true,
@@ -920,7 +964,7 @@ export function setHoverPreview(overlayGeo, color = 0xffee00) {
       polygonOffset: true,
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -2,
-    });
+    }));
   } else {
     _hoverMaterial.color.set(color);
   }
@@ -978,7 +1022,7 @@ function _buildWireframe(geometry) {
     ),
   });
 
-  wireframeLines = new LineSegments2(lsGeo, lsMat);
+  wireframeLines = new LineSegments2(lsGeo, _clip(lsMat));
   wireframeLines.renderOrder = 3;  // draw after base mesh (0), overlays (1-2)
   // Add to meshGroup so it's automatically removed when a new model is loaded
   meshGroup.add(wireframeLines);
@@ -1034,7 +1078,7 @@ export function setDiagEdges(positions, color = 0xff0000) {
     ),
   });
 
-  _diagEdges = new LineSegments2(lsGeo, lsMat);
+  _diagEdges = new LineSegments2(lsGeo, _clip(lsMat));
   _diagEdges.renderOrder = 4;
   scene.add(_diagEdges);
   requestRender();
@@ -1059,11 +1103,81 @@ export function addDiagFaces(overlayGeo, color, opacity = 0.6, xray = false) {
     polygonOffsetFactor: -1,
     polygonOffsetUnits: -1,
   });
-  const mesh = new THREE.Mesh(overlayGeo, mat);
+  const mesh = new THREE.Mesh(overlayGeo, _clip(mat));
   mesh.renderOrder = 1;
   _diagFaces.push(mesh);
   scene.add(mesh);
   requestRender();
+}
+
+// ── Section view ─────────────────────────────────────────────────────────────
+
+/** Toggle the section view: clipping plane + filled cut face + plane gizmo. */
+export function setSectionView(on) {
+  _clipPlanes.length = 0;
+  if (on) _clipPlanes.push(_section.plane);
+  _section.setEnabled(on);
+  requestRender();
+}
+
+/** Snap the section plane perpendicular to a world axis, the cut opening toward the camera. */
+export function setSectionAxis(axis) { _section.setAxis(axis); }
+
+/** Keep the other half. */
+export function flipSection() { _section.flip(); }
+
+/**
+ * Hide the section handles while a click tool (masking, Place on Face) is
+ * active; the cut stays. Seen along the plane normal (the default: the cut
+ * opens toward the camera) the tilt rings project edge-on right across the
+ * cut face, so they would swallow the clicks meant for the inner walls.
+ */
+export function setSectionHandlesLocked(on) {
+  _sectionToolLock = on;
+  _syncSectionHandles();
+}
+
+// The rotate gizmo also sits on the model centre, so it hides them too.
+function _syncSectionHandles() {
+  _section?.setSuppressed(_rotGizmoVisible || _sectionToolLock);
+}
+
+const _secNormalMatrix = new THREE.Matrix3();
+const _secNormal = new THREE.Vector3();
+
+/** True when the hit face points back along the ray (a front face). */
+function _facesRay(hit, ray) {
+  _secNormalMatrix.getNormalMatrix(hit.object.matrixWorld);
+  return _secNormal.copy(hit.face.normal).applyMatrix3(_secNormalMatrix).dot(ray.direction) < 0;
+}
+
+/** Raycast hits as the section view shows them: `hits` drops the cut-away side,
+ *  `onCap` is true when the ray meets the filled cut face before any surface. */
+function _sectionHits(hits, ray) {
+  if (!_section?.enabled) return { hits, onCap: false };
+  const kept = hits.filter(h => !_section.clips(h.point));
+  const first = kept[0];
+  if (!first || _facesRay(first, ray)) return { hits: kept, onCap: false };
+  // The first visible hit faces away: the ray is inside the solid there, and if
+  // it crossed the plane on the way it entered through the cut, so the cap
+  // hides everything behind. DoubleSide picking can report a back face of an
+  // adjacent triangle marginally ahead of the intended front face (see
+  // getFrontFaceHit in main.js), so a front face right behind it still wins.
+  const tol = 1e-4 * (currentMesh?.geometry.boundingSphere?.radius ?? 1);
+  if (kept.some(h => h.distance - first.distance <= tol && _facesRay(h, ray))) return { hits: kept, onCap: false };
+  const t = ray.distanceToPlane(_section.plane);
+  return { hits: kept, onCap: t !== null && t <= first.distance + tol };
+}
+
+/**
+ * Filter model raycast hits (sorted, from `ray`) for tools that act on the
+ * visible surface: with the section view on, hits on the cut-away side are
+ * dropped and a ray landing on the cut face returns none, so painting reaches
+ * the inner walls exposed by the cut but never surfaces hidden behind the cap.
+ */
+export function sectionVisibleHits(hits, ray) {
+  const r = _sectionHits(hits, ray);
+  return r.onCap ? [] : r.hits;
 }
 
 // ── Rotation Gizmo ───────────────────────────────────────────────────────────
@@ -1136,6 +1250,7 @@ function _updateGizmoScale(lock = false) {
 export function setRotationGizmo(visible, onRotate = null) {
   _rotGizmoVisible = visible;
   _rotGizmoCallback = onRotate;
+  _syncSectionHandles();
   if (visible) {
     _buildRotGizmo();
     _rotGizmoLockedScale = null; // reset so it measures fresh
@@ -1162,7 +1277,7 @@ export function updateRotationGizmo() {
  * (so main.js can suppress other mouse handlers).
  */
 export function isGizmoDragging() {
-  return _rotGizmoDragging !== null;
+  return _rotGizmoDragging !== null || !!_section?.dragging;
 }
 
 // Hit-test the gizmo rings. Returns axis string or null.

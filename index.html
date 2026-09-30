@@ -167,6 +167,18 @@
           <input type="checkbox" id="projection-toggle" />
           <span data-i18n="ui.perspective">Perspective View</span>
         </label>
+        <label class="wireframe-toggle" data-i18n-title="ui.sectionTitle"
+          title="Cut the model open to check and mask its inner surfaces. Drag the arrow to move the cut, the rings to tilt it.">
+          <input type="checkbox" id="section-toggle" />
+          <span data-i18n="ui.section">Section View</span>
+        </label>
+        <div id="section-controls" class="section-controls hidden" role="group"
+          data-i18n-aria-label="ui.sectionControls" aria-label="Section plane">
+          <button type="button" class="section-btn" data-section-axis="x" data-i18n-title="ui.sectionXTitle" title="Cut perpendicular to the X axis">X</button>
+          <button type="button" class="section-btn" data-section-axis="y" data-i18n-title="ui.sectionYTitle" title="Cut perpendicular to the Y axis">Y</button>
+          <button type="button" class="section-btn" data-section-axis="z" data-i18n-title="ui.sectionZTitle" title="Cut perpendicular to the Z axis">Z</button>
+          <button type="button" class="section-btn" id="section-flip" data-i18n="ui.sectionFlip" data-i18n-title="ui.sectionFlipTitle" title="Show the other half">Flip</button>
+        </div>
 
         <div class="viewport-controls-hint" data-i18n="ui.controlsHint">Left drag: orbit &nbsp;Â·&nbsp; Right drag: pan &nbsp;Â·&nbsp; Scroll: zoom</div>
       </div>
