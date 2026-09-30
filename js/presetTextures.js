@@ -147,8 +147,9 @@ const PRESET_CATEGORIES = [
 // Default panel favourites (a 4×3 grid); users star their own in the gallery, and each extra 4
 // favourites add another row.
 const DEFAULT_FAVOURITES = [
-  'Crystal', 'Knurling', 'Carbon Fiber', 'Hexagons', 'Voronoi', 'Leather 2',
-  'Wood 2', 'Weave 1', 'Grip Surface', 'Fish Scales', 'Aztec', 'Labyrinth',
+  'Crystal',   'Knurling',     'Carbon Fiber', 'Hexagons',
+  'Voronoi',   'Leather 2',    'Weave 1',      'Grip Surface',
+  'Labyrinth', 'Square Setts', 'Brick',        'Wood 1',
 ];
 
 // Cache for full-resolution preset data (keyed by index)
