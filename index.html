@@ -485,8 +485,8 @@
         <div id="excl-brush-type-row" class="form-row hidden">
           <span id="excl-brush-type-label" class="form-row-label" data-i18n="labels.type">Type</span>
           <div class="excl-seg" role="group" aria-labelledby="excl-brush-type-label">
-            <button id="excl-brush-single" class="excl-seg-btn active" data-i18n="brushType.single">Single</button>
-            <button id="excl-brush-radius-btn" class="excl-seg-btn" data-i18n="brushType.circle">Circle</button>
+            <button id="excl-brush-single" class="excl-seg-btn" data-i18n="brushType.single">Single</button>
+            <button id="excl-brush-radius-btn" class="excl-seg-btn active" data-i18n="brushType.circle">Circle</button>
           </div>
         </div>
 
@@ -500,8 +500,8 @@
         <!-- Hardness slider (shown when Brush + Radius) -->
         <div id="excl-hardness-row" class="form-row slider-row hidden">
           <label for="excl-brush-hardness-slider" data-i18n="labels.hardness" data-i18n-title="tooltips.hardness" title="Edge softness of the circle brush, in %. 100 = hard, face-exact mask. Lower values fade the mask out toward the brush rim for smooth borders. Soft paint is stored per mesh vertex, so enable Precision for smooth gradients on coarse meshes. Shift erases softly too.">Hardness %</label>
-          <input type="range" id="excl-brush-hardness-slider" min="0" max="100" step="1" value="100" />
-          <input type="number" class="val" id="excl-brush-hardness-val" value="100" min="0" max="100" step="1" />
+          <input type="range" id="excl-brush-hardness-slider" min="0" max="100" step="1" value="50" />
+          <input type="number" class="val" id="excl-brush-hardness-val" value="50" min="0" max="100" step="1" />
         </div>
 
         <!-- Bucket threshold (shown when Fill is active) -->

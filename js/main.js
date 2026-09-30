@@ -82,9 +82,9 @@ let triangleCentroids  = null;        // Float32Array from buildAdjacency
 let triangleFaceNormals = null;       // Float32Array — local-space unit face normal per tri
 let exclusionTool      = null;        // 'brush' | 'bucket' | null
 let eraseMode          = false;
-let brushIsRadius      = false;
+let brushIsRadius      = true;
 let brushRadius        = 5.0;
-let brushHardness      = 1.0;         // circle brush: 1 = hard, leaf-exact; < 1 = soft, coverage per tree vertex
+let brushHardness      = 0.5;         // circle brush: 1 = hard, leaf-exact; < 1 = soft, coverage per tree vertex
 let bucketThreshold    = 20;
 let isPainting         = false;
 let selectionMode      = false;       // false = exclude painted faces; true = include only painted faces
@@ -1914,9 +1914,10 @@ function wireEvents() {
   exclBrushHardnessSlider.addEventListener('dblclick', () => setHardness(parseFloat(exclBrushHardnessSlider.defaultValue)));
   exclBrushHardnessVal.addEventListener('change', () => {
     const v = parseFloat(exclBrushHardnessVal.value);
-    setHardness(Number.isFinite(v) ? v : 100);
+    setHardness(Number.isFinite(v) ? v : parseFloat(exclBrushHardnessSlider.defaultValue));
   });
   addFineWheelSupport(exclBrushHardnessVal, (v) => setHardness(v));
+  updateBrushCursorHardness();
 
   exclThresholdSlider.addEventListener('input', () => {
     bucketThreshold = parseFloat(exclThresholdSlider.value);
