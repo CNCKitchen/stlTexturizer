@@ -7,6 +7,24 @@ import { THREE } from './threeCompat.js';
 import { computeUV, getDominantCubicAxis, getCubicBlendWeights, scaleMmToRelative } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
 
+// ── Sharp-crease handling (see _findCreases / _creaseMoves) ─────────────────
+// Buffer normals within this angle belong to the same smooth group
+// (subdivision splits groups at 30°, and copies of one group are identical).
+const CREASE_GROUP_COS = Math.cos(20 * Math.PI / 180);
+// A position is mitred when two of its groups meet at this angle or more.
+// Gentler facet breaks (coarse cylinders, chamfers) stay on the smooth path,
+// whose groove is small there (1 − cos(φ/2): 3 % at 30°, 10 % at 50°) and
+// whose blend-normal smoothing keeps the projection continuous across them.
+const SHARP_CREASE_COS = Math.cos(50 * Math.PI / 180);
+const MAX_GROUPS = 6;
+// Acute wedges: the exact mitre runs away (h / cos(φ/2) → ∞ toward a knife
+// edge), so the move is capped at this multiple of the largest group height.
+const MITER_LIMIT = 2;
+// Weight pulling the mitre toward the smooth-normal move. Only decides the
+// directions the face planes leave free (along the edge line; the open side
+// of a thin plate) — too small to shift a mitred corner noticeably.
+const MITER_RIDGE = 0.01;
+
 /**
  * Apply displacement to every vertex of a non-indexed BufferGeometry.
  *
@@ -108,9 +126,12 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
   // texture UV lookup and for the displacement direction.  All copies of the
   // same position then move by the same vector → watertight result.
   //
-  // The tradeoff is that displaced normals are smooth at hard edges, but the
-  // underlying geometry is still faceted (the subdivision didn't change it),
-  // so printed edges remain sharp.
+  // Moving along the averaged normal would round every hard edge off: a
+  // vertex on a 90° cube edge travels 45° outward, so it ends up only
+  // h·cos 45° ≈ 0.71 h from each face while its neighbours sit at h — a
+  // notched groove along the edge. Vertices on sharp creases are therefore
+  // mitred instead (see _findCreases / _creaseMoves): still one vector per
+  // position, so still watertight.
 
   // ── Vertex dedup pass: position → numeric ID (allocation-free hash table) ─
   // idPos{X,Y,Z} are only populated when boundary falloff is enabled, since
@@ -135,6 +156,11 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
     vertexId[i] = id;
   }
   const uniqueCount = _nextId;
+
+  // Welded positions on a crease, with one normal per smooth group meeting
+  // there (null when the mesh has none — the rest of the pass then runs
+  // exactly as it did before creases were handled).
+  let creases = nrmAttr ? _findCreases(nrmAttr, vertexId, uniqueCount) : null;
 
   // ── Pass 1: accumulate area-weighted smooth normals per unique position ───
   // Flat arrays indexed by vertex dedup ID (replaces Map<string, ...>)
@@ -236,6 +262,11 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
       for (const l of cubicLayers) { l._czX = 0; l._czY = 0; l._czZ = 0; }
     }
 
+    let cenX = 0, cenY = 0, cenZ = 0;
+    if (creases) {
+      cenX = (vA.x + vB.x + vC.x) / 3; cenY = (vA.y + vB.y + vC.y) / 3; cenZ = (vA.z + vB.z + vC.z) / 3;
+    }
+
     for (let v = 0; v < 3; v++) {
       const vid = vertexId[t + v];
       if (userExcluded && excludedPos) excludedPos[vid] = 1;
@@ -265,8 +296,21 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
       }
       if (faceMasked) maskedFracMasked[vid] += faceArea;
       maskedFracTotal[vid] += faceArea;
+      if (creases && creases.slotOf[vid] >= 0) {
+        const k = creases.start[creases.slotOf[vid]] + creases.groupOf[t + v];
+        const c = v === 0 ? vA : v === 1 ? vB : vC;
+        creases.nrmX[k] += tmpNrm.x * faceArea;
+        creases.nrmY[k] += tmpNrm.y * faceArea;
+        creases.nrmZ[k] += tmpNrm.z * faceArea;
+        creases.inX[k] += cenX - c.x;
+        creases.inY[k] += cenY - c.y;
+        creases.inZ[k] += cenZ - c.z;
+        creases.area[k] += faceArea;
+        if (faceMasked) creases.masked[k] += faceArea;
+      }
     }
   }
+  if (creases && !_finishCreases(creases)) creases = null;
 
   // Normalise each accumulated normal — also remember the pre-normalisation
   // magnitude relative to the total face area at that position. A ratio near
@@ -299,29 +343,52 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
   // sphere the smoothing is a no-op (already smooth); on a noisy surface it
   // damps the jitter that drives ∂w. Direction info is preserved because we
   // re-normalise after each iteration.
+  //
+  // The graph runs over smooth-group nodes, not bare positions: a vertex on a
+  // sharp crease is one node per face group meeting there (_nodeOf), so the
+  // smoothing never carries a face's normal across a hard edge. Blending the
+  // neighbouring face's normal in used to tilt a band of each cube face
+  // toward 45°, where the other face's projection — edge-on there, a smear —
+  // got mixed into the texture. Without creases node = welded position.
   const blendNrmIters = Math.max(0, Math.floor(settings.blendNormalSmoothing ?? 0));
-  let blendNrmX = smoothNrmX, blendNrmY = smoothNrmY, blendNrmZ = smoothNrmZ;
+  const nodeCount = creases ? uniqueCount + creases.extraNodes : uniqueCount;
+  const nodeOf = creases ? (i) => _nodeOf(creases, vertexId, uniqueCount, i) : (i) => vertexId[i];
+  let initX = smoothNrmX, initY = smoothNrmY, initZ = smoothNrmZ;
+  if (creases) {
+    initX = new Float64Array(nodeCount); initX.set(smoothNrmX);
+    initY = new Float64Array(nodeCount); initY.set(smoothNrmY);
+    initZ = new Float64Array(nodeCount); initZ.set(smoothNrmZ);
+    for (let s = 0; s < creases.count; s++) {
+      if (!creases.active[s]) continue;
+      for (let g = 0; g < creases.groups[s]; g++) {
+        const node = _groupNode(creases, uniqueCount, s, g);
+        const k = creases.start[s] + g;
+        initX[node] = creases.nrmX[k]; initY[node] = creases.nrmY[k]; initZ[node] = creases.nrmZ[k];
+      }
+    }
+  }
+  let blendNrmX = initX, blendNrmY = initY, blendNrmZ = initZ;
   if (blendNrmIters > 0) {
     // Build dedup-graph adjacency in CSR form: each triangle contributes
     // 3 directed edges; we build a multigraph (duplicates keep their natural
     // weight from how often two positions share an edge — i.e., shared
     // surfaces accumulate higher coupling, which is what we want).
-    // For each unique-vertex id, neighbors[csrStart[id]..csrStart[id+1])
-    // is the contiguous slice of neighbour ids.
-    const degree = new Uint32Array(uniqueCount);
+    // For each node id, neighbors[csrStart[id]..csrStart[id+1]) is the
+    // contiguous slice of neighbour ids.
+    const degree = new Uint32Array(nodeCount);
     for (let t = 0; t < count; t += 3) {
-      const a = vertexId[t], b = vertexId[t + 1], c = vertexId[t + 2];
+      const a = nodeOf(t), b = nodeOf(t + 1), c = nodeOf(t + 2);
       if (a !== b) { degree[a]++; degree[b]++; }
       if (b !== c) { degree[b]++; degree[c]++; }
       if (c !== a) { degree[c]++; degree[a]++; }
     }
-    const csrStart = new Uint32Array(uniqueCount + 1);
-    for (let id = 0; id < uniqueCount; id++) csrStart[id + 1] = csrStart[id] + degree[id];
-    const totalEdges = csrStart[uniqueCount];
+    const csrStart = new Uint32Array(nodeCount + 1);
+    for (let id = 0; id < nodeCount; id++) csrStart[id + 1] = csrStart[id] + degree[id];
+    const totalEdges = csrStart[nodeCount];
     const neighbors = new Uint32Array(totalEdges);
-    const cursor = new Uint32Array(uniqueCount);
+    const cursor = new Uint32Array(nodeCount);
     for (let t = 0; t < count; t += 3) {
-      const a = vertexId[t], b = vertexId[t + 1], c = vertexId[t + 2];
+      const a = nodeOf(t), b = nodeOf(t + 1), c = nodeOf(t + 2);
       if (a !== b) { neighbors[csrStart[a] + cursor[a]++] = b; neighbors[csrStart[b] + cursor[b]++] = a; }
       if (b !== c) { neighbors[csrStart[b] + cursor[b]++] = c; neighbors[csrStart[c] + cursor[c]++] = b; }
       if (c !== a) { neighbors[csrStart[c] + cursor[c]++] = a; neighbors[csrStart[a] + cursor[a]++] = c; }
@@ -329,15 +396,15 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
 
     // Laplacian smoothing on a writable copy. Read from current, write to
     // next, swap. Each iteration: average over neighbours, re-normalise.
-    let curX = new Float64Array(smoothNrmX);
-    let curY = new Float64Array(smoothNrmY);
-    let curZ = new Float64Array(smoothNrmZ);
-    let nxtX = new Float64Array(uniqueCount);
-    let nxtY = new Float64Array(uniqueCount);
-    let nxtZ = new Float64Array(uniqueCount);
+    let curX = new Float64Array(initX);
+    let curY = new Float64Array(initY);
+    let curZ = new Float64Array(initZ);
+    let nxtX = new Float64Array(nodeCount);
+    let nxtY = new Float64Array(nodeCount);
+    let nxtZ = new Float64Array(nodeCount);
 
     for (let iter = 0; iter < blendNrmIters; iter++) {
-      for (let id = 0; id < uniqueCount; id++) {
+      for (let id = 0; id < nodeCount; id++) {
         const s = csrStart[id], e = csrStart[id + 1];
         if (e === s) {
           nxtX[id] = curX[id]; nxtY[id] = curY[id]; nxtZ[id] = curZ[id];
@@ -365,12 +432,17 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
     }
     blendNrmX = curX; blendNrmY = curY; blendNrmZ = curZ;
   }
+  if (creases) creases.groupOf = null; // per corner; only the graph above needed it
 
   // ── Composite displacement per unique position ────────────────────────────
   // Layers are folded in one at a time: sample the layer's height map at
   // every welded vertex, then combine it with what the layers below already
   // produced. Per-layer scratch arrays are released after each fold.
   const acc = new Float64Array(uniqueCount);
+  // The same, per smooth group of every crease position: each group is
+  // sampled with its own face normal (so each face's texture runs straight
+  // up to the edge) and composited like any other position.
+  const groupAcc = creases ? new Float64Array(creases.groupCount) : null;
 
   for (let li = 0; li < layers.length; li++) {
     const layer = layers[li];
@@ -397,6 +469,16 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
     // ── Pass 2: sample displacement texture once per unique position ────────
     const dispCacheVal = new Float64Array(uniqueCount);
     const dispCacheSet = new Uint8Array(uniqueCount);
+    const groupGrey = creases ? new Float64Array(creases.groupCount) : null;
+
+    const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z, 1e-6);
+    const relScale = scaleMmToRelative(6, lset, bounds);
+    const rotRad = (lset.rotation ?? 0) * Math.PI / 180;
+    const cubicBlend = lset.mappingBlend ?? 0;
+    const cubicBandWidth = lset.seamBandWidth ?? 0.35;
+    const cubicGrey = (wX, wY, wZ, fx, fy, fz) => _cubicGrey(
+      imageData.data, imgWidth, imgHeight, tmpPos, wX, wY, wZ, fx, fy, fz,
+      bounds, md, relScale, lset, rotRad, aspectU, aspectV);
 
     for (let i = 0; i < count; i++) {
       const vid = vertexId[i];
@@ -404,6 +486,27 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
       dispCacheSet[vid] = 1;
 
       tmpPos.fromBufferAttribute(posAttr, i);
+
+      // Crease position: one sample per face group meeting here, each with
+      // that group's (smoothed) blend normal and its own normal for the
+      // mirror decisions — never the averaged edge normal.
+      const slot = creases ? creases.slotOf[vid] : -1;
+      if (slot >= 0) {
+        for (let g = 0; g < creases.groups[slot]; g++) {
+          const k = creases.start[slot] + g;
+          const node = _groupNode(creases, uniqueCount, slot, g);
+          if (lset.mappingMode === 6 /* MODE_CUBIC */) {
+            const w = getCubicBlendWeights(
+              { x: blendNrmX[node], y: blendNrmY[node], z: blendNrmZ[node] }, cubicBlend, cubicBandWidth);
+            groupGrey[k] = cubicGrey(w.x, w.y, w.z, creases.nrmX[k], creases.nrmY[k], creases.nrmZ[k]);
+          } else {
+            tmpNrm.set(blendNrmX[node], blendNrmY[node], blendNrmZ[node]);
+            groupGrey[k] = _projectedGrey(imageData.data, imgWidth, imgHeight, tmpPos, tmpNrm,
+              lset.mappingMode, settingsWithAspect, bounds);
+          }
+        }
+        continue;
+      }
 
       // Cubic: derive blend weights from the *smooth* per-vertex normal so that
       // adjacent vertices on a curved region (small fillets, rolled edges) see
@@ -421,12 +524,6 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
       // 0.5 is loose enough that a 90° cube edge (≈0.71) still uses the smooth
       // path, but a near-180° fold falls back to face-area zones.
       if (lset.mappingMode === 6 /* MODE_CUBIC */) {
-        const md = Math.max(bounds.size.x, bounds.size.y, bounds.size.z, 1e-6);
-        const relScale = scaleMmToRelative(6, lset, bounds);
-        const rotRad = (lset.rotation ?? 0) * Math.PI / 180;
-        const cubicBlend = lset.mappingBlend ?? 0;
-        const cubicBandWidth = lset.seamBandWidth ?? 0.35;
-
         let wX = 0, wY = 0, wZ = 0;
         if (smoothNrmReliability[vid] > 0.5) {
           const sn = { x: blendNrmX[vid], y: blendNrmY[vid], z: blendNrmZ[vid] };
@@ -439,31 +536,12 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
         }
 
         if (wX + wY + wZ > 0) {
-          let grey = 0;
           // U-flip uses the *original* smoothNrm — it's a discrete sign decision
           // about which face of the cube this vertex sits on. The smoothed blend
           // normal can have small components flip sign during Laplacian smoothing
           // (e.g. for vertices near the equator x≈0), which would mirror their
           // texture sample relative to the true surface orientation.
-          if (wX > 0) { // X-dominant → YZ projection
-            let rawU = (tmpPos.y-bounds.min.y)/md;
-            if (smoothNrmX[vid] < 0) rawU = -rawU;
-            const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, relScale, lset, rotRad, aspectU, aspectV);
-            grey += sampleBilinear(imageData.data, imgWidth, imgHeight, uv.u, uv.v) * wX;
-          }
-          if (wY > 0) { // Y-dominant → XZ projection
-            let rawU = (tmpPos.x-bounds.min.x)/md;
-            if (smoothNrmY[vid] > 0) rawU = -rawU;
-            const uv = _cubicUV(rawU, (tmpPos.z-bounds.min.z)/md, relScale, lset, rotRad, aspectU, aspectV);
-            grey += sampleBilinear(imageData.data, imgWidth, imgHeight, uv.u, uv.v) * wY;
-          }
-          if (wZ > 0) { // Z-dominant → XY projection
-            let rawU = (tmpPos.x-bounds.min.x)/md;
-            if (smoothNrmZ[vid] < 0) rawU = -rawU;
-            const uv = _cubicUV(rawU, (tmpPos.y-bounds.min.y)/md, relScale, lset, rotRad, aspectU, aspectV);
-            grey += sampleBilinear(imageData.data, imgWidth, imgHeight, uv.u, uv.v) * wZ;
-          }
-          dispCacheVal[vid] = grey;
+          dispCacheVal[vid] = cubicGrey(wX, wY, wZ, smoothNrmX[vid], smoothNrmY[vid], smoothNrmZ[vid]);
           continue;
         }
       }
@@ -474,18 +552,8 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
       // no-op there. Displacement direction (Pass 3) stays on the unsmoothed
       // smooth normal — only blend weights change here.
       tmpNrm.set(blendNrmX[vid], blendNrmY[vid], blendNrmZ[vid]);
-
-      const uvResult = computeUV(tmpPos, tmpNrm, lset.mappingMode, settingsWithAspect, bounds);
-      let grey;
-      if (uvResult.triplanar) {
-        grey = 0;
-        for (const s of uvResult.samples) {
-          grey += sampleBilinear(imageData.data, imgWidth, imgHeight, s.u, s.v) * s.w;
-        }
-      } else {
-        grey = sampleBilinear(imageData.data, imgWidth, imgHeight, uvResult.u, uvResult.v);
-      }
-      dispCacheVal[vid] = grey;
+      dispCacheVal[vid] = _projectedGrey(imageData.data, imgWidth, imgHeight, tmpPos, tmpNrm,
+        lset.mappingMode, settingsWithAspect, bounds);
     }
 
     // ── Fold this layer into the composite ──────────────────────────────────
@@ -518,6 +586,32 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
         acc[vid] = acc[vid] * (1 - cover) + disp;
       }
     }
+    // Crease groups fold the same way; angle masking is per group (a face
+    // group is masked or it isn't), everything else is per position.
+    if (creases) {
+      for (let s = 0; s < creases.count; s++) {
+        if (!creases.active[s]) continue;
+        const vid = creases.vidOf[s];
+        const pinned = isPinned(vid);
+        const falloffFactor = falloffArr ? falloffArr[vid] : 1.0;
+        for (let g = 0; g < creases.groups[s]; g++) {
+          const k = creases.start[s] + g;
+          const gArea = creases.area[k];
+          const maskedFrac = gArea > 0 ? creases.masked[k] / gArea : 0;
+          const centeredGrey = symmetric ? (groupGrey[k] - 0.5) : groupGrey[k];
+          let disp = pinned ? 0 : falloffFactor * (1 - maskedFrac) * centeredGrey * amplitude;
+          if (softMax) disp *= 1 - softMax[vid];
+          if (li === 0) {
+            groupAcc[k] = disp;
+          } else if (blendAdd) {
+            groupAcc[k] += disp;
+          } else {
+            const cover = pinned ? 0 : (softMax ? 1 - softMax[vid] : 1);
+            groupAcc[k] = groupAcc[k] * (1 - cover) + disp;
+          }
+        }
+      }
+    }
 
     layer._softMax = null; layer._hardPos = null;
     layer._zoneAreaX = layer._zoneAreaY = layer._zoneAreaZ = null;
@@ -529,6 +623,7 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
   // of the same position land at exactly the same 3-D point.
 
   const REPORT_EVERY = 5000;
+  const moves = creases ? _creaseMoves(creases, groupAcc, smoothNrmX, smoothNrmY, smoothNrmZ) : null;
 
   for (let i = 0; i < count; i++) {
     tmpPos.fromBufferAttribute(posAttr, i);
@@ -539,9 +634,10 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
     const mfTotal = maskedFracTotal[vid];
     const maskedFrac = mfTotal > 0 ? maskedFracMasked[vid] / mfTotal : 0;
 
-    const newX = tmpPos.x + smoothNrmX[vid] * disp;
-    const newY = tmpPos.y + smoothNrmY[vid] * disp;
-    let   newZ = tmpPos.z + smoothNrmZ[vid] * disp;
+    const slot = creases ? creases.slotOf[vid] : -1;
+    const newX = tmpPos.x + (slot >= 0 ? moves[slot * 3]     : smoothNrmX[vid] * disp);
+    const newY = tmpPos.y + (slot >= 0 ? moves[slot * 3 + 1] : smoothNrmY[vid] * disp);
+    let   newZ = tmpPos.z + (slot >= 0 ? moves[slot * 3 + 2] : smoothNrmZ[vid] * disp);
 
     // Prevent boundary vertices from poking through the masked surface in Z.
     // Only triggers for vertices that are partly masked (maskedFrac > 0) and
@@ -606,6 +702,294 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
   out.setAttribute('position', new THREE.BufferAttribute(newPos, 3));
   out.setAttribute('normal',   new THREE.BufferAttribute(newNrm, 3));
   return out;
+}
+
+// ── Sharp creases ────────────────────────────────────────────────────────────
+// Subdivision splits a position into one indexed vertex per smooth group
+// (faces within 30° of each other), so at a crease the non-indexed copies of
+// one welded position carry different buffer normals. Grouping them again
+// gives every face that meets at a crease its own normal: it is sampled with
+// that normal (Pass 2) and the position is then moved to where the displaced
+// faces meet (_creaseMoves), instead of along the averaged normal.
+//
+// Returns null when no position has more than one group. Otherwise, per
+// candidate slot s (a welded position with ≥ 2 groups; slotOf[vid] = s):
+//   groups[s]           number of groups (≤ MAX_GROUPS)
+//   groupOf[corner]     group of each corner at a candidate position
+//   nrm*, area, masked, in*   per group k = start[s] + g: area-weighted
+//                       normal sum, face area, angle-masked area, and the sum
+//                       of (triangle centroid − position) — which way the
+//                       group's faces lie. Filled by Pass 1.
+// _finishCreases then keeps only the sharp ones.
+function _findCreases(nrmAttr, vertexId, uniqueCount) {
+  const count = vertexId.length;
+  const nrm = nrmAttr.array;
+  const first = new Int32Array(uniqueCount).fill(-1);
+  const cand = new Uint8Array(uniqueCount);
+  let nCand = 0;
+  for (let i = 0; i < count; i++) {
+    const vid = vertexId[i];
+    const f = first[vid];
+    if (f < 0) { first[vid] = i; continue; }
+    if (cand[vid]) continue;
+    const dot = nrm[i*3] * nrm[f*3] + nrm[i*3+1] * nrm[f*3+1] + nrm[i*3+2] * nrm[f*3+2];
+    if (dot < CREASE_GROUP_COS) { cand[vid] = 1; nCand++; }
+  }
+  if (nCand === 0) return null;
+
+  const slotOf = new Int32Array(uniqueCount).fill(-1);
+  const vidOf = new Uint32Array(nCand);
+  for (let vid = 0, s = 0; vid < uniqueCount; vid++) {
+    if (cand[vid]) { slotOf[vid] = s; vidOf[s] = vid; s++; }
+  }
+
+  const groupOf = new Uint8Array(count);
+  const groups = new Uint8Array(nCand);
+  const rep = new Float32Array(nCand * MAX_GROUPS * 3);
+  for (let i = 0; i < count; i++) {
+    const s = slotOf[vertexId[i]];
+    if (s < 0) continue;
+    const nx = nrm[i*3], ny = nrm[i*3+1], nz = nrm[i*3+2];
+    const base = s * MAX_GROUPS;
+    let best = -1, bestDot = -Infinity;
+    for (let g = 0; g < groups[s]; g++) {
+      const r = (base + g) * 3;
+      const dot = nx * rep[r] + ny * rep[r+1] + nz * rep[r+2];
+      if (dot > bestDot) { bestDot = dot; best = g; }
+    }
+    // A new group unless one is within the grouping angle; past MAX_GROUPS
+    // the corner joins its closest group.
+    if ((best < 0 || bestDot < CREASE_GROUP_COS) && groups[s] < MAX_GROUPS) {
+      best = groups[s]++;
+      const r = (base + best) * 3;
+      rep[r] = nx; rep[r+1] = ny; rep[r+2] = nz;
+    }
+    groupOf[i] = best;
+  }
+
+  // Most crease positions have two groups: store them packed, not MAX_GROUPS
+  // slots each.
+  const start = new Int32Array(nCand + 1);
+  for (let s = 0; s < nCand; s++) start[s + 1] = start[s] + groups[s];
+  const n = start[nCand];
+  return {
+    count: nCand, slotOf, vidOf, groupOf, groups, start, groupCount: n,
+    nrmX: new Float64Array(n), nrmY: new Float64Array(n), nrmZ: new Float64Array(n),
+    inX: new Float64Array(n), inY: new Float64Array(n), inZ: new Float64Array(n),
+    area: new Float64Array(n), masked: new Float64Array(n),
+    active: null, extraStart: null, extraNodes: 0,
+  };
+}
+
+// Normalise the group normals, drop candidates whose groups all meet at less
+// than the sharp angle (slotOf → -1: they go down the smooth path exactly as
+// before), turn the accumulated in-sums into unit directions into each face,
+// and number the extra smoothing nodes. Returns false when nothing is sharp.
+function _finishCreases(cr) {
+  cr.active = new Uint8Array(cr.count);
+  cr.extraStart = new Int32Array(cr.count);
+  let extra = 0, active = 0;
+  for (let s = 0; s < cr.count; s++) {
+    const base = cr.start[s];
+    const n = cr.groups[s];
+    let valid = 0;
+    for (let g = 0; g < n; g++) {
+      const k = base + g;
+      const len = Math.sqrt(cr.nrmX[k] * cr.nrmX[k] + cr.nrmY[k] * cr.nrmY[k] + cr.nrmZ[k] * cr.nrmZ[k]);
+      if (len > 0 && cr.area[k] > 0) {
+        cr.nrmX[k] /= len; cr.nrmY[k] /= len; cr.nrmZ[k] /= len;
+        valid++;
+      } else {
+        // Degenerate faces only: no plane to honour.
+        cr.area[k] = 0; cr.nrmX[k] = cr.nrmY[k] = cr.nrmZ[k] = 0;
+      }
+    }
+    let minDot = 1;
+    for (let a = 0; a < n; a++) {
+      const ka = base + a;
+      if (!(cr.area[ka] > 0)) continue;
+      for (let b = a + 1; b < n; b++) {
+        const kb = base + b;
+        if (!(cr.area[kb] > 0)) continue;
+        const d = cr.nrmX[ka] * cr.nrmX[kb] + cr.nrmY[ka] * cr.nrmY[kb] + cr.nrmZ[ka] * cr.nrmZ[kb];
+        if (d < minDot) minDot = d;
+      }
+    }
+    if (valid < 2 || minDot > SHARP_CREASE_COS) {
+      cr.slotOf[cr.vidOf[s]] = -1;
+      continue;
+    }
+    cr.active[s] = 1;
+    active++;
+    cr.extraStart[s] = extra;
+    extra += n - 1;
+
+    // With exactly two faces the position sits on one crease line; measure
+    // "into the face" straight across it rather than along the average
+    // centroid direction, which leans along the line with the triangulation.
+    let ex = 0, ey = 0, ez = 0;
+    if (valid === 2) {
+      let ka = -1, kb = -1;
+      for (let g = 0; g < n; g++) {
+        if (cr.area[base + g] > 0) { if (ka < 0) ka = base + g; else kb = base + g; }
+      }
+      ex = cr.nrmY[ka] * cr.nrmZ[kb] - cr.nrmZ[ka] * cr.nrmY[kb];
+      ey = cr.nrmZ[ka] * cr.nrmX[kb] - cr.nrmX[ka] * cr.nrmZ[kb];
+      ez = cr.nrmX[ka] * cr.nrmY[kb] - cr.nrmY[ka] * cr.nrmX[kb];
+      const el = Math.sqrt(ex * ex + ey * ey + ez * ez);
+      if (el > 1e-9) { ex /= el; ey /= el; ez /= el; } else { ex = ey = ez = 0; }
+    }
+    for (let g = 0; g < n; g++) {
+      const k = base + g;
+      let tx = cr.inX[k], ty = cr.inY[k], tz = cr.inZ[k];
+      const tn = tx * cr.nrmX[k] + ty * cr.nrmY[k] + tz * cr.nrmZ[k];
+      tx -= tn * cr.nrmX[k]; ty -= tn * cr.nrmY[k]; tz -= tn * cr.nrmZ[k];
+      const te = tx * ex + ty * ey + tz * ez;
+      tx -= te * ex; ty -= te * ey; tz -= te * ez;
+      const tl = Math.sqrt(tx * tx + ty * ty + tz * tz);
+      if (cr.area[k] > 0 && tl > 1e-12) {
+        cr.inX[k] = tx / tl; cr.inY[k] = ty / tl; cr.inZ[k] = tz / tl;
+      } else {
+        cr.inX[k] = cr.inY[k] = cr.inZ[k] = 0;
+      }
+    }
+  }
+  cr.extraNodes = extra;
+  return active > 0;
+}
+
+// Blend-smoothing node of corner i: its welded position, or — on a sharp
+// crease — one node per group (group 0 keeps the position's own id).
+function _nodeOf(cr, vertexId, uniqueCount, i) {
+  const vid = vertexId[i];
+  const s = cr.slotOf[vid];
+  if (s < 0) return vid;
+  const g = cr.groupOf[i];
+  return g === 0 ? vid : uniqueCount + cr.extraStart[s] + g - 1;
+}
+
+function _groupNode(cr, uniqueCount, s, g) {
+  return g === 0 ? cr.vidOf[s] : uniqueCount + cr.extraStart[s] + g - 1;
+}
+
+// Displacement vector of every sharp crease position (xyz per slot).
+//
+// Each face group g wants its displaced surface at height h_g along its own
+// normal n_g. The mitred position satisfies all of them — d·n_g = h_g — which
+// on a 90° cube edge is d = h_A n_A + h_B n_B: both faces keep their full
+// height right up to the edge, and the edge becomes the line where the two
+// displaced faces meet. Solved in the least-squares sense (more groups at
+// corners) with a small pull toward the old smooth-normal move to pin the
+// directions the planes leave open.
+//
+// Two guards keep it well-behaved where the planes' meeting line lies away
+// from the original edge:
+//  * no intrusion — the position may not move INTO a face it bounds (along
+//    that face, away from the edge), or it would pass the face's own nearby
+//    vertices and fold the surface. That happens on concave edges, on
+//    obtuse convex ones where one face rises well above the other, and with
+//    symmetric displacement where one face sinks. The offending component
+//    is removed: a convex edge then sits on the higher face's plane, a
+//    concave one stays on its original line (a crisp inside corner).
+//  * mitre limit — capped at MITER_LIMIT × the largest group height, so
+//    acute wedges get bevelled instead of growing long spikes.
+function _creaseMoves(cr, groupAcc, snX, snY, snZ) {
+  const out = new Float64Array(cr.count * 3);
+  for (let s = 0; s < cr.count; s++) {
+    if (!cr.active[s]) continue;
+    const base = cr.start[s];
+    const n = cr.groups[s];
+
+    let hSum = 0, aSum = 0, hMax = 0;
+    for (let g = 0; g < n; g++) {
+      const k = base + g;
+      const a = cr.area[k];
+      if (!(a > 0)) continue;
+      const h = groupAcc[k];
+      hSum += a * h; aSum += a;
+      if (Math.abs(h) > hMax) hMax = Math.abs(h);
+    }
+    if (hMax === 0) continue;
+    const vid = cr.vidOf[s];
+    const hMean = aSum > 0 ? hSum / aSum : 0;
+    const d0x = snX[vid] * hMean, d0y = snY[vid] * hMean, d0z = snZ[vid] * hMean;
+
+    let m00 = MITER_RIDGE, m01 = 0, m02 = 0, m11 = MITER_RIDGE, m12 = 0, m22 = MITER_RIDGE;
+    let rx = MITER_RIDGE * d0x, ry = MITER_RIDGE * d0y, rz = MITER_RIDGE * d0z;
+    for (let g = 0; g < n; g++) {
+      const k = base + g;
+      if (!(cr.area[k] > 0)) continue;
+      const nx = cr.nrmX[k], ny = cr.nrmY[k], nz = cr.nrmZ[k], h = groupAcc[k];
+      m00 += nx * nx; m01 += nx * ny; m02 += nx * nz;
+      m11 += ny * ny; m12 += ny * nz; m22 += nz * nz;
+      rx += h * nx; ry += h * ny; rz += h * nz;
+    }
+    const c00 = m11 * m22 - m12 * m12, c01 = m02 * m12 - m01 * m22, c02 = m01 * m12 - m02 * m11;
+    const det = m00 * c00 + m01 * c01 + m02 * c02;
+    let dx = d0x, dy = d0y, dz = d0z;
+    if (Math.abs(det) > 1e-12) {
+      const c11 = m00 * m22 - m02 * m02, c12 = m01 * m02 - m00 * m12, c22 = m00 * m11 - m01 * m01;
+      dx = (c00 * rx + c01 * ry + c02 * rz) / det;
+      dy = (c01 * rx + c11 * ry + c12 * rz) / det;
+      dz = (c02 * rx + c12 * ry + c22 * rz) / det;
+    }
+
+    for (let round = 0; round < 2; round++) {
+      for (let g = 0; g < n; g++) {
+        const k = base + g;
+        const tx = cr.inX[k], ty = cr.inY[k], tz = cr.inZ[k];
+        const dt = dx * tx + dy * ty + dz * tz;
+        if (dt > 0) { dx -= dt * tx; dy -= dt * ty; dz -= dt * tz; }
+      }
+    }
+
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const lim = MITER_LIMIT * hMax;
+    if (len > lim) {
+      const f = lim / len;
+      dx *= f; dy *= f; dz *= f;
+    }
+    out[s * 3] = dx; out[s * 3 + 1] = dy; out[s * 3 + 2] = dz;
+  }
+  return out;
+}
+
+// ── Texture sampling helpers (Pass 2) ────────────────────────────────────────
+
+/** Cubic projection: blend the three axis projections by (wX, wY, wZ); the
+ *  sign of (fx, fy, fz) picks each projection's mirror side. */
+function _cubicGrey(data, w, h, pos, wX, wY, wZ, fx, fy, fz, bounds, md, relScale, settings, rotRad, aspectU, aspectV) {
+  let grey = 0;
+  if (wX > 0) { // X-dominant → YZ projection
+    let rawU = (pos.y-bounds.min.y)/md;
+    if (fx < 0) rawU = -rawU;
+    const uv = _cubicUV(rawU, (pos.z-bounds.min.z)/md, relScale, settings, rotRad, aspectU, aspectV);
+    grey += sampleBilinear(data, w, h, uv.u, uv.v) * wX;
+  }
+  if (wY > 0) { // Y-dominant → XZ projection
+    let rawU = (pos.x-bounds.min.x)/md;
+    if (fy > 0) rawU = -rawU;
+    const uv = _cubicUV(rawU, (pos.z-bounds.min.z)/md, relScale, settings, rotRad, aspectU, aspectV);
+    grey += sampleBilinear(data, w, h, uv.u, uv.v) * wY;
+  }
+  if (wZ > 0) { // Z-dominant → XY projection
+    let rawU = (pos.x-bounds.min.x)/md;
+    if (fz < 0) rawU = -rawU;
+    const uv = _cubicUV(rawU, (pos.y-bounds.min.y)/md, relScale, settings, rotRad, aspectU, aspectV);
+    grey += sampleBilinear(data, w, h, uv.u, uv.v) * wZ;
+  }
+  return grey;
+}
+
+/** Every other mode: computeUV (mapping.js) with `nrm` as the blend normal. */
+function _projectedGrey(data, w, h, pos, nrm, mode, settings, bounds) {
+  const uvResult = computeUV(pos, nrm, mode, settings, bounds);
+  if (uvResult.triplanar) {
+    let grey = 0;
+    for (const s of uvResult.samples) grey += sampleBilinear(data, w, h, s.u, s.v) * s.w;
+    return grey;
+  }
+  return sampleBilinear(data, w, h, uvResult.u, uvResult.v);
 }
 
 // ── Boundary falloff distance field ──────────────────────────────────────────

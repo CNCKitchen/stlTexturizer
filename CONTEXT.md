@@ -134,6 +134,39 @@ refined mesh through the parent-face map like soft paint always was.
 preserve-untextured lock). An unsplit single visible active layer still uses
 the original inputs (`imageData` + `faceWeights` + `softExclude`).
 
+## Sharp creases (`js/displacement.js`)
+
+Every copy of a welded position must move by the same vector (watertight),
+and that vector used to be `smooth normal × h`. On a hard edge that is wrong
+twice over: a 90° cube-edge vertex moves 45° outward and ends up only
+0.71 h from each face while its neighbours sit at h — a notched groove whose
+triangles alternate into a sawtooth comb — and the Laplacian blend-normal
+smoothing carried the 45° normal a few rings into each face, mixing in the
+neighbouring face's projection, which is edge-on there (a horizontal smear).
+
+A **crease position** is one whose corners carry buffer normals from
+different smooth groups (subdivision's `toIndexed` splits at 30°) that meet
+at ≥ 50°. For those only:
+
+* each group is sampled with its own normal, and blend smoothing runs over
+  per-group nodes, so it never crosses the crease;
+* the position is **mitred**: `d · n_g = h_g` for every group (least squares
+  with a 1 % pull toward the old move for the free directions), i.e. it goes
+  where the displaced faces meet;
+* **no intrusion** — `d` may not point into any face it bounds (along that
+  face, away from the edge) or it would pass the face's own first row and
+  fold. This is what keeps concave edges, obtuse convex edges with unequal
+  heights and symmetric (sinking) displacement fold-free;
+* the move is capped at 2 × the largest group height (acute wedges bevel
+  instead of spiking).
+
+Positions not on a sharp crease take exactly the old path: a sphere is
+bit-identical, and on a cube everything ≥ 4 mm from an edge is too (the band
+in between only loses the leaked blend normal). Gentler facet breaks (< 50°)
+keep the smooth path on purpose — the groove there is ≤ 10 % and smoothing
+across them keeps coarse cylinders' projection continuous. The GPU
+displacement preview does not mitre.
+
 ## Paint tree (`js/paintTree.js`)
 
 Surface masks live in a per-triangle split tree over the base mesh, after
