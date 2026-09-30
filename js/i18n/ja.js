@@ -4,6 +4,19 @@
  */
 
 export default {
+  "orca.loadFromOrca": "OrcaSlicer から読み込む",
+  "orca.refreshObjects": "更新",
+  "orca.refreshingObjects": "OrcaSlicer のオブジェクトを更新中…",
+  "orca.noObjects": "OrcaSlicer に転送可能なモデルオブジェクトがありません。",
+  "orca.preparingModel": "OrcaSlicer でモデルを準備中…",
+  "orca.receivingModel": "OrcaSlicer からモデルを受信中…",
+  "orca.loadingModel": "OrcaSlicer のモデルを読み込み中…",
+  "orca.modelLoaded": "OrcaSlicer からモデルを読み込みました。結果をエクスポートし、OrcaSlicer に再度インポートしてください。",
+  "orca.transferFailed": "OrcaSlicer からモデルを転送できませんでした。",
+  "orca.loadFailed": "OrcaSlicer のモデルを読み込めませんでした: {msg}",
+  "orca.negativeVolumes": "負のボリュームは手動エクスポートが必要です",
+  "orca.externalLinksUnavailable": "この埋め込み OrcaSlicer ページから外部リンクを開くことはできません。",
+  "orca.objectFallback": "オブジェクト {id}",
   "theme.dark": "ダークテーマ",
   "theme.light": "ライトテーマ",
   "theme.toggleTitle": "ライト/ダークモードを切り替え",

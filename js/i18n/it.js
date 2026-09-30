@@ -4,6 +4,19 @@
  */
 
 export default {
+  "orca.loadFromOrca": "Carica da OrcaSlicer",
+  "orca.refreshObjects": "Aggiorna",
+  "orca.refreshingObjects": "Aggiornamento degli oggetti OrcaSlicer…",
+  "orca.noObjects": "In OrcaSlicer non sono disponibili oggetti modello trasferibili.",
+  "orca.preparingModel": "Preparazione del modello in OrcaSlicer…",
+  "orca.receivingModel": "Ricezione del modello da OrcaSlicer…",
+  "orca.loadingModel": "Caricamento del modello OrcaSlicer…",
+  "orca.modelLoaded": "Modello caricato da OrcaSlicer. Esporta il risultato e importalo nuovamente in OrcaSlicer.",
+  "orca.transferFailed": "Impossibile trasferire il modello da OrcaSlicer.",
+  "orca.loadFailed": "Impossibile caricare il modello OrcaSlicer: {msg}",
+  "orca.negativeVolumes": "i volumi negativi richiedono l’esportazione manuale",
+  "orca.externalLinksUnavailable": "I collegamenti esterni non possono essere aperti da questa pagina OrcaSlicer incorporata.",
+  "orca.objectFallback": "Oggetto {id}",
   "theme.dark": "Tema Scuro",
   "theme.light": "Tema Chiaro",
   "theme.toggleTitle": "Attiva/disattiva modalità chiara/scura",

@@ -88,6 +88,19 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 - **Light / Dark theme** — respects OS preference, persisted per browser
 - **Multilingual** — English and German UI with auto-detection
 
+### OrcaSlicer integration
+
+The optional OrcaSlicer plugin in [`integrations/orcaslicer/`](integrations/orcaslicer/)
+opens BumpMesh as a Plugin Page and transfers printable model geometry from the
+current OrcaSlicer project into BumpMesh. The normal website remains unchanged;
+the bridge is enabled only inside the plugin's embedded page.
+
+On Windows, the plugin offers **Return to OrcaSlicer** to request import of
+the textured STL as a new object through OrcaSlicer's single-instance file-open
+channel. The original object is preserved. This experimental workflow was
+tested with plugin 0.1.2 in OrcaSlicer 2.5.0-dev build 824b216f. Other platforms
+use STL or 3MF export and manual import. The Python model API remains read-only.
+
 ## Usage
 
 1. Open `index.html` in a modern browser (Chrome, Edge, Firefox, Safari).
@@ -125,6 +138,8 @@ js/
   exclusion.js        # Face exclusion / inclusion painting
   exporter.js         # Binary STL export
   i18n.js             # Translations (EN / DE)
+integrations/
+  orcaslicer/          # OrcaSlicer plugin source, packaging, tests, and setup
 ```
 
 ## Run Locally

@@ -4,6 +4,19 @@
  */
 
 export default {
+  "orca.loadFromOrca": "Indlæs fra OrcaSlicer",
+  "orca.refreshObjects": "Opdater",
+  "orca.refreshingObjects": "Opdaterer objekter fra OrcaSlicer…",
+  "orca.noObjects": "Der er ingen modelobjekter i OrcaSlicer, som kan overføres.",
+  "orca.preparingModel": "Forbereder modellen i OrcaSlicer…",
+  "orca.receivingModel": "Modtager modellen fra OrcaSlicer…",
+  "orca.loadingModel": "Indlæser modellen fra OrcaSlicer…",
+  "orca.modelLoaded": "Modellen er indlæst fra OrcaSlicer. Eksportér resultatet, og importér det tilbage i OrcaSlicer.",
+  "orca.transferFailed": "Modellen kunne ikke overføres fra OrcaSlicer.",
+  "orca.loadFailed": "Modellen fra OrcaSlicer kunne ikke indlæses: {msg}",
+  "orca.negativeVolumes": "negative volumener kræver manuel eksport",
+  "orca.externalLinksUnavailable": "Eksterne links kan ikke åbnes fra denne indlejrede OrcaSlicer-side.",
+  "orca.objectFallback": "Objekt {id}",
   "theme.dark": "Mørkt tema",
   "theme.light": "Lyst tema",
   "theme.toggleTitle": "Skift mellem lyst / mørkt tema",

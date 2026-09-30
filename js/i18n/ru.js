@@ -4,6 +4,27 @@
  */
 
 export default {
+  "orca.returnModel": "Вернуть в OrcaSlicer",
+  "orca.returnHint": "Добавить модель с текстурой новым объектом, сохранив исходную.",
+  "orca.returnUnavailable": "Автовозврат требует обновлённого плагина на Windows. На других платформах используйте экспорт STL.",
+  "orca.returnTooLarge": "Модель слишком велика для передачи. Уменьшите лимит треугольников или экспортируйте STL.",
+  "orca.returnSending": "Передача модели в OrcaSlicer…",
+  "orca.returnSent": "Запрос открытия передан. Проверьте новый объект на вкладке «Подготовка»; исходный сохранён.",
+  "orca.returnTimeout": "Подтверждение не получено. Перед повторной отправкой проверьте стол.",
+
+  "orca.loadFromOrca": "Загрузить из OrcaSlicer",
+  "orca.refreshObjects": "Обновить",
+  "orca.refreshingObjects": "Обновление объектов OrcaSlicer…",
+  "orca.noObjects": "В OrcaSlicer нет объектов модели, доступных для передачи.",
+  "orca.preparingModel": "Подготовка модели в OrcaSlicer…",
+  "orca.receivingModel": "Получение модели из OrcaSlicer…",
+  "orca.loadingModel": "Загрузка модели OrcaSlicer…",
+  "orca.modelLoaded": "Модель загружена из OrcaSlicer.",
+  "orca.transferFailed": "Не удалось передать модель из OrcaSlicer.",
+  "orca.loadFailed": "Не удалось загрузить модель OrcaSlicer: {msg}",
+  "orca.negativeVolumes": "отрицательные объёмы требуют ручного экспорта",
+  "orca.externalLinksUnavailable": "Внешние ссылки нельзя открыть из встроенной страницы OrcaSlicer.",
+  "orca.objectFallback": "Объект {id}",
   "theme.dark": "Тёмная тема",
   "theme.light": "Светлая тема",
   "theme.toggleTitle": "Переключить светлую / тёмную тему",

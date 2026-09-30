@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bumpmesh"
+dynamic = ["version"]
+description = "Add physical surface textures to 3D models inside OrcaSlicer with BumpMesh by CNC Kitchen."
+requires-python = ">=3.12"
+dependencies = ["numpy~=2.0"]
+authors = [{ name = "CNC Kitchen" }]
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+
+[tool.setuptools]
+py-modules = ["bumpmesh_plugin"]
+
+[tool.setuptools.data-files]
+bumpmesh_orca_assets = ["bumpmesh_orca_assets/bumpmesh.png"]
+
+[tool.setuptools.dynamic]
+version = { attr = "bumpmesh_plugin.PLUGIN_VERSION" }

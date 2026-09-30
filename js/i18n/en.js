@@ -4,6 +4,27 @@
  */
 
 export default {
+  "orca.returnModel": "Return to OrcaSlicer",
+  "orca.returnHint": "Add the textured model as a new object; keep the original.",
+  "orca.returnUnavailable": "Automatic return requires the updated plugin on Windows. Use STL export on other platforms.",
+  "orca.returnTooLarge": "The model is too large to return. Reduce the triangle limit or export STL.",
+  "orca.returnSending": "Sending the model to OrcaSlicer…",
+  "orca.returnSent": "Open request sent. Check the new object on the Prepare tab; the original is preserved.",
+  "orca.returnTimeout": "No confirmation received. Check the plate before sending again.",
+
+  "orca.loadFromOrca": "Load from OrcaSlicer",
+  "orca.refreshObjects": "Refresh",
+  "orca.refreshingObjects": "Refreshing OrcaSlicer objects…",
+  "orca.noObjects": "No transferable model objects are available in OrcaSlicer.",
+  "orca.preparingModel": "Preparing the model in OrcaSlicer…",
+  "orca.receivingModel": "Receiving the model from OrcaSlicer…",
+  "orca.loadingModel": "Loading the OrcaSlicer model…",
+  "orca.modelLoaded": "Model loaded from OrcaSlicer.",
+  "orca.transferFailed": "Could not transfer the model from OrcaSlicer.",
+  "orca.loadFailed": "Could not load the OrcaSlicer model: {msg}",
+  "orca.negativeVolumes": "negative volumes require manual export",
+  "orca.externalLinksUnavailable": "External links cannot be opened from this embedded OrcaSlicer page.",
+  "orca.objectFallback": "Object {id}",
   "theme.dark": "Dark Theme",
   "theme.light": "Light Theme",
   "theme.toggleTitle": "Toggle light / dark mode",

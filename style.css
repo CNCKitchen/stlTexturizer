@@ -1304,6 +1304,12 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   width: auto;
   min-width: 0;
 }
+.orca-embedded .export-buttons {
+  flex-wrap: wrap;
+}
+.orca-embedded .export-buttons .export-btn {
+  flex: 0 1 auto;
+}
 /* ── Lock / proportional-scale button ───────────────────────────────────── */
 .lock-btn {
   flex-shrink: 0;
@@ -2487,4 +2493,52 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   background: var(--border);
   border-color: var(--accent);
   color: var(--text);
+}
+/* OrcaSlicer integration is visible only when the official plugin embeds the app. */
+.orca-integration-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.orca-embedded .logo a {
+  color: inherit;
+  cursor: default;
+  pointer-events: none;
+  text-decoration: none !important;
+}
+
+.orca-embedded a[target="_blank"] {
+  cursor: not-allowed;
+}
+
+.orca-integration-row select {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  background: var(--surface2);
+  color-scheme: dark;
+}
+
+[data-theme="light"] .orca-integration-row select {
+  color-scheme: light;
+}
+
+.orca-integration-row select option {
+  color: var(--text);
+  background: var(--surface2);
+}
+
+.orca-integration-status {
+  grid-column: 1 / -1;
+  min-height: 1.2em;
+  color: var(--text-secondary, #777);
+  font-size: 0.78rem;
+}
+
+.orca-integration-status.error {
+  color: var(--danger, #c0392b);
 }

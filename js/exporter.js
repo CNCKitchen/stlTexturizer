@@ -38,7 +38,7 @@ function triggerDownload(buffer, filename, mime = 'application/octet-stream') {
  * @param {THREE.BufferGeometry} geometry  – non-indexed with position + normal
  * @param {string} [filename]
  */
-export function exportSTL(geometry, filename = 'textured.stl') {
+export function exportSTL(geometry, filename = 'textured.stl', deliver = triggerDownload) {
   const posArr = geometry.attributes.position.array;
   const norArr = geometry.attributes.normal
     ? geometry.attributes.normal.array
@@ -85,7 +85,7 @@ export function exportSTL(geometry, filename = 'textured.stl') {
     // Attribute byte count: 0 (already zero-filled)
   }
 
-  triggerDownload(buffer, filename);
+  return deliver(buffer, filename);
 }
 
 /**
