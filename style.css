@@ -2389,6 +2389,19 @@ input[type="number"].val:focus { outline: none; border-color: var(--accent); }
   border-radius: 3px;
 }
 
+.welcome-history-link {
+  align-self: flex-start;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.welcome-history-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
 .license-close-btn {
   position: absolute;
   top: 14px;

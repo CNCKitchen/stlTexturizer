@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
  * SPDX-License-Identifier: AGPL-3.0-only
  */
@@ -7,7 +7,7 @@
 //
 // Runs the real export pipeline on a flat plate (planar-XY mapping, bubble
 // texture, four tiles across), then measures the dihedral angle of every
-// interior edge of the result â€” the quantity that catches light as a "line"
+// interior edge of the result — the quantity that catches light as a "line"
 // in slicer renders. If tile seams leave a physical crease, edges near
 // u/v-integer world lines will show systematically higher dihedral angles
 // than the rest of the surface.
@@ -53,7 +53,7 @@ function decodePNG(path) {
   return { data: out, width: w, height: h };
 }
 
-// â”€â”€ Flat plate 100 Ã— 100 mm in XY (z = 0), coarse input quads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Flat plate 100 × 100 mm in XY (z = 0), coarse input quads ────────────────
 const L = 100, N = 10, ST = L / N;
 const tris = [];
 for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
@@ -68,7 +68,7 @@ const bounds = {
   size: new THREE.Vector3(L, L, 0), center: new THREE.Vector3(L/2, L/2, 0),
 };
 
-// 'sine' = synthetic perfectly tileable 2D sine â€” uniform smoothness
+// 'sine' = synthetic perfectly tileable 2D sine — uniform smoothness
 // everywhere, so ANY seam-aligned dihedral elevation is a pipeline artifact,
 // not texture content.
 function sineImage(n = 256) {
@@ -111,7 +111,7 @@ const pa = result.positions;
 const triCount = pa.length / 9;
 console.log(`pipeline output: ${triCount} tris  repair=${JSON.stringify(result.repairStats)}`);
 
-// â”€â”€ Dihedral angles of interior edges, binned by distance to tile seams â”€â”€â”€â”€â”€
+// ── Dihedral angles of interior edges, binned by distance to tile seams ─────
 // Tile period: scaleU = 25 mm → seams at x,y = 25, 50, 75.
 const P = 25;
 const weld = new QuantizedPointMap(1e4, 1 << 22);
@@ -175,6 +175,6 @@ for (let ei = 0; ei < nEdges; ei++) {
 console.log('\ndihedral angle vs distance to texture-tile seam:');
 let lo = 0;
 for (let b = 0; b < bins.length; b++) {
-  console.log(`  ${String(lo).padStart(4)}â€“${String(bins[b]).padEnd(4)} mm: edges=${String(cnt[b]).padStart(7)}  mean=${(sumAng[b]/Math.max(cnt[b],1)).toFixed(3)}Â°  max=${maxAng[b].toFixed(2)}Â°`);
+  console.log(`  ${String(lo).padStart(4)}–${String(bins[b]).padEnd(4)} mm: edges=${String(cnt[b]).padStart(7)}  mean=${(sumAng[b]/Math.max(cnt[b],1)).toFixed(3)}°  max=${maxAng[b].toFixed(2)}°`);
   lo = bins[b];
 }

@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2026 CNCKitchen (Stefan Hermann) and contributors
+  SPDX-License-Identifier: AGPL-3.0-only
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BumpMesh Changelog</title>
+  <meta name="description" content="Every update announced in BumpMesh's What's New popup, from the first list in April 2026 to the latest release." />
+  <link rel="canonical" href="https://bumpmesh.com/changelog.html" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="BumpMesh" />
+  <meta property="og:title" content="BumpMesh Changelog" />
+  <meta property="og:description" content="Every update announced in BumpMesh's What's New popup, from the first list in April 2026 to the latest release." />
+  <meta property="og:url" content="https://bumpmesh.com/changelog.html" />
+  <meta property="og:image" content="https://bumpmesh.com/assets/preview.jpg" />
+  <link rel="icon" type="image/png" href="logo.png" />
+  <script>
+    // Same theme as the app (stlt-theme), applied before first paint to avoid a flash.
+    (function() {
+      let t = null;
+      try { t = localStorage.getItem('stlt-theme'); } catch (e) {}
+      const prefersDark = t ? t === 'dark'
+                            : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (!prefersDark) document.documentElement.setAttribute('data-theme', 'light');
+    })();
+  </script>
+  <style>
+    /* Tokens mirror the top of style.css. */
+    :root {
+      --bg:           #111114;
+      --surface:      #1a1a1f;
+      --surface2:     #222228;
+      --border:       #2e2e38;
+      --accent:       #7c6aff;
+      --accent-hover: #9b8dff;
+      --text:         #e0e0e8;
+      --text-muted:   #888899;
+      --radius:       8px;
+    }
+
+    [data-theme="light"] {
+      --bg:           #f0f0f5;
+      --surface:      #ffffff;
+      --surface2:     #eaeaf2;
+      --border:       #d0d0df;
+      --accent:       #6355e0;
+      --accent-hover: #7c6aff;
+      --text:         #1a1a2e;
+      --text-muted:   #66667a;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    a { color: var(--accent); }
+    a:hover { color: var(--accent-hover); }
+
+    /* ── Header ── */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .logo:hover { color: var(--text); }
+    .logo small { opacity: 0.6; font-weight: 400; }
+
+    .open-app {
+      flex-shrink: 0;
+      padding: 5px 12px;
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .open-app:hover { background: var(--accent-hover); color: #fff; }
+
+    /* ── Page ── */
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 16px 24px;
+    }
+
+    h1 {
+      font-size: 28px;
+      line-height: 1.25;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .intro {
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+
+    .order {
+      display: inline-flex;
+      margin-bottom: 32px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .order button {
+      padding: 5px 12px;
+      background: var(--surface2);
+      border: none;
+      color: var(--text-muted);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .order button + button { border-left: 1px solid var(--border); }
+    .order button:hover { color: var(--accent); }
+    .order button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+    /* ── Timeline ── */
+    .timeline { list-style: none; }
+
+    .release {
+      position: relative;
+      margin-left: 6px;
+      padding: 0 0 40px 28px;
+      border-left: 2px solid var(--border);
+      scroll-margin-top: 64px;
+    }
+    .release:last-child { border-left-color: transparent; padding-bottom: 8px; }
+    .release::before {
+      content: '';
+      position: absolute;
+      left: -7px;
+      top: 5px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--bg);
+      border: 2px solid var(--accent);
+    }
+    .release.is-latest::before { background: var(--accent); }
+
+    .release-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .version {
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 12px;
+      text-decoration: none;
+    }
+    .version:hover { border-color: var(--accent); }
+
+    .is-latest .release-meta::after {
+      content: 'Latest';
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .release h2 {
+      font-size: 19px;
+      line-height: 1.35;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .release ul {
+      padding-left: 1.2em;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .release li { color: var(--text-muted); }
+    .release li strong { color: var(--text); }
+    .release li::marker { color: var(--accent); }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      background: var(--surface2);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    /* A later release changed or removed this. */
+    .later {
+      display: block;
+      margin-top: 2px;
+      font-size: 13px;
+      font-style: italic;
+      opacity: 0.85;
+    }
+
+    footer {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    footer p + p { margin-top: 4px; }
+
+    @media (max-width: 480px) {
+      main { padding-top: 28px; }
+      h1 { font-size: 24px; }
+      .logo small { display: none; }
+      .release { padding-left: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <a class="logo" href="./">
+      <img src="logo.png" alt="" width="24" height="24" />
+      <span>BumpMesh <small>by CNC Kitchen</small></span>
+    </a>
+    <a class="open-app" href="./">Open BumpMesh</a>
+  </header>
+
+  <main>
+    <h1>What&rsquo;s new in BumpMesh</h1>
+    <p class="intro">Every update announced in the app&rsquo;s What&rsquo;s New popup, from the first list in April 2026 to today. Releases have had version numbers since July 2026.</p>
+
+    <div class="order" role="group" aria-label="Order">
+      <button type="button" data-order="newest" aria-pressed="true">Newest first</button>
+      <button type="button" data-order="oldest" aria-pressed="false">Oldest first</button>
+    </div>
+
+    <!-- Newest release first. When cutting a release, add its entry at the top;
+         the "Latest" badge follows the first entry automatically. -->
+    <ol class="timeline" id="timeline">
+
+      <li class="release" id="v1.4.0">
+        <div class="release-meta">
+          <a class="version" href="#v1.4.0">v1.4.0</a>
+          <time datetime="2026-09-30">30 Sep 2026</time>
+        </div>
+        <h2>Texture layers and a self-refining brush</h2>
+        <ul>
+          <li><strong>Texture layers</strong> put several textures on one model: Add layer (top of the sidebar) gives you a layer with its own texture, size, height and surface. Click a layer to edit it, hide it, or let it add its relief to the layers below instead of covering them.</li>
+          <li>A new layer starts empty, so just fill or paint the surfaces it should cover. Layers and paint are saved in your project files.</li>
+          <li>The <strong>circle brush</strong> is now the default tool, with a soft edge, and refines the mesh under your stroke by itself, so strokes and soft edges are just as fine on a plain cube as on a scan. The Precision toggle is gone, and undo works through every stroke.</li>
+          <li><strong>Clean sharp edges</strong> &mdash; textures on sharp edges, like a cube&rsquo;s, now meet cleanly at the corner instead of leaving a notched groove.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.3.8">
+        <div class="release-meta">
+          <a class="version" href="#v1.3.8">v1.3.8</a>
+          <time datetime="2026-09-30">30 Sep 2026</time>
+        </div>
+        <h2>Section View and Molded textures</h2>
+        <ul>
+          <li><strong>Section View</strong> (bottom of the viewport) cuts your model open, so you can see which inner surfaces &mdash; holes, cavities, the inside of hollow parts &mdash; get textured, and mask them right through the cut. Drag the arrow to move the cut and the rings to tilt it (they step aside while you paint), or snap it with X, Y and Z.</li>
+          <li>A new <strong>Molded</strong> texture category with eight mold grains: Sand Matte, Spark Erosion, Fine Stipple, Concrete, Fine Leather, Haircell, Brushed and Hammered.</li>
+          <li><strong>Calmer touch controls</strong> &mdash; resting or tapping fingers no longer nudge the view.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.3.7">
+        <div class="release-meta">
+          <a class="version" href="#v1.3.7">v1.3.7</a>
+          <time datetime="2026-09-29">29 Sep 2026</time>
+        </div>
+        <h2>Finnish and Dutch</h2>
+        <ul>
+          <li>BumpMesh now speaks <strong>Finnish</strong> and <strong>Dutch</strong>, thanks to community translators, and the Russian translation got a round of polish.</li>
+          <li>The language menu is now sorted by each language&rsquo;s own name, and Polish is listed as &ldquo;Polski&rdquo;.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.3.6">
+        <div class="release-meta">
+          <a class="version" href="#v1.3.6">v1.3.6</a>
+          <time datetime="2026-09-29">29 Sep 2026</time>
+        </div>
+        <h2>Better on phones and tablets</h2>
+        <ul>
+          <li>The <strong>arrow on the sidebar&rsquo;s edge</strong> hides the sidebar so your model gets the whole screen, and brings it back.</li>
+          <li>On a phone held upright, the model now sits above the settings.</li>
+          <li>Opening the Texture Gallery no longer pops up the on-screen keyboard or leaves the page stuck.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.3.5">
+        <div class="release-meta">
+          <a class="version" href="#v1.3.5">v1.3.5</a>
+          <time datetime="2026-09-28">28 Sep 2026</time>
+        </div>
+        <h2>A sharper 3D Preview</h2>
+        <ul>
+          <li>The <strong>3D Preview</strong> now follows your Resolution setting, so fine textures show their real shape instead of a blurred approximation.</li>
+          <li>It builds in the background, so the app stays responsive while a spinner shows next to the checkbox, and it rebuilds automatically when you change the resolution.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.3.4">
+        <div class="release-meta">
+          <a class="version" href="#v1.3.4">v1.3.4</a>
+          <time datetime="2026-09-28">28 Sep 2026</time>
+        </div>
+        <h2>Japandi textures</h2>
+        <ul>
+          <li>Seven <strong>Japandi textures</strong>: Classic Flutes, Fine Ribs, Wavy Reeds, Sazanami Ripples, Sazanami S-Wave, Tachiwaki and Bamboo Culms. Their lines run vertically, so with Cylindrical mapping they wrap a vase as flutes and ripples.</li>
+          <li>Textures made with Filter Forge now carry an FF badge in the gallery.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.3.3">
+        <div class="release-meta">
+          <a class="version" href="#v1.3.3">v1.3.3</a>
+          <time datetime="2026-09-28">28 Sep 2026</time>
+        </div>
+        <h2>Invert texture</h2>
+        <ul>
+          <li>The new <strong>Invert texture</strong> option swaps black and white in the map, so dark areas are raised, without editing the image. The old &ldquo;Invert&rdquo; under Texture Depth is now called &ldquo;Reverse direction&rdquo;.</li>
+          <li>A texture picked in the Texture Gallery also shows up among your favorites in the panel.</li>
+          <li>Large 3MF exports use less memory.</li>
+          <li>Every language is now fully translated.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.3.2">
+        <div class="release-meta">
+          <a class="version" href="#v1.3.2">v1.3.2</a>
+          <time datetime="2026-09-28">28 Sep 2026</time>
+        </div>
+        <h2>Try textures live from the gallery</h2>
+        <ul>
+          <li>The <strong>Texture Gallery</strong> now opens beside your model, so you can click or arrow-key through textures and see each one live; turn on Turntable to spin the model while you browse.</li>
+          <li>Maps you upload are kept under &ldquo;Your textures&rdquo; in this browser.</li>
+          <li><strong>ideaMaker textures</strong> &mdash; load .texture files from the <a href="https://www.ideamaker.io/texture" target="_blank" rel="noopener">ideaMaker texture library</a> directly with Upload custom map.</li>
+          <li>Three new stone textures: Cobblestone, Flagstone and Square Setts.</li>
+          <li>Exporting large models uses about half the memory.</li>
+          <li>Drag the sidebar&rsquo;s edge to make it wider.
+            <span class="later">Later replaced by the collapsible sidebar in <a href="#v1.3.6">v1.3.6</a>.</span></li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.3.1">
+        <div class="release-meta">
+          <a class="version" href="#v1.3.1">v1.3.1</a>
+          <time datetime="2026-09-27">27 Sep 2026</time>
+        </div>
+        <h2>Fixes</h2>
+        <ul>
+          <li>Custom textures now load at up to 2048&nbsp;px instead of 512, so high-res heightmaps stay sharp.</li>
+          <li>No more faceted &ldquo;crystal&rdquo; spots on fillets and rounded edges.</li>
+          <li>Bottom faces&nbsp;=&nbsp;0 really textures the bed face.</li>
+          <li>No false mesh warnings for multi-part files or tiny CAD edges.</li>
+          <li>Clear messages for unsupported files.</li>
+          <li>Firefox slider layout fixed.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.3.0">
+        <div class="release-meta">
+          <a class="version" href="#v1.3.0">v1.3.0</a>
+          <time datetime="2026-09-27">27 Sep 2026</time>
+        </div>
+        <h2>54 new textures and the Texture Gallery</h2>
+        <ul>
+          <li><strong>New textures &amp; Texture Gallery</strong> &mdash; 54 new textures, from knurling and carbon twill to chainmail, bark and dozens of Hero Patterns. Browse them all in the new Texture Gallery with search and categories, and star your favorites to pin them to the panel.</li>
+          <li><strong>Smooth masking brush</strong> &mdash; the circle brush now has a Hardness setting: lower it to fade the mask out toward the brush rim for soft, gradual texture borders instead of hard triangle edges. Enable Precision for smooth gradients on coarse meshes.
+            <span class="later">Since <a href="#v1.4.0">v1.4.0</a> the brush refines the mesh by itself, and the Precision toggle is gone.</span></li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.2.0">
+        <div class="release-meta">
+          <a class="version" href="#v1.2.0">v1.2.0</a>
+          <time datetime="2026-07-23">23 Jul 2026</time>
+        </div>
+        <h2>STEP import</h2>
+        <ul>
+          <li><strong>STEP import</strong> &mdash; load CAD files (.step / .stp) directly: they&rsquo;re converted to a mesh right in your browser by our new open-source <a href="https://github.com/CNCKitchen/meshStep" target="_blank" rel="noopener">meshStep</a> library, with coarse / standard / fine quality presets.</li>
+          <li><strong>Smooth Mask transitions</strong> &mdash; choose how the texture fades out at masked boundaries: Linear, S-Curve, or the new default Ease-In for a gentler blend at the mask edge.</li>
+          <li><strong>Texture size in millimeters</strong> &mdash; the texture scale controls now set the tile size as absolute values in mm instead of relative to the model, so the same settings give the same physical texture on any model.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="2026-06">
+        <div class="release-meta">
+          <time datetime="2026-06">June 2026</time>
+        </div>
+        <h2>The performance release</h2>
+        <ul>
+          <li><strong>Massive performance boost</strong> &mdash; the whole export pipeline was rebuilt: exports now run about <strong>3&times; faster</strong> and use <strong>70% less memory</strong>, so much larger models fit in your browser.</li>
+          <li><strong>Exports run in the background</strong> &mdash; the app stays fully responsive while exporting, processing starts the instant you click Export, and switching tabs no longer slows it down.</li>
+          <li><strong>Higher resolution ceiling</strong> &mdash; the subdivision safety cap doubles to 32M triangles on machines with 8&nbsp;GB+ RAM.</li>
+          <li><strong>Cleaner meshes</strong> &mdash; fixed a bug where &ldquo;Snap near-bottom vertices&rdquo; could fold geometry into the bottom plane (non-manifold edges / phantom shells), plus fewer mesh defects from decimation overall.</li>
+          <li><strong>Optimized decimation</strong> &mdash; smarter triangle reduction that harvests flat faces for lighter meshes while keeping exports watertight.</li>
+          <li><strong>More intuitive resolution slider</strong> &mdash; reworked to make dialing in the output detail clearer and easier.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="2026-05">
+        <div class="release-meta">
+          <time datetime="2026-05">May 2026</time>
+        </div>
+        <h2>Mesh regularization</h2>
+        <ul>
+          <li><strong>Mesh regularization</strong> &mdash; collapses sliver triangles from CAD tessellation so each output triangle samples the texture coherently. Toggle under <em>Advanced / Beta Features</em>.
+            <span class="later">Removed again in July 2026.</span></li>
+        </ul>
+      </li>
+
+      <li class="release" id="2026-04">
+        <div class="release-meta">
+          <time datetime="2026-04">April 2026</time>
+        </div>
+        <h2>Mesh Check, undo/redo and project files</h2>
+        <ul>
+          <li><strong>Bake Textures (beta)</strong> &mdash; apply the current texture and continue editing on the textured mesh. Find it under <em>Advanced / Beta Features</em>.</li>
+          <li><strong>Significantly improved cylindrical mapping workflow</strong>, with an adjustable cylinder center and radius.</li>
+          <li><strong>Part rotation gizmo</strong> to rotate your model around X, Y and Z.
+            <span class="later">Since July 2026, exports keep your model&rsquo;s original position and orientation; rotating only helps you place the texture.</span></li>
+          <li><strong>Mesh Check</strong> flags open edges, non-manifold edges and other defects in your model before you texture it.</li>
+          <li><strong>Undo / redo</strong> with full keyboard shortcuts.</li>
+          <li><strong>Save &amp; load projects</strong> as <code>.bumpmesh</code> files.</li>
+          <li><strong>Smooth masking borders</strong> &mdash; the texture fades out gradually near masked boundaries instead of ending in a hard step.</li>
+          <li><strong>New languages:</strong> Italian, Spanish, Portuguese, Japanese, French, Korean.</li>
+          <li>Lots of performance and quality-of-life improvements.</li>
+        </ul>
+      </li>
+
+    </ol>
+  </main>
+
+  <footer>
+    <p>Every change, including the small ones, is in the <a href="https://github.com/CNCKitchen/stlTexturizer/commits/main" target="_blank" rel="noopener">commit history on GitHub</a>.</p>
+    <p><a href="./">Back to BumpMesh</a></p>
+  </footer>
+
+  <script>
+    (function() {
+      const list = document.getElementById('timeline');
+      const buttons = document.querySelectorAll('.order button');
+      // The source lists the newest release first.
+      list.firstElementChild.classList.add('is-latest');
+      let current = 'newest';
+
+      function setOrder(order) {
+        if (order !== current) {
+          Array.from(list.children).reverse().forEach(li => list.appendChild(li));
+          current = order;
+        }
+        buttons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.order === order)));
+      }
+
+      buttons.forEach(b => b.addEventListener('click', () => {
+        setOrder(b.dataset.order);
+        try { localStorage.setItem('stlt-changelog-order', b.dataset.order); } catch (e) {}
+      }));
+
+      let saved = null;
+      try { saved = localStorage.getItem('stlt-changelog-order'); } catch (e) {}
+      if (saved === 'oldest') setOrder('oldest');
+    })();
+  </script>
+</body>
+</html>
