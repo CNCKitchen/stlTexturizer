@@ -505,6 +505,10 @@ export function initViewer(canvas) {
   // Cursor-centric zoom: zoom toward the mouse pointer instead of screen centre
   renderer.domElement.addEventListener('wheel', (e) => {
     e.preventDefault();
+    // The 3Dconnexion driver can emulate wheel events while the puck is pushed;
+    // zooming toward the idle cursor on top of the puck's own motion makes the
+    // view jump. Never true without a SpaceMouse (the timestamp stays 0).
+    if (performance.now() - _spaceMouse.lastActive < 100) return;
     const rect = renderer.domElement.getBoundingClientRect();
     const ndcX =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
     const ndcY = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
@@ -576,10 +580,13 @@ export function initViewer(canvas) {
   renderer.domElement.addEventListener('pointerdown', stopTurntable);
   renderer.domElement.addEventListener('wheel', stopTurntable, { passive: true });
 
+  _initSpaceMouse(stopTurntable);
+
   // Render loop
   (function animate() {
     requestAnimationFrame(animate);
     if (_turntable) _stepTurntable();
+    if (_spaceMouse.index !== -1) _stepSpaceMouse();
     controls.update();
     if (_needsRender) {
       _needsRender = false;
@@ -604,6 +611,115 @@ function _stepTurntable() {
   camera.position.sub(pivot).applyQuaternion(_tmpQ1).add(pivot);
   controls.target.sub(pivot).applyQuaternion(_tmpQ1).add(pivot);
   camera.quaternion.premultiply(_tmpQ1);
+  _needsRender = true;
+}
+
+// ── 3Dconnexion SpaceMouse ───────────────────────────────────────────────────
+// Read through the Gamepad API (no driver bridge or permission prompt needed).
+// Nothing is polled until the browser reports a matching device, which it only
+// does after the puck or a button has been touched on this page, so the render
+// loop costs ordinary users a single integer comparison.
+const _spaceMouse = {
+  index: -1,          // navigator.getGamepads() slot, -1 = none connected
+  lastActive: 0,      // performance.now() of the last frame with puck input
+  lastStep: 0,        // performance.now() of the previous _stepSpaceMouse()
+  onInput: null,      // called on puck input (stops the turntable)
+};
+const _SM_DEADZONE = 0.08;
+const _SM_ROT_RAD_PER_S = 2.4;   // at full deflection
+const _SM_PAN_PER_S = 1.2;       // view heights per second at full deflection
+const _SM_ZOOM_PER_S = 2.5;      // e-folds of zoom per second at full deflection
+
+const _isSpaceMouse = (gp) => !!gp && /3dconnexion|spacemouse|space ?navigator|space ?pilot|space ?explorer|vendor: (256f|046d) product: c6/i.test(gp.id);
+
+function _initSpaceMouse(onInput) {
+  if (!('getGamepads' in navigator)) return;
+  _spaceMouse.onInput = onInput;
+  const attach = (gp) => {
+    if (_spaceMouse.index !== -1 || !_isSpaceMouse(gp)) return;
+    _spaceMouse.index = gp.index;
+    _spaceMouse.lastStep = performance.now();
+    console.info(`SpaceMouse connected: ${gp.id}`);
+  };
+  window.addEventListener('gamepadconnected', (e) => attach(e.gamepad));
+  for (const gp of navigator.getGamepads()) attach(gp);   // already exposed to this page
+  window.addEventListener('gamepaddisconnected', (e) => {
+    if (e.gamepad.index === _spaceMouse.index) _spaceMouse.index = -1;
+  });
+}
+
+// Remap |v| in [deadzone, 1] to [0, 1] so motion starts smoothly.
+function _smAxis(v = 0) {
+  const a = Math.abs(v);
+  return a < _SM_DEADZONE ? 0 : Math.sign(v) * Math.min(1, (a - _SM_DEADZONE) / (1 - _SM_DEADZONE));
+}
+
+/** Apply one frame of SpaceMouse input: pan (X/Z), zoom (Y push/pull) and a
+ *  Z-up turntable orbit around the orbit target (tilt / spin). Roll is ignored
+ *  since the viewer always keeps world Z up. */
+function _stepSpaceMouse() {
+  const now = performance.now();
+  const dt = Math.min((now - _spaceMouse.lastStep) / 1000, 0.1);
+  _spaceMouse.lastStep = now;
+
+  const gp = navigator.getGamepads()[_spaceMouse.index];
+  if (!gp || !gp.connected || !controls.enabled || dt <= 0) return;
+
+  const ax = gp.axes;
+  const tx = _smAxis(ax[0]), ty = _smAxis(ax[1]), tz = _smAxis(ax[2]);
+  const rx = _smAxis(ax[3]), rz = _smAxis(ax[5]);
+  if (!tx && !ty && !tz && !rx && !rz) return;
+
+  _spaceMouse.lastActive = now;
+  _spaceMouse.onInput?.();
+
+  const target = controls.target;
+  camera.updateMatrixWorld();
+
+  // Pan in the screen plane, scaled to what is visible so speed feels the
+  // same at any zoom level. Directions match the 3Dconnexion viewer.
+  if (tx || tz) {
+    const viewH = _isPerspective
+      ? 2 * camera.position.distanceTo(target) * Math.tan(THREE.MathUtils.degToRad(perspCamera.fov / 2))
+      : (orthoCamera.top - orthoCamera.bottom) / orthoCamera.zoom;
+    const step = viewH * _SM_PAN_PER_S * dt;
+    _tmpV1.setFromMatrixColumn(camera.matrixWorld, 0).multiplyScalar(tx * step);
+    _tmpV2.setFromMatrixColumn(camera.matrixWorld, 1).multiplyScalar(tz * step);
+    _tmpV1.add(_tmpV2);
+    camera.position.add(_tmpV1);
+    target.add(_tmpV1);
+  }
+
+  // Push the puck forward (away from you) to zoom in.
+  if (ty) {
+    const factor = Math.exp(-ty * _SM_ZOOM_PER_S * dt);   // < 1 when pushing forward
+    if (_isPerspective) {
+      _tmpV1.copy(camera.position).sub(target).multiplyScalar(factor);
+      camera.position.copy(target).add(_tmpV1);
+    } else {
+      camera.zoom = Math.max(0.05, Math.min(200, camera.zoom / factor));
+      camera.updateProjectionMatrix();
+    }
+  }
+
+  // Tilt around the camera's right axis (clamped short of the poles like the
+  // mouse orbit), spin around world Z.
+  if (rx || rz) {
+    _tmpV2.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    camera.getWorldDirection(_tmpV1);
+    const alpha = Math.acos(THREE.MathUtils.clamp(_tmpV1.z, -1, 1));
+    const pitch = alpha - THREE.MathUtils.clamp(
+      alpha - rx * _SM_ROT_RAD_PER_S * dt, _POLAR_EPS, Math.PI - _POLAR_EPS);
+
+    _tmpQ1.setFromAxisAngle(_Z_AXIS, rz * _SM_ROT_RAD_PER_S * dt);
+    _tmpQ2.setFromAxisAngle(_tmpV2, pitch);
+    _tmpQ1.premultiply(_tmpQ2);
+
+    camera.position.sub(target).applyQuaternion(_tmpQ1).add(target);
+    camera.quaternion.premultiply(_tmpQ1);
+  }
+
+  camera.updateMatrixWorld();
   _needsRender = true;
 }
 

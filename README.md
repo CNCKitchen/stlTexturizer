@@ -75,6 +75,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 
 ### 3D Viewer
 - **Orbit / pan / zoom** controls
+- **3Dconnexion SpaceMouse** — fly the view with the puck in Chrome and Edge: push/pull to zoom, slide to pan, tilt and twist to orbit (connects after the first touch of the puck)
 - **Wireframe toggle** — visualise mesh topology
 - **Section view** — cut the model open with a plane to see which inner surfaces (holes, cavities, the inside of hollow parts) get textured, and mask them right through the cut; X/Y/Z snap, flip, and drag handles to move or tilt the cut
 - **Mesh info** — live triangle count, file size, bounding-box dimensions
