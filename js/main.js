@@ -5346,6 +5346,14 @@ async function bakeTextures() {
     // per-layer masks when several layers are visible).
     const inputs = _pipelineInputs();
     const faceWeights = inputs.faceWeights;
+    // Faces an EARLIER bake textured (per face of the current model). They
+    // are masked this round, so "textured this round" alone would drop them
+    // from the new mask - a second bake lost the first one's faces. When the
+    // brush has refined the mesh, the bake runs on its flattened triangles;
+    // map those back to the model's faces.
+    const prevBaked = currentGeometry.userData.bakedFaces || null;
+    const inputToBase = inputs.positions !== currentGeometry.attributes.position.array
+      ? paintFlat.faceParentId : null;
 
     // Run the bake pipeline (subdivide → regularize → displace → bottom
     // snaps; no decimation — it would drop the per-face parent mapping needed
@@ -5380,16 +5388,24 @@ async function bakeTextures() {
     // pass won't double-up. faceWeights[parentIdx*3] > 0.99 captures all
     // three exclusion paths in a single check (it's the same predicate
     // subdivide uses to skip subdividing those faces).
+    // Baked = textured this round OR baked by an earlier round; the mask is
+    // seeded with all of them, and the flags ride on the new geometry for
+    // the next bake.
+    const wasParentExcluded = faceWeights
+      ? (parentIdx) => faceWeights[parentIdx * 3] > 0.99
+      : () => false; // no exclusions at all → every face was textured
+    const bakedFaces = new Uint8Array(faceParentId.length);
+    for (let i = 0; i < faceParentId.length; i++) {
+      const p = faceParentId[i];
+      const base = inputToBase ? inputToBase[p] : p;
+      if (!wasParentExcluded(p) || (prevBaked && prevBaked[base])) bakedFaces[i] = 1;
+    }
     let preExcluded = null;
     if (bakeMaskChk.checked) {
       preExcluded = [];
-      const wasParentExcluded = faceWeights
-        ? (parentIdx) => faceWeights[parentIdx * 3] > 0.99
-        : () => false; // no exclusions at all → every face was textured
-      for (let i = 0; i < faceParentId.length; i++) {
-        if (!wasParentExcluded(faceParentId[i])) preExcluded.push(i);
-      }
+      for (let i = 0; i < bakedFaces.length; i++) if (bakedFaces[i]) preExcluded.push(i);
     }
+    displaced.userData.bakedFaces = bakedFaces;
 
     // Compute new bounds from the displaced geometry. Do NOT re-center —
     // the displaced mesh is approximately at the same location, and
@@ -6080,6 +6096,13 @@ exportGoBtn.addEventListener('click', async () => {
         const legacy = _legacyMaskOf(_activeSlot());
         if (legacy) zipFiles['mask.json'] = strToU8(JSON.stringify(legacy));
       }
+      // Faces earlier bakes textured (see bakeTextures), over model.stl's
+      // triangles, so a bake after reopening the project keeps them masked.
+      const baked = currentGeometry.userData.bakedFaces;
+      if (baked) {
+        zipFiles['baked.json'] = strToU8(JSON.stringify(_bakedFacesToJSON(baked)));
+        payload.baked = 'baked.json';
+      }
     }
     if (includeTexture) {
       const blob = await new Promise(r => customSource.fullCanvas.toBlob(r, 'image/png'));
@@ -6277,6 +6300,8 @@ async function importProject(file) {
       await _applyImportedTexture(unzipped, data);
       _renderLayerStrip();
     }
+    // The baked-face flags belong to the bundled model, like the paint.
+    if (loadMode === 'all') _restoreBakedFaces(unzipped, data);
 
     _autoSaveSettings();
   } finally {
@@ -6289,6 +6314,37 @@ async function importProject(file) {
       _commitUndoCapture();
     }
   }
+}
+
+/**
+ * baked.json: which of model.stl's triangles earlier bakes textured, as
+ * [start, length] runs (baked faces come in large connected patches).
+ */
+function _bakedFacesToJSON(flags) {
+  const runs = [];
+  for (let i = 0; i < flags.length;) {
+    if (!flags[i]) { i++; continue; }
+    const start = i;
+    while (i < flags.length && flags[i]) i++;
+    runs.push(start, i - start);
+  }
+  return { version: 1, triCount: flags.length, runs };
+}
+
+/** Restore baked.json onto the just-loaded model (skipped if its triangles differ). */
+function _restoreBakedFaces(unzipped, data) {
+  if (!data?.baked || !unzipped[data.baked] || !currentGeometry) return;
+  try {
+    const j = JSON.parse(strFromU8(unzipped[data.baked]));
+    const n = currentGeometry.attributes.position.count / 3;
+    if (j.triCount !== n || !Array.isArray(j.runs)) {
+      console.warn('Saved baked faces do not match the loaded model');
+      return;
+    }
+    const flags = new Uint8Array(n);
+    for (let k = 0; k + 1 < j.runs.length; k += 2) flags.fill(1, j.runs[k], j.runs[k] + j.runs[k + 1]);
+    currentGeometry.userData.bakedFaces = flags;
+  } catch (err) { console.warn('Could not restore the baked faces:', err); }
 }
 
 /**
