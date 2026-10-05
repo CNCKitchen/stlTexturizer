@@ -572,6 +572,15 @@
             </label>
           </div>
 
+          <h3 class="panel-subsection-heading" data-i18n="ui.extendUntexturedHeading">Flush Edges</h3>
+          <p class="advanced-blurb" data-i18n="ui.extendUntexturedDesc">Make the texture end flush with flat untextured faces, as if each face were extended out through the texture: texture next to a flat face never rises past its level (bumps there are cut off flat), and where the texture pushes the surface out, the flat face is continued outward to meet it. On the bed this brings textured walls straight down onto the plate instead of hanging over it. The untextured faces themselves are not changed. Applied on export; the preview doesn't show it.</p>
+          <div class="form-row">
+            <label class="checkbox-label" for="extend-untextured-chk">
+              <input type="checkbox" id="extend-untextured-chk" checked />
+              <span data-i18n="ui.extendUntextured">Extend flat untextured faces through the texture</span>
+            </label>
+          </div>
+
           <h3 class="panel-subsection-heading" data-i18n="ui.smoothBottomHeading">Smooth Bottom</h3>
           <p class="advanced-blurb" data-i18n="ui.smoothBottomDesc">Snap any vertex within 0.1 mm of the bottom plane onto it after texturing. Keeps the bed-contact surface perfectly flat so slicers don't shade tiny height variations on bottom slivers.</p>
           <div class="form-row" id="smooth-bottom-row">
@@ -595,7 +604,7 @@
           </div>
 
           <h3 class="panel-subsection-heading" data-i18n="ui.preserveUntexturedHeading">Preserve Untextured Surfaces</h3>
-          <p class="advanced-blurb" data-i18n="ui.preserveUntexturedDesc">Keep surfaces that receive no texture (painted mask, angle masks) exactly as they are in the source model: mesh regularization and decimation will not move or remove any of their vertices, so fillets and fine details stay intact. If the untextured surfaces alone exceed the triangle limit, the export exceeds the limit instead of degrading the texture.</p>
+          <p class="advanced-blurb" data-i18n="ui.preserveUntexturedDesc">Keep surfaces that receive no texture (painted mask, angle masks) exactly as they are in the source model: mesh regularization, decimation and Smooth Bottom leave them alone, and the export writes their original triangles back exactly, stitching the textured surface onto their edges (where the texture meets them, a triangle may be split at points on its own edge, which keeps its shape). Fillets and fine details stay intact. If the untextured surfaces alone exceed the triangle limit, the export exceeds the limit instead of degrading the texture.</p>
           <div class="form-row">
             <label class="checkbox-label" for="preserve-untextured-chk">
               <input type="checkbox" id="preserve-untextured-chk" checked />
@@ -670,6 +679,7 @@
         </div>
         <div class="export-buttons">
           <button id="export-btn" class="export-btn" disabled data-i18n="ui.exportStl" data-i18n-title="tooltips.exportStl" title="Widely compatible with all slicers">Export STL</button>
+          <button id="preview-export-btn" class="export-btn" disabled data-i18n="ui.previewExport" data-i18n-title="tooltips.previewExport" title="Show the exported mesh in the viewer, including steps the live preview can't show">Preview Export</button>
           <button id="export-3mf-btn" class="export-btn" disabled data-i18n="ui.export3mf" data-i18n-title="tooltips.export3mf" title="Smaller file size â€” may not be accepted by all slicers">Export 3MF</button>
         </div>
       </section>

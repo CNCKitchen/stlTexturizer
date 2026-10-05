@@ -11,9 +11,13 @@
  *
  * Sequence (mirrors the old inline handleExport/bakeTextures exactly):
  *   subdivide → [regularize → re-subdivide] → displace
+ *   → [flushToUntextured]        (export mode, settings.extendUntextured)
  *   → [decimate]                 (export mode only)
  *   → bottom clamp → smooth bottom
  *   → [resolveTJunctions]        (export mode, when decimation ran)
+ *   → [stitchPreserved]          (export mode, preserveUntextured: the
+ *                                 untextured source triangles go back in
+ *                                 verbatim, see preserveStitch.js)
  *
  * @param {object} input
  *   positions     Float32Array  non-indexed triangle soup (xyz per vertex)
@@ -46,6 +50,7 @@
  *   lockedOverBudget: boolean,  // preserve-untextured beta: locked faces ≥ triangle target
  *   faceParentId: Int32Array|null,   // bake mode only
  *   repairStats: object|null,        // export mode, when repair ran
+ *   preserveStats: object|null,      // export mode, when the stitch ran
  * }>}
  */
 
@@ -57,6 +62,8 @@ import { applyDisplacement, applyDisplacementLayers } from './displacement.js';
 import { decimate } from './decimation.js';
 import { resolveTJunctions, countEdgeDefects, countAreaSlivers } from './meshRepair.js';
 import { interpolateFromParents } from './softMask.js';
+import { stitchPreserved } from './preserveStitch.js';
+import { flushToUntextured } from './flushFaces.js';
 
 const yieldFrame = () => new Promise(r => setTimeout(r, 0));
 
@@ -113,7 +120,11 @@ function clampBelowBottom(geometry, bottomZ) {
 // would become degenerate or rotate its normal by more than ~75°. Genuine
 // bed-contact slivers — the reason this feature exists — rotate by fractions
 // of a degree and still snap; bump undersides would fold ~90° and stay put.
-export function snapBottomToFlat(geometry, bottomZ, tol = 0.1) {
+//
+// `pinned` (optional QuantizedPointMap at 1e6): positions that must not move —
+// the untextured surfaces under "Don't modify untextured surfaces", whose
+// corners are still bit-exact source copies at this point.
+export function snapBottomToFlat(geometry, bottomZ, tol = 0.1, pinned = null) {
   const pa = geometry.attributes.position.array;
   const na = geometry.attributes.normal
     ? geometry.attributes.normal.array
@@ -147,6 +158,7 @@ export function snapBottomToFlat(geometry, bottomZ, tol = 0.1) {
     const first = inc[start[id]];
     const z = pa[first * 3 + 2];
     if (z === bottomZ || Math.abs(z - bottomZ) > tol) continue;
+    if (pinned && pinned.get(pa[first * 3], pa[first * 3 + 1], z) >= 0) continue;
 
     // Gate: simulate moving this position to the plane; every incident
     // triangle must keep positive area and not fold (normal rotation ≤ ~75°).
@@ -214,6 +226,28 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(input.positions, 3));
+
+  // Don't modify untextured surfaces: keep a verbatim copy of the untextured
+  // source triangles (same > 0.99 test subdivision uses) for the final stitch,
+  // and their corners so Smooth Bottom leaves them alone. Export mode only —
+  // bake returns a parent-face map the stitch would invalidate.
+  let keptPos = null, keptCorners = null;
+  if (mode === 'export' && settings.preserveUntextured && input.faceWeights) {
+    const fw = input.faceWeights, src = input.positions, triN = fw.length / 3;
+    let n = 0;
+    for (let t = 0; t < triN; t++) if (fw[t * 3] > 0.99) n++;
+    if (n > 0 && n < triN) {
+      keptPos = new Float32Array(n * 9);
+      keptCorners = new QuantizedPointMap(1e6, Math.min(n * 3, 1 << 22));
+      let o = 0;
+      for (let t = 0; t < triN; t++) {
+        if (!(fw[t * 3] > 0.99)) continue;
+        for (let i = 0; i < 9; i++) keptPos[o + i] = src[t * 9 + i];
+        for (let c = 0; c < 3; c++) keptCorners.getOrSet(keptPos[o + c * 3], keptPos[o + c * 3 + 1], keptPos[o + c * 3 + 2], 0);
+        o += 9;
+      }
+    }
+  }
 
   // Hoist intermediates so the finally block can always dispose them.
   let subdivided    = null;
@@ -329,6 +363,36 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       }
     }
 
+    // Extend untextured faces through the texture (flushFaces.js): no texture
+    // past the plane of a flat untextured face, and that face continued out
+    // to meet the texture (on the bed: the wall stands on it). The strip
+    // triangles it adds are locked so decimation can't fold them back.
+    // Export only — bake keeps a parent-face map the extra triangles lack.
+    let flushStats = null;
+    if (settings.extendUntextured && mode === 'export') {
+      const ew = subdivided.attributes.excludeWeight;
+      const amp = Math.abs(settings.amplitude ?? 1) * (settings.symmetricDisplacement ? 0.5 : 1);
+      const fr = flushToUntextured(displaced.attributes.position.array,
+        subdivided.attributes.position.array, ew ? ew.array : null,
+        { reach: Math.max(1, 3 * amp, 2 * settings.refineLength) });
+      flushStats = { twins: fr.twins, strips: fr.strips, clamped: fr.clamped };
+      if (fr.strips > 0 || fr.twins > 0 || fr.clamped > 0) {
+        const oldN = displaced.attributes.position.count / 3;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(fr.positions, 3));
+        g.computeVertexNormals(); // non-indexed → flat face normals
+        displaced.dispose();
+        displaced = g;
+        const newN = fr.positions.length / 9;
+        if (newN > oldN) {
+          const lf = new Uint8Array(newN);
+          if (lockedFaces) lf.set(lockedFaces);
+          for (let t = oldN; t < newN; t++) lf[t] = 1;
+          lockedFaces = lf;
+        }
+      }
+    }
+
     // Free subdivided geometry — displacement created a separate copy.
     subdivided.dispose();
     subdivided = null;
@@ -372,7 +436,7 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
     // would flatten that texture again (#126). Gate it here, not only in the
     // UI, so loaded projects with smoothBottom:true + limit 0 behave too.
     if (settings.smoothBottom && settings.bottomAngleLimit > 0) {
-      snapBottomToFlat(finalGeometry, bounds.min.z, 0.1);
+      snapBottomToFlat(finalGeometry, bounds.min.z, 0.1, keptCorners);
     }
 
     // Resolve T-junctions so the export is watertight & manifold. Only on the
@@ -397,6 +461,36 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       if (shouldAbort()) return null;
     }
 
+    // Put the untextured source triangles back verbatim and zip the textured
+    // part onto them, the original side winning. Kept only if it leaves the
+    // mesh at least as watertight as it was.
+    let preserveStats = null;
+    if (keptPos) {
+      onEvent('stitch', 0);
+      await yieldFrame();
+      const before = countEdgeDefects(finalGeometry);
+      const { positions: stitched, stats } = stitchPreserved(finalGeometry.attributes.position.array, keptPos);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(stitched, 3));
+      const after = countEdgeDefects(g);
+      preserveStats = { ...stats, before, after, failed: false };
+      if (after.open + after.nonManifold > before.open + before.nonManifold) {
+        preserveStats.failed = true;
+        g.dispose();
+      } else {
+        g.computeVertexNormals(); // non-indexed → flat face normals
+        finalGeometry.dispose();
+        finalGeometry = g;
+        if (repairStats) {
+          repairStats.open = after.open;
+          repairStats.nonManifold = after.nonManifold;
+          repairStats.slivers = countAreaSlivers(g);
+          repairStats.tris = after.tris;
+        }
+      }
+      if (shouldAbort()) return null;
+    }
+
     done = true;
     return {
       positions: finalGeometry.attributes.position.array,
@@ -407,6 +501,8 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
       needsDecimation,
       faceParentId: mode === 'bake' ? faceParentId : null,
       repairStats,
+      preserveStats,
+      flushStats,
     };
   } finally {
     // Dispose intermediates regardless of success, failure, or abort.

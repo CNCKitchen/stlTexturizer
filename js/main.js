@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { initViewer, loadGeometry, setMeshMaterial, setMeshGeometry, setWireframe,
+         showExportPreview, endExportPreview, isExportPreview,
          getControls, getCamera, getCurrentMesh,
          setExclusionOverlay, setHoverPreview, setViewerTheme,
          setProjection, requestRender,
@@ -138,6 +139,7 @@ const settings = {
   boundaryFalloffCurve: 'ease',
   symmetricDisplacement: false,
   noDownwardZ: false,
+  extendUntextured: true,
   smoothBottom: true,
   harvestFlatFaces: true,
   harvestTol: 0.005,
@@ -329,6 +331,7 @@ function _setMeshInfo(triCount, mb, sx, sy, sz) {
 }
 const exportBtn        = document.getElementById('export-btn');
 const export3mfBtn     = document.getElementById('export-3mf-btn');
+const previewExportBtn = document.getElementById('preview-export-btn');
 const exportProgress   = document.getElementById('export-progress');
 const exportProgBar    = document.getElementById('export-progress-bar');
 const exportProgPct    = document.getElementById('export-progress-pct');
@@ -413,6 +416,7 @@ const symmetricDispToggle    = document.getElementById('symmetric-displacement')
 const dispPreviewToggle      = document.getElementById('displacement-preview');
 const dispPreviewSpinner     = document.getElementById('displacement-preview-spinner');
 const noDownwardZChk         = document.getElementById('no-downward-z-chk');
+const extendUntexturedChk          = document.getElementById('extend-untextured-chk');
 const smoothBottomChk        = document.getElementById('smooth-bottom-chk');
 const smoothBottomRow        = document.getElementById('smooth-bottom-row');
 const harvestFlatChk         = document.getElementById('harvest-flat-chk');
@@ -1697,6 +1701,11 @@ function wireEvents() {
     settings.smoothBottom = smoothBottomChk.checked;
     // No preview rebuild needed — the snap is a final-export step only.
   });
+  extendUntexturedChk.checked = settings.extendUntextured;
+  extendUntexturedChk.addEventListener('change', () => {
+    settings.extendUntextured = extendUntexturedChk.checked;
+    // Export-only step, like Smooth Bottom: no preview rebuild.
+  });
   syncSmoothBottomToLimit();
   harvestFlatChk.checked = settings.harvestFlatFaces;
   harvestTolRow.classList.toggle('disabled', !settings.harvestFlatFaces);
@@ -1820,6 +1829,13 @@ function wireEvents() {
   };
   exportBtn.addEventListener('click', () => startExport('stl'));
   export3mfBtn.addEventListener('click', () => startExport('3mf'));
+  // Preview Export: run the real export pipeline and show its mesh (what the
+  // file will contain, incl. export-only steps the live preview can't show).
+  // A second click, or any change to the model or settings, goes back.
+  previewExportBtn.addEventListener('click', () => {
+    if (isExportPreview()) { endExportPreview(); _syncPreviewExportBtn(); return; }
+    handleExport('preview');
+  });
 
   // ── Advanced / Beta Features panel: collapse toggle + bake action ──
   advancedToggle.addEventListener('click', () => {
@@ -3161,6 +3177,7 @@ function handlePlaceOnFaceClick(e) {
 
   exportBtn.disabled = !_hasTexturedLayer();
   export3mfBtn.disabled = !_hasTexturedLayer();
+  previewExportBtn.disabled = !_hasTexturedLayer();
   bakeBtn.disabled = !_hasTexturedLayer();
   updateSmartResBtnState();
   updatePreview();
@@ -3641,6 +3658,7 @@ function loadDefaultCube() {
 
   exportBtn.disabled = !_hasTexturedLayer();
   export3mfBtn.disabled = !_hasTexturedLayer();
+  previewExportBtn.disabled = !_hasTexturedLayer();
   bakeBtn.disabled = !_hasTexturedLayer();
   updateSmartResBtnState();
   updatePreview();
@@ -3864,6 +3882,7 @@ async function handleModelFile(file, stepSettings = null) {
 
     exportBtn.disabled = !_hasTexturedLayer();
     export3mfBtn.disabled = !_hasTexturedLayer();
+    previewExportBtn.disabled = !_hasTexturedLayer();
     updateSmartResBtnState();
     updatePreview();
   } catch (err) {
@@ -4684,7 +4703,13 @@ function _syncPreviewMaterial() {
   updateMaterial(previewMaterial, preview.list, _materialSettings(preview));
 }
 
+function _syncPreviewExportBtn() {
+  previewExportBtn.textContent = t(isExportPreview() ? 'ui.previewExportBack' : 'ui.previewExport');
+}
+
 function updatePreview() {
+  // Any change returns from the export preview to the live preview.
+  if (endExportPreview()) _syncPreviewExportBtn();
   if (!currentGeometry || !currentBounds) return;
 
   if (!_hasTexturedLayer()) {
@@ -4696,6 +4721,7 @@ function updatePreview() {
     }
     exportBtn.disabled = true;
     export3mfBtn.disabled = true;
+    previewExportBtn.disabled = true;
     bakeBtn.disabled = true;
     updateSmartResBtnState();
     _renderLayerStrip();
@@ -4720,6 +4746,7 @@ function updatePreview() {
   syncBoundaryEdgeUniforms();
   exportBtn.disabled = false;
   export3mfBtn.disabled = false;
+  previewExportBtn.disabled = false;
   bakeBtn.disabled = isBaking;
   updateSmartResBtnState();
   _renderLayerStrip();
@@ -4977,6 +5004,7 @@ async function handleExport(format = 'stl') {
   isExporting = true;
   exportBtn.classList.add('busy');
   export3mfBtn.classList.add('busy');
+  previewExportBtn.classList.add('busy');
   exportProgress.classList.remove('hidden');
 
   let finalGeometry   = null;
@@ -5018,8 +5046,23 @@ async function handleExport(format = 'stl') {
     const exportWarnings = [];
     if (result.safetyCapHit) exportWarnings.push(t('warnings.safetyCapHit'));
     if (result.lockedOverBudget) exportWarnings.push(t('warnings.preserveOverBudget'));
+    if (result.preserveStats && result.preserveStats.failed) exportWarnings.push(t('warnings.preserveStitchFailed'));
     triLimitWarning.classList.toggle('hidden', exportWarnings.length === 0);
     triLimitWarning.textContent = exportWarnings.join(' ');
+
+    // Preview Export: show the mesh as exported, in the working pose the
+    // viewer uses (so no _restoreOriginalPose), and write no file.
+    if (format === 'preview') {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
+      if (result.normals) g.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
+      showExportPreview(g);
+      _syncPreviewExportBtn();
+      setProgress(1.0, t('progress.done'));
+      exportSucceeded = true;
+      setTimeout(() => { exportProgress.classList.add('hidden'); setProgress(0, ''); }, 800);
+      return;
+    }
 
     // Map the pipeline output back to the model's original position and
     // orientation (issue #82) — in-app rotation is a texturing aid and is
@@ -5045,6 +5088,17 @@ async function handleExport(format = 'stl') {
         `final open=${rs.open}, non-manifold=${rs.nonManifold}, slivers=${rs.slivers} ` +
         `(${rs.tris.toLocaleString()} tris)`,
         'color:#0a0;font-weight:bold'
+      );
+    }
+
+    if (result.preserveStats) {
+      const ps = result.preserveStats;
+      console.log(
+        `%c[stlTexturizer] untextured surfaces ${ps.failed ? 'NOT restored (stitch rejected)' : 'restored verbatim'}: ` +
+        `${ps.kept.toLocaleString()} source tris (${ps.keptSplit} split along the seam), ` +
+        `seam snaps ${ps.snappedToCorner} corner / ${ps.snappedToEdge} edge, unmatched ${ps.unmatched}; ` +
+        `open ${ps.before.open}→${ps.after.open}, non-manifold ${ps.before.nonManifold}→${ps.after.nonManifold}`,
+        `color:${ps.failed ? '#c60' : '#0a0'};font-weight:bold`
       );
     }
 
@@ -5089,6 +5143,7 @@ async function handleExport(format = 'stl') {
     isExporting = false;
     exportBtn.classList.remove('busy');
     export3mfBtn.classList.remove('busy');
+    previewExportBtn.classList.remove('busy');
   }
 }
 
@@ -5132,6 +5187,9 @@ function _onExportPipelineEvent(stage, p, info) {
       break;
     case 'repair':
       setProgress(0.96, t('progress.repairingMesh'));
+      break;
+    case 'stitch':
+      setProgress(0.98, t('progress.restoringUntextured'));
       break;
   }
 }
@@ -5534,6 +5592,7 @@ function adoptBakedGeometry(geometry, bounds, opts = {}) {
 
   exportBtn.disabled = !_hasTexturedLayer();
   export3mfBtn.disabled = !_hasTexturedLayer();
+  previewExportBtn.disabled = !_hasTexturedLayer();
   bakeBtn.disabled = !_hasTexturedLayer();
   updateSmartResBtnState();
 
@@ -5567,7 +5626,7 @@ const PERSISTED_KEYS = [
   'offsetU', 'offsetV', 'rotation',
   'amplitude', 'textureHeight', 'invertDisplacement',
   'invertTexture',
-  'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'harvestFlatFaces', 'harvestTol', 'preserveUntextured', 'textureSmoothing',
+  'symmetricDisplacement', 'noDownwardZ', 'extendUntextured', 'smoothBottom', 'harvestFlatFaces', 'harvestTol', 'preserveUntextured', 'textureSmoothing',
   'mappingBlend', 'seamBandWidth', 'capAngle', 'boundaryFalloff', 'boundaryFalloffCurve',
   'bottomAngleLimit', 'topAngleLimit',
   'refineLength', 'maxTriangles',
@@ -5818,6 +5877,10 @@ function applySettingsSnapshot(snap) {
     noDownwardZChk.checked = snap.noDownwardZ;
     noDownwardZChk.dispatchEvent(new Event('change', { bubbles: true }));
   }
+  if (snap.extendUntextured != null) {
+    extendUntexturedChk.checked = snap.extendUntextured;
+    extendUntexturedChk.dispatchEvent(new Event('change', { bubbles: true }));
+  }
   if (snap.smoothBottom != null) {
     smoothBottomChk.checked = snap.smoothBottom;
     smoothBottomChk.dispatchEvent(new Event('change', { bubbles: true }));
@@ -5929,7 +5992,7 @@ const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   offsetU: 0, offsetV: 0, rotation: 0,
   amplitude: 0.5, textureHeight: 0.5, invertDisplacement: false,
   invertTexture: false,
-  symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, harvestFlatFaces: true, harvestTol: 0.005, preserveUntextured: true, textureSmoothing: 0,
+  symmetricDisplacement: false, noDownwardZ: false, extendUntextured: true, smoothBottom: true, harvestFlatFaces: true, harvestTol: 0.005, preserveUntextured: true, textureSmoothing: 0,
   mappingBlend: 1, seamBandWidth: 0.5, capAngle: 20, boundaryFalloff: 0,
   boundaryFalloffCurve: 'ease',
   bottomAngleLimit: 5, topAngleLimit: 0,
