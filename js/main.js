@@ -85,11 +85,13 @@ let eraseMode          = false;
 let brushIsRadius      = true;
 let brushRadius        = 5.0;
 let brushHardness      = 0.5;         // circle brush: 1 = hard, leaf-exact; < 1 = soft, coverage per tree vertex
+let brushPrecision     = true;        // circle brush: true = Precision (refines under the stroke), false = Standard (whole triangles)
 let bucketThreshold    = 20;
 let isPainting         = false;
 let selectionMode      = false;       // false = exclude painted faces; true = include only painted faces
 let maskModeChosen     = false;       // false until the user (or a loaded/seeded mask) engages surface masking — neither mode button is highlighted
 let _lastHoverTriIdx   = -1;          // last triangle index used for hover preview
+let _lastHoverKey      = '';          // Standard circle brush: erase flag + faces of the last hover preview
 let placeOnFaceActive  = false;       // true while "Place on Face" mode is active
 let rotateActive       = false;       // true while rotate mode is active
 let rotateAngles       = { x: 0, y: 0, z: 0 };  // accumulated rotation in degrees
@@ -424,6 +426,9 @@ const exclBucketBtn       = document.getElementById('excl-bucket-btn');
 const exclBrushTypeRow    = document.getElementById('excl-brush-type-row');
 const exclBrushSingleBtn  = document.getElementById('excl-brush-single');
 const exclBrushRadiusBtn  = document.getElementById('excl-brush-radius-btn');
+const exclBrushModeRow    = document.getElementById('excl-brush-mode-row');
+const exclBrushStandardBtn  = document.getElementById('excl-brush-standard');
+const exclBrushPrecisionBtn = document.getElementById('excl-brush-precision');
 const exclRadiusRow       = document.getElementById('excl-radius-row');
 const exclBrushRadiusSlider = document.getElementById('excl-brush-radius-slider');
 const exclBrushRadiusVal    = document.getElementById('excl-brush-radius-val');
@@ -1864,6 +1869,7 @@ function wireEvents() {
     brushIsRadius = false;
     exclBrushSingleBtn.classList.add('active');
     exclBrushRadiusBtn.classList.remove('active');
+    exclBrushModeRow.classList.add('hidden');
     exclRadiusRow.classList.add('hidden');
     exclHardnessRow.classList.add('hidden');
     canvas.style.cursor = exclusionTool ? 'crosshair' : '';
@@ -1874,10 +1880,25 @@ function wireEvents() {
     brushIsRadius = true;
     exclBrushRadiusBtn.classList.add('active');
     exclBrushSingleBtn.classList.remove('active');
+    if (exclusionTool === 'brush') exclBrushModeRow.classList.remove('hidden');
     if (exclusionTool === 'brush') exclRadiusRow.classList.remove('hidden');
-    if (exclusionTool === 'brush') exclHardnessRow.classList.remove('hidden');
+    if (exclusionTool === 'brush' && brushPrecision) exclHardnessRow.classList.remove('hidden');
     if (exclusionTool === 'brush') canvas.style.cursor = 'none';
   });
+
+  // Standard marks whole triangles (hard only); Precision refines under the
+  // stroke and is the only mode with a soft edge.
+  const setBrushPrecision = (on) => {
+    brushPrecision = on;
+    exclBrushStandardBtn.classList.toggle('active', !on);
+    exclBrushPrecisionBtn.classList.toggle('active', on);
+    exclHardnessRow.classList.toggle('hidden', !(exclusionTool === 'brush' && brushIsRadius && on));
+    updateBrushCursorHardness();
+    _lastHoverTriIdx = -1;
+    setHoverPreview(null);
+  };
+  exclBrushStandardBtn.addEventListener('click', () => setBrushPrecision(false));
+  exclBrushPrecisionBtn.addEventListener('click', () => setBrushPrecision(true));
 
   exclBrushRadiusSlider.addEventListener('input', () => {
     brushRadius = parseFloat(exclBrushRadiusSlider.value) / 2;
@@ -2146,8 +2167,9 @@ function setExclusionTool(tool) {
   // Show brush-type row only while brush is active
   exclBrushTypeRow.classList.toggle('hidden', exclusionTool !== 'brush');
   // Show radius row only while brush + radius mode is active
+  exclBrushModeRow.classList.toggle('hidden', !(exclusionTool === 'brush' && brushIsRadius));
   exclRadiusRow.classList.toggle('hidden', !(exclusionTool === 'brush' && brushIsRadius));
-  exclHardnessRow.classList.toggle('hidden', !(exclusionTool === 'brush' && brushIsRadius));
+  exclHardnessRow.classList.toggle('hidden', !(exclusionTool === 'brush' && brushIsRadius && brushPrecision));
   // Show threshold row only while bucket is active
   exclThresholdRow.classList.toggle('hidden', exclusionTool !== 'bucket');
   canvas.style.cursor = (exclusionTool === 'brush' && brushIsRadius) ? 'none' : exclusionTool ? 'crosshair' : '';
@@ -2259,7 +2281,12 @@ function updateMaskingTriDebug(e) {
 
 const _viewDirScratch = new THREE.Vector3();
 function _viewDirFor(hitPt) {
-  return _viewDirScratch.subVectors(hitPt, getCamera().position).normalize();
+  const cam = getCamera();
+  // An orthographic camera looks along its axis everywhere; the ray from its
+  // position only matches on screen centre and skews the brush disk elsewhere
+  // (strongly at grazing angles, where the circle smeared into an ellipse).
+  if (cam.isOrthographicCamera) return cam.getWorldDirection(_viewDirScratch);
+  return _viewDirScratch.subVectors(hitPt, cam.position).normalize();
 }
 
 // ── Surface paint: the paint tree ─────────────────────────────────────────────
@@ -2449,7 +2476,7 @@ function _paintSingleHit(hit, mesh, strokeFrom = null) {
       from: strokeFrom || hit.point, to: hit.point,
       radius: brushRadius, view: _viewDirFor(hit.point),
       hardness: brushHardness, erase: eraseMode,
-      edgeLimit: _brushEdgeLimit(),
+      edgeLimit: _brushEdgeLimit(), whole: !brushPrecision,
     });
   } else {
     paintTree.paintFaces(slot, [seedFace], eraseMode);
@@ -2880,9 +2907,9 @@ function _renderLayerStrip() {
 
 /** Show the hardness core as a dashed inner ring on the brush cursor. */
 function updateBrushCursorHardness() {
-  const soft = brushHardness < 1;
-  brushCursorEl.classList.toggle('soft', soft && brushHardness > 0);
-  brushCursorEl.style.setProperty('--brush-hardness', String(brushHardness));
+  const hardness = brushPrecision ? brushHardness : 1;
+  brushCursorEl.classList.toggle('soft', hardness < 1 && hardness > 0);
+  brushCursorEl.style.setProperty('--brush-hardness', String(hardness));
 }
 
 function _paintLineBetween(from, to, mesh) {
@@ -3101,6 +3128,7 @@ function handlePlaceOnFaceClick(e) {
   exclBrushBtn.classList.remove('active');
   exclBucketBtn.classList.remove('active');
   exclBrushTypeRow.classList.add('hidden');
+  exclBrushModeRow.classList.add('hidden');
   exclRadiusRow.classList.add('hidden');
   exclHardnessRow.classList.add('hidden');
   exclThresholdRow.classList.add('hidden');
@@ -3379,9 +3407,19 @@ function updateBrushHover(e) {
   const hit = getFrontFaceHit(hits, mesh);
   if (!hit) { _lastHoverTriIdx = -1; setHoverPreview(null); return; }
 
-  // The circle brush shows its footprint as the cursor ring; only the
-  // single-triangle brush highlights the base face under the pointer.
-  if (brushIsRadius) { _lastHoverTriIdx = -1; setHoverPreview(null); return; }
+  // The Precision brush shows its footprint as the cursor ring. Standard
+  // marks whole triangles, so it highlights the ones a click would mark.
+  if (brushIsRadius) {
+    if (brushPrecision || !paintTree) { _lastHoverTriIdx = -1; setHoverPreview(null); return; }
+    const seed = _baseFaceOf(hit.faceIndex, mesh.geometry);
+    const faces = paintTree.facesUnderBrush(seed, hit.point, brushRadius, _viewDirFor(hit.point)).sort((a, b) => a - b);
+    const key = (eraseMode ? 'e' : 'p') + faces.join(',');
+    if (_lastHoverTriIdx !== -1 && key === _lastHoverKey) return;
+    _lastHoverTriIdx = seed;
+    _lastHoverKey = key;
+    setHoverPreview(buildExclusionOverlayGeo(currentGeometry, new Set(faces)), eraseMode ? 0x999999 : 0xffee00);
+    return;
+  }
   const triIdx = _baseFaceOf(hit.faceIndex, mesh.geometry);
   if (triIdx === _lastHoverTriIdx) return;
   _lastHoverTriIdx = triIdx;
@@ -3562,6 +3600,7 @@ function loadDefaultCube() {
   exclBrushBtn.classList.remove('active');
   exclBucketBtn.classList.remove('active');
   exclBrushTypeRow.classList.add('hidden');
+  exclBrushModeRow.classList.add('hidden');
   exclRadiusRow.classList.add('hidden');
   exclHardnessRow.classList.add('hidden');
   exclThresholdRow.classList.add('hidden');
@@ -3783,6 +3822,7 @@ async function handleModelFile(file, stepSettings = null) {
     exclBrushBtn.classList.remove('active');
     exclBucketBtn.classList.remove('active');
     exclBrushTypeRow.classList.add('hidden');
+    exclBrushModeRow.classList.add('hidden');
     exclRadiusRow.classList.add('hidden');
     exclHardnessRow.classList.add('hidden');
     exclThresholdRow.classList.add('hidden');
@@ -5455,6 +5495,7 @@ function adoptBakedGeometry(geometry, bounds, opts = {}) {
   exclBrushBtn.classList.remove('active');
   exclBucketBtn.classList.remove('active');
   exclBrushTypeRow.classList.add('hidden');
+  exclBrushModeRow.classList.add('hidden');
   exclRadiusRow.classList.add('hidden');
   exclHardnessRow.classList.add('hidden');
   exclThresholdRow.classList.add('hidden');

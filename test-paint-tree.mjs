@@ -192,5 +192,43 @@ function paintedArea(tree, slot, flat) {
   check('paintFaces erase', h2[0] === 0 && h2[3] === 0);
 }
 
+// ── Standard brush (whole): every touched base face in full, no splits ────
+{
+  const geo = new THREE.BoxGeometry(50, 50, 50).toNonIndexed();
+  geo.computeVertexNormals();
+  const { tree } = makeTree(geo);
+  const slot = tree.addLayer(1);
+  const fn = tree.faceNormals;
+  const top = [];
+  for (let f = 0; f < 12; f++) if (fn[f*3+2] > 0.9) top.push(f);
+  const view = { x: 0, y: 0, z: -1 };
+  // Off-centre dab whose disk crosses the face diagonal: both +Z triangles, nothing else.
+  const at = { x: 3, y: -4, z: 25 };
+  const preview = tree.facesUnderBrush(top[0], at, 5, view).sort((a, b) => a - b);
+  tree.paintStroke({ slot, seedFace: top[0], from: at, to: at, radius: 5, view, hardness: 0.5, erase: false, edgeLimit: 1, whole: true });
+  const { hard } = tree.basePaint(slot);
+  const marked = [];
+  for (let f = 0; f < 12; f++) if (hard[f]) marked.push(f);
+  check('standard hover preview = faces the dab marks', preview.join() === marked.join(), `preview=${preview} marked=${marked}`);
+  check('standard dab: tree stays flat', tree.isFlat);
+  check('standard dab: both +Z faces whole, nothing else',
+    hard[top[0]] === 1 && hard[top[1]] === 1 && hard.reduce((a, b) => a + b, 0) === 2, `painted=${hard.reduce((a, b) => a + b, 0)}`);
+  check('standard dab: hardness ignored (no soft coverage)', tree.countPainted(slot).softVertices === 0);
+  // A dab that stays inside one triangle paints only that one.
+  tree.clearLayer(slot);
+  const p = geo.attributes.position.array;
+  const f0 = top[0];
+  const c = { x: (p[f0*9]+p[f0*9+3]+p[f0*9+6])/3, y: (p[f0*9+1]+p[f0*9+4]+p[f0*9+7])/3, z: 25 };
+  tree.paintStroke({ slot, seedFace: f0, from: c, to: c, radius: 1, view, hardness: 1, erase: false, edgeLimit: 0.2, whole: true });
+  const { hard: h1 } = tree.basePaint(slot);
+  check('standard small dab: only the face under it', h1[f0] === 1 && h1.reduce((a, b) => a + b, 0) === 1);
+  // Precision paint on a face, then a Standard erase over it: merged back, clean.
+  tree.clearLayer(slot);
+  tree.paintStroke({ slot, seedFace: top[0], from: at, to: at, radius: 5, view, hardness: 1, erase: false, edgeLimit: 1 });
+  check('precision dab splits the face', !tree.isFlat);
+  tree.paintStroke({ slot, seedFace: top[0], from: at, to: at, radius: 5, view, hardness: 1, erase: true, edgeLimit: 1, whole: true });
+  check('standard erase clears and merges the split face', tree.isFlat && !tree.hasPaint(slot));
+}
+
 console.log(`\n${runs - fails}/${runs} passed`);
 process.exit(fails ? 1 : 0);

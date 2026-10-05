@@ -15,6 +15,8 @@
  * 12-triangle cube as on a scanned statue. Fully covered triangles are
  * painted whole; after every dab, children that came out uniform are merged
  * back into their parent, so the tree only keeps detail along mask edges.
+ * The Standard brush (paintStroke `whole`) skips the refinement and paints
+ * every base triangle the stroke touches in full, like the pre-1.4 brush.
  *
  * One tree is shared by all texture layers: the split structure is common,
  * paint is per layer — a hard state per node (painted or not) and, for the
@@ -328,11 +330,15 @@ export class PaintTree {
     if (!L) return;
     for (const f of faces) {
       if (f < 0 || f >= this.baseTriCount) continue;
-      this._setSubtreeState(f, L, erase ? 0 : 1);
-      if (erase && L.cov) this._setSubtreeCov(f, L.cov, 0);
-      this._mergeSubtree(f);
+      this._paintWholeFace(f, L, erase);
     }
     this.paintVersion++;
+  }
+
+  _paintWholeFace(f, L, erase) {
+    this._setSubtreeState(f, L, erase ? 0 : 1);
+    if (erase && L.cov) this._setSubtreeCov(f, L.cov, 0);
+    this._mergeSubtree(f);
   }
 
   /**
@@ -351,12 +357,14 @@ export class PaintTree {
    *   hardness   1 = hard (paint states); < 1 = soft (paint vertex coverage)
    *   erase      boolean
    *   edgeLimit  split edges longer than this (mm)
+   *   whole      true = no refinement: paint every base face the stroke
+   *              touches in full (the Standard brush; hardness is ignored)
    */
   paintStroke(o) {
     const L = this.layers[o.slot];
     if (!L || o.seedFace < 0 || o.seedFace >= this.baseTriCount) return;
     const r = o.radius, r2 = r * r;
-    const soft = o.hardness < 1;
+    const soft = !o.whole && o.hardness < 1;
     if (soft) this._ensureCov(L);
     // NOTE: read L.cov at use time — splitting can reallocate it.
     const vx = o.view.x, vy = o.view.y, vz = o.view.z;
@@ -396,18 +404,46 @@ export class PaintTree {
                   edgeLimit2: o.edgeLimit * o.edgeLimit,
                   dist2, dabs, nDabs, vx, vy, vz, core2: (r * o.hardness) * (r * o.hardness), d: new Float64Array(3) };
 
-    // BFS over base faces from the seed (front-facing, within reach).
+    const touched = this._facesInDisk(o.seedFace, mx, my, mz, reach2, vx, vy, vz);
+    if (o.whole) {
+      for (const f of touched) if (this._nodeStrokeDist2(f, ctx) <= r2) this._paintWholeFace(f, L, ctx.erase);
+      this.paintVersion++;
+      return;
+    }
+    // Refine everything first, paint second: a split made after painting
+    // would average a freshly painted vertex with a far one and plant
+    // coverage outside the brush.
+    for (const f of touched) this._refineNode(f, ctx);
+    for (const f of touched) this._paintNode(f, ctx);
+    for (const f of touched) this._mergeSubtree(f);
+    this.paintVersion++;
+  }
+
+  /**
+   * Base faces a Standard dab at `at` would mark (for the hover preview):
+   * the front-facing faces connected to the seed that reach into the disk.
+   */
+  facesUnderBrush(seedFace, at, radius, view) {
+    if (seedFace < 0 || seedFace >= this.baseTriCount) return [];
+    return this._facesInDisk(seedFace, at.x, at.y, at.z, radius * radius, view.x, view.y, view.z);
+  }
+
+  /**
+   * BFS over base faces from the seed: every face with any part inside the
+   * disk of radius² r2 around (cx, cy, cz) in the plane ⊥ view, spreading
+   * over front-facing neighbours only.
+   */
+  _facesInDisk(seedFace, cx, cy, cz, r2, vx, vy, vz) {
     const adjacency = this.adjacency, faceNormals = this.faceNormals;
-    const visited = new Set([o.seedFace]);
-    const queue = [o.seedFace];
+    const visited = new Set([seedFace]);
+    const queue = [seedFace];
     const touched = [];
     let head = 0;
     while (head < queue.length) {
       const f = queue[head++];
-      // Overlap test of the base face with the stroke's reach disk (any part inside).
       const b = f * 3;
-      const d2 = this._triDist2Projected(this.nv[b], this.nv[b + 1], this.nv[b + 2], mx, my, mz, vx, vy, vz);
-      if (d2 > reach2) continue;
+      const d2 = this._triDist2Projected(this.nv[b], this.nv[b + 1], this.nv[b + 2], cx, cy, cz, vx, vy, vz);
+      if (d2 > r2) continue;
       touched.push(f);
       const nbrs = adjacency[f];
       if (!nbrs) continue;
@@ -421,13 +457,7 @@ export class PaintTree {
         queue.push(nb);
       }
     }
-    // Refine everything first, paint second: a split made after painting
-    // would average a freshly painted vertex with a far one and plant
-    // coverage outside the brush.
-    for (const f of touched) this._refineNode(f, ctx);
-    for (const f of touched) this._paintNode(f, ctx);
-    for (const f of touched) this._mergeSubtree(f);
-    this.paintVersion++;
+    return touched;
   }
 
   /** Squared distance from a point to a triangle after projecting both onto the plane ⊥ view. */

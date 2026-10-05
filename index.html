@@ -490,6 +490,19 @@
           </div>
         </div>
 
+        <!-- Circle brush mode (shown when Brush + Circle) -->
+        <div id="excl-brush-mode-row" class="form-row hidden">
+          <span id="excl-brush-mode-label" class="form-row-label" data-i18n="brushMode.label">Mode</span>
+          <div class="excl-seg" role="group" aria-labelledby="excl-brush-mode-label">
+            <button id="excl-brush-standard" class="excl-seg-btn"
+              data-i18n="brushMode.standard" data-i18n-title="brushMode.standardTitle"
+              title="Marks every whole triangle the brush touches. Quick for selecting flat faces of CAD models.">Standard</button>
+            <button id="excl-brush-precision" class="excl-seg-btn active"
+              data-i18n="brushMode.precision" data-i18n-title="brushMode.precisionTitle"
+              title="Splits the triangles under the brush so the mask follows the brush outline exactly, with an optional soft edge.">Precision</button>
+          </div>
+        </div>
+
         <!-- Radius slider (shown when Brush + Radius) -->
         <div id="excl-radius-row" class="form-row slider-row hidden">
           <label for="excl-brush-radius-slider" data-i18n="labels.size">Size</label>
@@ -497,9 +510,9 @@
           <input type="number" class="val" id="excl-brush-radius-val" value="10" min="0.2" max="100" step="0.2" data-wheel-decimals="1" />
         </div>
 
-        <!-- Hardness slider (shown when Brush + Radius) -->
+        <!-- Hardness slider (shown when Brush + Circle + Precision) -->
         <div id="excl-hardness-row" class="form-row slider-row hidden">
-          <label for="excl-brush-hardness-slider" data-i18n="labels.hardness" data-i18n-title="tooltips.hardness" title="Edge softness of the circle brush, in %. 100 = hard, face-exact mask. Lower values fade the mask out toward the brush rim for smooth borders. Soft paint is stored per mesh vertex, so enable Precision for smooth gradients on coarse meshes. Shift erases softly too.">Hardness %</label>
+          <label for="excl-brush-hardness-slider" data-i18n="labels.hardness" data-i18n-title="tooltips.hardness" title="Edge softness of the circle brush, in %. 100 = hard, face-exact mask. Lower values fade the mask out toward the brush rim for smooth borders. The brush refines the mesh under the stroke, so the fade is smooth on any triangle size. Shift erases softly too.">Hardness %</label>
           <input type="range" id="excl-brush-hardness-slider" min="0" max="100" step="1" value="50" />
           <input type="number" class="val" id="excl-brush-hardness-val" value="50" min="0" max="100" step="1" />
         </div>

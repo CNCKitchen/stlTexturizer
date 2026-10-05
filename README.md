@@ -61,8 +61,9 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 ### Surface Masking
 - **Angle masking** — suppress texture on near-horizontal top and/or bottom faces (0°–90° threshold each)
 - **Surface painting** — paint surfaces to exclude (orange) or exclusively include them
-  - Circle brush — refines the mesh under the stroke itself (after PrusaSlicer's paint-on tool), so the stroke edge is as fine on a 12-triangle cube as on a scan; the base mesh is never modified
-  - Hardness — a soft brush fades the mask out toward the rim for gradual texture borders
+  - Circle brush, **Precision** mode (default) — refines the mesh under the stroke itself (after PrusaSlicer's paint-on tool), so the stroke edge is as fine on a 12-triangle cube as on a scan; the base mesh is never modified
+  - Circle brush, **Standard** mode — marks every whole triangle the brush touches (highlighted while hovering), so a quick smudge selects the flat faces of a CAD model
+  - Hardness (Precision) — a soft brush fades the mask out toward the rim for gradual texture borders
   - Single-triangle brush and bucket fill — flood-fills adjacent faces up to a configurable dihedral-angle threshold
   - Erase — hold Shift to undo painted surfaces
   - Clear all — reset the layer's paint
