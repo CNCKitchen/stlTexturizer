@@ -216,3 +216,44 @@ A pre-layer project (mask.json, v1.3.x) must get its single layer and tree
 slot **before** the mask is restored; restoring first orphaned the paint
 under a layer id nothing referenced (`tests/paintTree.test.mjs` covers the
 weld case; the orphaning was verified in the browser).
+
+## Preserved surfaces are stitched back verbatim (`js/preserveStitch.js`)
+
+"Don't modify untextured surfaces" locks the untextured faces in regularize
+and decimation and pins them in displacement and Smooth Bottom, but the
+export still re-splits them along the seam and `resolveTJunctions` snaps
+every coordinate onto the 0.1 µm grid. So the last export step
+(`stitchPreserved`, export mode only) drops every output triangle lying on
+the untextured source surface, appends the untextured source triangles as
+they were, and zips the textured part onto them with the **original side
+winning**: textured open-edge vertices snap onto the original seam corners
+or edges, never the reverse. The remaining T-junctions are closed by
+splitting triangles only at points on their own edges, so original corners
+stay bit-exact and every original triangle keeps its plane and outline.
+The pipeline keeps the unstitched mesh if the stitch would add open or
+non-manifold edges (`preserveStats.failed`). Bake mode skips it (it would
+invalidate the parent-face map). `tests/preserveStitch.test.mjs` checks it.
+
+## Texture ends flush with flat untextured faces (`js/flushFaces.js`)
+
+Where texture meets an untextured face the seam is pinned, so the texture
+next to it either pokes past the face (a round running tangent into a flat
+top: bumps rise above the top) or hangs over it (a wall meeting the bed: a
+lip). With `extendUntextured` (Advanced > Flush Edges, on by default) the
+export treats each flat untextured face's plane at the seam as the limit:
+textured vertices within `reach` that crossed it are projected back onto it
+(clamp), and each seam vertex gets a twin pushed out within the plane by the
+mean move of its textured neighbours, joined to the untouched face by a strip
+in the plane (on the bed: the wall stands on it). Outward = perpendicular to
+the seam edges within the plane, away from the untextured triangle on each
+edge (a fan's centroid is no guide on long thin rim triangles). Skipped:
+seam vertices whose untextured faces are not flat (>10° apart), moves under
+0.02 mm or pointing back into the face, twins that flip a textured triangle
+against its pre-displacement facing, and any clamp/twin landing INSIDE an
+untextured face (a textured patch between coplanar faces, e.g. in a drain
+hole; "near" is not enough to skip, or nothing at the seam would clamp).
+The strip triangles are locked in decimation. Export mode only.
+
+The live preview (GPU shader) cannot show any of this or the stitch, so
+Preview Export (next to Export) runs the export pipeline and shows its mesh
+(`viewer.showExportPreview`); any mesh update ends it.

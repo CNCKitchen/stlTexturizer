@@ -776,6 +776,7 @@ function disposeGroup(group) {
  * @param {THREE.Material} [material] – if omitted, a default material is used
  */
 export function loadGeometry(geometry, material) {
+  endExportPreview();
   // Clear previous mesh
   while (meshGroup.children.length) {
     const old = meshGroup.children[0];
@@ -835,12 +836,62 @@ export function loadGeometry(geometry, material) {
   requestRender();
 }
 
+// ── Export preview ──────────────────────────────────────────────────────────
+// Shows the actual export mesh in place of the live preview without touching
+// the live preview's geometry or material (they are set aside and put back).
+// Any other mesh update ends it first, so the app never draws onto a stale
+// swap.
+let _exportPreviewSaved = null;
+
+export function showExportPreview(geometry) {
+  if (!currentMesh) return;
+  if (_exportPreviewSaved) {
+    currentMesh.geometry.dispose();
+    currentMesh.material.dispose();
+  } else {
+    _exportPreviewSaved = { geometry: currentMesh.geometry, material: currentMesh.material };
+  }
+  if (!geometry.attributes.normal) geometry.computeVertexNormals();
+  currentMesh.geometry = geometry;
+  currentMesh.material = _clip(new THREE.MeshStandardMaterial({
+    color: 0x9fb8cc, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide,
+  }));
+  _afterMeshSwap();
+}
+
+/** Put the live preview back. Returns true if an export preview was showing. */
+export function endExportPreview() {
+  if (!_exportPreviewSaved || !currentMesh) { _exportPreviewSaved = null; return false; }
+  currentMesh.geometry.dispose();
+  currentMesh.material.dispose();
+  currentMesh.geometry = _exportPreviewSaved.geometry;
+  currentMesh.material = _exportPreviewSaved.material;
+  _exportPreviewSaved = null;
+  _afterMeshSwap();
+  return true;
+}
+
+export function isExportPreview() { return !!_exportPreviewSaved; }
+
+function _afterMeshSwap() {
+  _section.setTarget(currentMesh);
+  if (wireframeLines) {
+    meshGroup.remove(wireframeLines);
+    wireframeLines.geometry.dispose();
+    wireframeLines.material.dispose();
+    wireframeLines = null;
+  }
+  if (wireframeVisible) _buildWireframe(currentMesh.geometry);
+  requestRender();
+}
+
 /**
  * Update only the material on the current mesh.
  * @param {THREE.Material} material
  */
 export function setMeshMaterial(material) {
   if (!currentMesh) return;
+  endExportPreview();
   if (currentMesh.material && currentMesh.material.dispose) {
     currentMesh.material.dispose();
   }
@@ -862,6 +913,7 @@ export function setMeshMaterial(material) {
  */
 export function setMeshGeometry(geometry) {
   if (!currentMesh) return;
+  endExportPreview();
   if (!geometry.attributes.normal) geometry.computeVertexNormals();
   currentMesh.geometry = geometry;
   _section.setTarget(currentMesh);
