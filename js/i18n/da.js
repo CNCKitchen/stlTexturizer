@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Kun indstillinger",
   "header.loadGo": "Indlæs",
   "alerts.importFailed": "Kunne ikke indlæse projekt: {msg}",
+  "alerts.paintNotRestored": "Flademasken, der er gemt i dette projekt, kunne ikke matches med modellen og blev ikke gendannet.",
   "labels.snapSeamless": "Fastgør til sømløs ombukning ⓘ",
   "tooltips.snapSeamless": "Fastgør U-skalaen til hele ombukningstællinger, så teksturen ombukkes sømløst omkring cylinderen eller kuglen.",
   "labels.cylinderAxis": "Cylinderakse",

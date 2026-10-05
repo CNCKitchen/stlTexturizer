@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Paramètres uniquement",
   "header.loadGo": "Charger",
   "alerts.importFailed": "Impossible de charger le projet : {msg}",
+  "alerts.paintNotRestored": "Le masque de surface enregistré dans ce projet ne correspond pas au modèle et n'a pas été restauré.",
   "labels.snapSeamless": "Aligner sur enroulement sans couture ⓘ",
   "tooltips.snapSeamless": "Aligne l'échelle U sur un nombre entier de répétitions afin que la texture s'enroule sans couture autour du cylindre ou de la sphère.",
   "labels.cylinderAxis": "Axe du cylindre",

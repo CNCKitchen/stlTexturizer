@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Alleen instellingen",
   "header.loadGo": "Laden",
   "alerts.importFailed": "Project kon niet worden geladen: {msg}",
+  "alerts.paintNotRestored": "Het in dit project opgeslagen oppervlaktemasker kon niet aan het model worden gekoppeld en is niet hersteld.",
   "labels.snapSeamless": "Naadloos afronden ⓘ",
   "tooltips.snapSeamless": "Rondt de U-schaal af op gehele wrap-aantallen zodat de textuur naadloos om de cilinder of bol wikkelt.",
   "labels.cylinderAxis": "Cilinderas",

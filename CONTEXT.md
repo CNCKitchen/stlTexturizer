@@ -192,3 +192,27 @@ frame. Export runs over the flattened mesh. Undo snapshots and `paint.json`
 in project files hold `serialize()` (DFS split codes, states, coverage in
 replay order); `deserialize()` doubles as compaction of merged-away nodes.
 The base mesh is never modified, so face indices stay valid across strokes.
+
+### Paint must survive a re-weld (#134)
+
+Split codes and hard states are per base face / per node, so they replay
+onto any weld of the same triangles. Soft coverage is per welded vertex id,
+and the weld is **not** stable across a project round trip: `model.stl` is
+written in the original pose and float32, re-centred on import, and the
+0.1 µm grid then groups near-coincident corners differently (a noisy sphere
+went 5126 → 5122 welded vertices). `deserialize()` used to require an equal
+`baseVertCount` and dropped the whole mask otherwise — silently.
+
+`serialize({ leafCov: true })` therefore also writes the soft coverage per
+**leaf corner**, keyed by the leaf's position in the DFS stream, and
+`deserialize()` prefers that form (max per vertex when the new weld merges
+old ones). Project export and the in-app re-welds (`_rebuildPaintTreeKeepingPaint`:
+rotation, place on face) use it; only a changed triangle count can still
+defeat the restore, and the import then alerts. Undo snapshots keep the
+compact per-vertex form and still require the identical weld — do not swap
+that in for project files.
+
+A pre-layer project (mask.json, v1.3.x) must get its single layer and tree
+slot **before** the mask is restored; restoring first orphaned the paint
+under a layer id nothing referenced (`tests/paintTree.test.mjs` covers the
+weld case; the orphaning was verified in the browser).

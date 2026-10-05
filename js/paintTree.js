@@ -832,11 +832,17 @@ export class PaintTree {
    * Compact encoding: per base face a depth-first stream of split codes
    * (0 = leaf), every layer's node states in the same order, and soft
    * coverage per vertex in replay order (base vertices first, then midpoints
-   * in the order the replay creates them).
+   * in the order the replay creates them). With `leafCov` the soft coverage
+   * is also written per leaf corner, keyed by the leaf's position in the
+   * stream: unlike the per-vertex form that survives a different weld of the
+   * same triangles — a project's model.stl comes back re-centred and
+   * float32-rounded, which can regroup near-coincident vertices (#134).
    */
-  serialize() {
+  serialize({ leafCov = false } = {}) {
     const codes = new Uint8Array(this.nodeCount);
     const states = this.layers.map(() => new Uint8Array(this.nodeCount));
+    const leafIdx = leafCov ? this.layers.map(() => []) : null;
+    const leafVal = leafCov ? this.layers.map(() => []) : null;
     let nOut = 0;
     // Compact vertex ids in replay order.
     const newId = new Int32Array(this.vertCount).fill(-1);
@@ -852,8 +858,17 @@ export class PaintTree {
         const n = stack.pop();
         codes[nOut] = this.nCode[n];
         for (let l = 0; l < this.layers.length; l++) states[l][nOut] = this.layers[l].state[n];
-        nOut++;
         const first = this.nChild[n];
+        if (leafIdx && first === NO_CHILD) {
+          const nb = n * 3, v0 = this.nv[nb], v1 = this.nv[nb + 1], v2 = this.nv[nb + 2];
+          for (let l = 0; l < this.layers.length; l++) {
+            const c = this.layers[l].cov;
+            if (!c) continue;
+            const c0 = c[v0], c1 = c[v1], c2 = c[v2];
+            if (c0 > 0 || c1 > 0 || c2 > 0) { leafIdx[l].push(nOut); leafVal[l].push(c0, c1, c2); }
+          }
+        }
+        nOut++;
         if (first === NO_CHILD) continue;
         // Midpoints in the order _split creates them for this node.
         const mask = this.nCode[n] & 7;
@@ -889,6 +904,7 @@ export class PaintTree {
       layerIds: this.layers.map(L => L.id),
       states: states.map(s => s.subarray(0, nOut)),
       cov,
+      leafCov: leafIdx ? leafIdx.map((idx, l) => idx.length ? { idx: Int32Array.from(idx), val: Float32Array.from(leafVal[l]) } : null) : null,
     };
   }
 
@@ -896,9 +912,13 @@ export class PaintTree {
    * Rebuild the tree from serialize() output. Layers present in the data are
    * restored by id; layers of the current tree that the data lacks are kept,
    * empty. Also the compaction step: orphaned nodes and vertices disappear.
+   * Per-vertex coverage needs the identical weld (undo snapshots); data with
+   * leafCov replays onto any weld of the same triangles.
    */
   deserialize(data) {
-    if (!data || data.baseTriCount !== this.baseTriCount || data.baseVertCount !== this.baseVertCount) return false;
+    if (!data || data.baseTriCount !== this.baseTriCount) return false;
+    const byLeaf = !!data.leafCov;
+    if (!byLeaf && data.baseVertCount !== this.baseVertCount) return false;
     // Reset structure.
     const keepIds = this.layers.map(L => L.id);
     this.nodeCap = Math.max(64, Math.max(data.nodeCount, this.baseTriCount) + 16);
@@ -926,6 +946,7 @@ export class PaintTree {
 
     // Replay: depth-first, codes consumed in order; splitting recreates the
     // midpoints in the same order, so vertex ids match serialize()'s.
+    const dfsNode = byLeaf ? new Int32Array(data.nodeCount) : null;   // node id per stream position
     let pos = 0;
     const stack = [];
     for (let f = 0; f < this.baseTriCount; f++) {
@@ -934,6 +955,7 @@ export class PaintTree {
       while (stack.length) {
         const n = stack.pop();
         const code = data.codes[pos];
+        if (dfsNode) dfsNode[pos] = n;
         for (const L of this.layers) {
           const ds = dataSlot.get(L.id);
           if (ds !== undefined) L.state[n] = data.states[ds][pos];
@@ -949,8 +971,24 @@ export class PaintTree {
     }
     for (const L of this.layers) {
       const ds = dataSlot.get(L.id);
-      const c = ds !== undefined ? data.cov[ds] : null;
-      if (c) { L.cov = new Float32Array(this.vertCap); L.cov.set(c.subarray(0, Math.min(c.length, this.vertCount))); }
+      if (ds === undefined) continue;
+      if (byLeaf) {
+        // Every vertex is a corner of some leaf; a vertex the new weld merged
+        // out of several old ones keeps the strongest value.
+        const lc = data.leafCov[ds];
+        if (!lc) continue;
+        const cov = this._ensureCov(L);
+        for (let i = 0; i < lc.idx.length; i++) {
+          const nb = dfsNode[lc.idx[i]] * 3;
+          for (let k = 0; k < 3; k++) {
+            const v = this.nv[nb + k], c = lc.val[i * 3 + k];
+            if (c > cov[v]) cov[v] = c;
+          }
+        }
+      } else {
+        const c = data.cov[ds];
+        if (c) { L.cov = new Float32Array(this.vertCap); L.cov.set(c.subarray(0, Math.min(c.length, this.vertCount))); }
+      }
     }
     this.structureVersion++;
     this.paintVersion++;
@@ -989,28 +1027,37 @@ export class PaintTree {
       for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
       return btoa(s);
     };
-    return {
+    const bytes = (a) => b64(new Uint8Array(a.buffer, a.byteOffset, a.byteLength));
+    const out = {
       version: 1,
       baseTriCount: data.baseTriCount, baseVertCount: data.baseVertCount,
       nodeCount: data.nodeCount, vertCount: data.vertCount,
       codes: b64(data.codes),
       layerIds: data.layerIds,
       states: data.states.map(s => b64(s)),
-      cov: data.cov.map(c => c ? b64(new Uint8Array(c.buffer, c.byteOffset, c.byteLength)) : null),
+      cov: data.cov.map(c => c ? bytes(c) : null),
     };
+    // Optional; deserialize prefers it over `cov`. Older readers ignore it
+    // and keep requiring the identical weld.
+    if (data.leafCov) out.leafCov = data.leafCov.map(lc => lc ? { idx: bytes(lc.idx), val: bytes(lc.val) } : null);
+    return out;
   }
 
   static fromJSON(j) {
     if (!j || j.version !== 1) return null;
     const u8 = (s) => { const bin = atob(s); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
-    return {
+    const f32 = (s) => { const b = u8(s); return new Float32Array(b.buffer, b.byteOffset, b.byteLength / 4); };
+    const i32 = (s) => { const b = u8(s); return new Int32Array(b.buffer, b.byteOffset, b.byteLength / 4); };
+    const out = {
       baseTriCount: j.baseTriCount, baseVertCount: j.baseVertCount,
       nodeCount: j.nodeCount, vertCount: j.vertCount,
       codes: u8(j.codes),
       layerIds: j.layerIds,
       states: j.states.map(s => u8(s)),
-      cov: j.cov.map(c => { if (!c) return null; const b = u8(c); return new Float32Array(b.buffer, b.byteOffset, b.byteLength / 4); }),
+      cov: j.cov.map(c => c ? f32(c) : null),
     };
+    if (Array.isArray(j.leafCov)) out.leafCov = j.leafCov.map(lc => lc ? { idx: i32(lc.idx), val: f32(lc.val) } : null);
+    return out;
   }
 }
 

@@ -305,6 +305,7 @@ export default {
   "header.loadSettingsLabel": "Tylko ustawienia",
   "header.loadGo": "Wczytaj",
   "alerts.importFailed": "Nie udało się wczytać projektu: {msg}",
+  "alerts.paintNotRestored": "Zapisana w tym projekcie maska powierzchni nie pasuje do modelu i nie została przywrócona.",
   "labels.snapSeamless": "Przyciąganie płynnego zawijania ⓘ",
   "tooltips.snapSeamless": "Przyciąga parametry skali (U) tak, aby tekstura zawinęła się płynnie wokół całego walca lub kuli, bez widocznego odcięcia na krawędzi łączenia.",
   "labels.cylinderAxis": "Oś walca",

@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Settings only",
   "header.loadGo": "Load",
   "alerts.importFailed": "Could not load project: {msg}",
+  "alerts.paintNotRestored": "The surface mask saved in this project could not be matched to its model and was not restored.",
   "labels.snapSeamless": "Snap to seamless wrap ⓘ",
   "tooltips.snapSeamless": "Snaps the U scale to integer wrap counts so the texture seamlessly wraps around the cylinder or sphere.",
   "labels.cylinderAxis": "Cylinder Axis",

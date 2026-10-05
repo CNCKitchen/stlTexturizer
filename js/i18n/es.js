@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Solo ajustes",
   "header.loadGo": "Cargar",
   "alerts.importFailed": "No se pudo cargar el proyecto: {msg}",
+  "alerts.paintNotRestored": "La máscara de superficie guardada en este proyecto no coincide con el modelo y no se ha restaurado.",
   "labels.snapSeamless": "Ajustar a envoltura sin costuras ⓘ",
   "tooltips.snapSeamless": "Ajusta la escala U a un número entero de repeticiones para que la textura envuelva el cilindro o la esfera sin costuras.",
   "labels.cylinderAxis": "Eje del cilindro",

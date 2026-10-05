@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Тільки налаштування",
   "header.loadGo": "Завантажити",
   "alerts.importFailed": "Не вдалося завантажити проєкт: {msg}",
+  "alerts.paintNotRestored": "Збережена в цьому проєкті маска поверхні не відповідає моделі й не була відновлена.",
   "labels.snapSeamless": "Прив'язати до безшовного обгортання ⓘ",
   "tooltips.snapSeamless": "Прив'язує масштаб U до цілих значень обгортань, щоб текстура безшовно огортала циліндр або сферу.",
   "labels.cylinderAxis": "Вісь циліндра",

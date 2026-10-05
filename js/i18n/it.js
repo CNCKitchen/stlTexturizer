@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Solo impostazioni",
   "header.loadGo": "Carica",
   "alerts.importFailed": "Impossibile caricare il progetto: {msg}",
+  "alerts.paintNotRestored": "La maschera di superficie salvata in questo progetto non corrisponde al modello e non è stata ripristinata.",
   "labels.snapSeamless": "Aggancia ad avvolgimento senza giunture ⓘ",
   "tooltips.snapSeamless": "Aggancia la scala U a un numero intero di ripetizioni in modo che la texture avvolga il cilindro o la sfera senza giunture.",
   "labels.cylinderAxis": "Asse del cilindro",

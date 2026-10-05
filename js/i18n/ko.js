@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "설정만",
   "header.loadGo": "불러오기",
   "alerts.importFailed": "프로젝트를 불러올 수 없습니다: {msg}",
+  "alerts.paintNotRestored": "이 프로젝트에 저장된 표면 마스크가 모델과 일치하지 않아 복원되지 않았습니다.",
   "labels.snapSeamless": "이음새 없이 감싸기 스냅 ⓘ",
   "tooltips.snapSeamless": "U 스케일을 정수 반복 횟수로 스냅하여 텍스처가 원통이나 구에 이음새 없이 감기도록 합니다.",
   "labels.cylinderAxis": "원통 축",

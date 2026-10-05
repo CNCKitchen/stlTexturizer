@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "設定のみ",
   "header.loadGo": "読み込む",
   "alerts.importFailed": "プロジェクトを読み込めませんでした: {msg}",
+  "alerts.paintNotRestored": "このプロジェクトに保存されたサーフェスマスクはモデルと一致しなかったため、復元されませんでした。",
   "labels.snapSeamless": "シームレスに巻き付けて固定 ⓘ",
   "tooltips.snapSeamless": "Uスケールを整数回の繰り返しにスナップし、テクスチャが円柱や球に継ぎ目なく巻き付くようにします。",
   "labels.cylinderAxis": "シリンダー軸",

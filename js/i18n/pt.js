@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Apenas definições",
   "header.loadGo": "Carregar",
   "alerts.importFailed": "Não foi possível carregar o projeto: {msg}",
+  "alerts.paintNotRestored": "A máscara de superfície guardada neste projeto não corresponde ao modelo e não foi restaurada.",
   "labels.snapSeamless": "Encaixar em volta sem emendas ⓘ",
   "tooltips.snapSeamless": "Encaixa a escala U num número inteiro de repetições para que a textura envolva o cilindro ou a esfera sem emendas.",
   "labels.cylinderAxis": "Eixo do cilindro",

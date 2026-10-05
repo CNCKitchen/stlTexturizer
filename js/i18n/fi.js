@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Vain asetukset",
   "header.loadGo": "Avaa",
   "alerts.importFailed": "Projektia ei voitu avata: {msg}",
+  "alerts.paintNotRestored": "Projektiin tallennettua pintamaskia ei voitu sovittaa malliin, eikä sitä palautettu.",
   "labels.snapSeamless": "Sovita saumattomaksi ⓘ",
   "tooltips.snapSeamless": "Säätää U-suunnan kokoa niin, että sylinterin tai pallon ympäri mahtuu tasan kokonainen määrä tekstuurin toistoja. Näin saumaan ei jää katkoa.",
   "labels.cylinderAxis": "Sylinterin akseli",

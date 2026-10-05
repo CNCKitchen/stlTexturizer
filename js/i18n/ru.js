@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Только настройки",
   "header.loadGo": "Загрузить",
   "alerts.importFailed": "Не удалось загрузить проект: {msg}",
+  "alerts.paintNotRestored": "Сохранённая в этом проекте маска поверхности не соответствует модели и не была восстановлена.",
   "labels.snapSeamless": "Подогнать для бесшовного повторения ⓘ",
   "tooltips.snapSeamless": "Округляет масштаб U до целого числа повторений, чтобы текстура бесшовно замыкалась вокруг цилиндра или сферы.",
   "labels.cylinderAxis": "Ось цилиндра",

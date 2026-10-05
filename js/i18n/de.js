@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "Nur Einstellungen",
   "header.loadGo": "Laden",
   "alerts.importFailed": "Projekt konnte nicht geladen werden: {msg}",
+  "alerts.paintNotRestored": "Die in diesem Projekt gespeicherte Flächenmaske passt nicht zum Modell und wurde nicht wiederhergestellt.",
   "labels.snapSeamless": "Nahtlos umlaufend einrasten ⓘ",
   "tooltips.snapSeamless": "Rastet die U-Skalierung auf ganzzahlige Wiederholungen ein, damit die Textur nahtlos um den Zylinder bzw. die Kugel verläuft.",
   "labels.cylinderAxis": "Zylinderachse",

@@ -2277,12 +2277,11 @@ function _createPaintTree(adjData) {
 
 /**
  * Carry the paint onto re-welded vertex ids of the SAME triangles (rotation,
- * place on face): serialize, rebuild on the new positions, replay. Ids
- * normally come out identical; if the weld grouped a vertex differently the
- * replay can't apply and the paint is dropped.
+ * place on face): serialize with per-leaf-corner coverage, rebuild on the
+ * new positions, replay. Only a changed triangle count defeats this.
  */
 function _rebuildPaintTreeKeepingPaint(adjData) {
-  const data = paintTree ? paintTree.serialize() : null;
+  const data = paintTree ? paintTree.serialize({ leafCov: true }) : null;
   _createPaintTree(adjData);
   if (data && !paintTree.deserialize(data)) console.warn('[stlTexturizer] surface paint could not follow the re-welded mesh');
 }
@@ -6031,7 +6030,10 @@ exportGoBtn.addEventListener('click', async () => {
       // layer's strokes; mask.json is the active layer's hard paint as a face
       // list, what older readers expect.
       if (paintTree) {
-        const data = paintTree.serialize();
+        // Per-leaf-corner coverage: the import welds the STL's rounded
+        // coordinates afresh, and per-vertex coverage would not survive a
+        // regrouped vertex (#134).
+        const data = paintTree.serialize({ leafCov: true });
         zipFiles['paint.json'] = strToU8(JSON.stringify(PaintTree.toJSON(data)));
         payload.paint = 'paint.json';
         const legacy = _legacyMaskOf(_activeSlot());
@@ -6204,24 +6206,10 @@ async function importProject(file) {
         }
       }
 
-      // Apply settings after the model reset.
+      // Apply settings after the model reset. The mask is restored below,
+      // once the layer it belongs to exists: by _importLayers for a layered
+      // project, by _restoreLegacyProjectMask for a pre-layer one.
       if (data) applySettingsSnapshot(data);
-
-      // Restore the paint mask — only meaningful here, since its indices
-      // reference the model we just loaded. (Layered projects restore their
-      // paint tree below.)
-      if (unzipped['mask.json'] && !(data && Array.isArray(data.layers))) {
-        try {
-          const mask = JSON.parse(strFromU8(unzipped['mask.json']));
-          if (mask && typeof mask === 'object') {
-            if (!!mask.selectionMode !== selectionMode) setSelectionMode(!!mask.selectionMode, { clear: false });
-            _importLegacyMask(_activeSlot(), mask);
-            maskModeChosen = true;
-            updateMaskModeButtons();
-            refreshExclusionOverlay();
-          }
-        } catch (err) { console.warn('Could not restore paint mask:', err); }
-      }
     } else {
       // Settings only: keep the current model and its mask untouched. We skip
       // model.stl (and never call handleModelFile, so the scale/offset/refine
@@ -6234,8 +6222,17 @@ async function importProject(file) {
       await _importLayers(unzipped, data, loadMode === 'all');
     } else {
       // Pre-layer project: a single layer, described by the top-level fields.
-      layers = [_newLayer()];
+      // Collapse to that layer and give it a tree slot BEFORE restoring the
+      // mask — restoring first left the paint under a layer id nothing
+      // referenced any more, so it neither showed nor exported (#134).
+      // Settings-only keeps the active layer's id, and with it the paint on
+      // the model that stays loaded.
+      const activeId = layers[activeLayer]?.id;
+      layers = [_newLayer(loadMode === 'settings' && activeId != null ? { id: activeId } : {})];
       activeLayer = 0;
+      _syncTreeLayers();
+      if (loadMode === 'all') _restoreLegacyProjectMask(unzipped);
+      else if (paintTree) refreshExclusionOverlay();
       await _applyImportedTexture(unzipped, data);
       _renderLayerStrip();
     }
@@ -6251,6 +6248,24 @@ async function importProject(file) {
       _commitUndoCapture();
     }
   }
+}
+
+/**
+ * Pre-layer project mask (mask.json: base-face list + soft corners) → the
+ * active layer's paint. Only meaningful right after the bundled model was
+ * loaded, since the indices reference its triangles.
+ */
+function _restoreLegacyProjectMask(unzipped) {
+  if (!unzipped['mask.json'] || !paintTree) return;
+  try {
+    const mask = JSON.parse(strFromU8(unzipped['mask.json']));
+    if (!mask || typeof mask !== 'object') return;
+    if (!!mask.selectionMode !== selectionMode) setSelectionMode(!!mask.selectionMode, { clear: false });
+    _importLegacyMask(_activeSlot(), mask);
+    maskModeChosen = true;
+    updateMaskModeButtons();
+    refreshExclusionOverlay();
+  } catch (err) { console.warn('Could not restore paint mask:', err); }
 }
 
 /**
@@ -6296,7 +6311,12 @@ async function _importLayers(unzipped, data, withMasks) {
         const idMap = new Map();
         files.forEach((d2, k) => { if (d2 && d2.id != null && layers[k]) idMap.set(d2.id, layers[k].id); });
         restored.layerIds = restored.layerIds.map(id => idMap.has(id) ? idMap.get(id) : id);
-        if (!paintTree.deserialize(restored)) console.warn('Saved paint does not match the loaded model');
+        if (!paintTree.deserialize(restored)) {
+          // Only a different triangle count gets here now; say so instead of
+          // silently loading the model without its mask (#134).
+          console.warn('Saved paint does not match the loaded model');
+          alert(t('alerts.paintNotRestored'));
+        }
       }
       _syncTreeLayers();
     } catch (err) { console.warn('Could not restore the paint:', err); }

@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "仅设置",
   "header.loadGo": "加载",
   "alerts.importFailed": "无法加载项目：{msg}",
+  "alerts.paintNotRestored": "此项目中保存的表面蒙版与模型不匹配，未能恢复。",
   "labels.snapSeamless": "吸附至无缝环绕 ⓘ",
   "tooltips.snapSeamless": "将 U 轴缩放吸附到整数环绕值，使纹理在圆柱面或球面上无缝环绕。",
   "labels.cylinderAxis": "圆柱轴",

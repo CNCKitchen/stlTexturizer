@@ -310,6 +310,7 @@ export default {
   "header.loadSettingsLabel": "sadece ayarlar",
   "header.loadGo": "Yükle",
   "alerts.importFailed": "Proje yüklenemedi: {msg}",
+  "alerts.paintNotRestored": "Bu projede kaydedilen yüzey maskesi modelle eşleştirilemedi ve geri yüklenmedi.",
   "labels.snapSeamless": "görünmez birleşmeye hizala ⓘ",
   "tooltips.snapSeamless": "Dokunun silindir veya küre etrafında görünmez bir şekilde birleşmesi için U ölçeğini tam sayı katlarına hizalar.",
   "labels.cylinderAxis": "Silindir Ekseni",
