@@ -23,6 +23,8 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 - Mouse-wheel fine tuning of values
 - Quality of life improvements
 
+See the **[full changelog](https://bumpmesh.com/changelog.html)** for every update since April 2026.
+
 ## Features
 
 ### Textures
