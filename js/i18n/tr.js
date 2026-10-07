@@ -54,6 +54,7 @@ export default {
   "gallery.catNatural": "Doğal",
   "gallery.catGrip": "Tutuş",
   "gallery.catMold": "Kalıp",
+  "gallery.catTires": "Lastikler",
   "gallery.hint": "Modelinizde denemek için bir dokuya tıklayın; ok tuşlarıyla dokular arasında gezinebilirsiniz. Panele sabitlemek için favorilerinizi yıldızlayın.",
   "gallery.done": "Bitti",
   "gallery.turntable": "Döner tabla",

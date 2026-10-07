@@ -54,6 +54,7 @@ export default {
   "gallery.catNatural": "자연",
   "gallery.catGrip": "그립",
   "gallery.catMold": "금형 텍스처",
+  "gallery.catTires": "타이어",
   "gallery.hint": "텍스처를 클릭하면 모델에 바로 적용해 볼 수 있고, 화살표 키로 차례로 넘겨 볼 수 있습니다. 별표를 표시한 텍스처는 패널에 고정됩니다.",
   "gallery.done": "완료",
   "gallery.turntable": "턴테이블",

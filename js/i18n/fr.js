@@ -54,6 +54,7 @@ export default {
   "gallery.catNatural": "Naturelles",
   "gallery.catGrip": "Grip",
   "gallery.catMold": "Grainages",
+  "gallery.catTires": "Pneus",
   "gallery.hint": "Cliquez sur une texture pour l’essayer sur votre modèle ; les flèches du clavier permettent de les parcourir. Ajoutez une étoile à vos favoris pour les épingler dans le panneau.",
   "gallery.done": "Terminé",
   "gallery.turntable": "Plateau tournant",

@@ -54,6 +54,7 @@ export default {
   "gallery.catNatural": "Naturali",
   "gallery.catGrip": "Grip",
   "gallery.catMold": "Stampate",
+  "gallery.catTires": "Pneumatici",
   "gallery.hint": "Clicca su una texture per provarla sul tuo modello; con le frecce le scorri tutte. Aggiungi una stella ai tuoi preferiti per fissarli nel pannello.",
   "gallery.done": "Fatto",
   "gallery.turntable": "Piatto rotante",

@@ -96,7 +96,9 @@ const IMAGE_PRESETS = [
   { name: 'Leaves',               url: 'textures/leaves.png',                     thumb: 'textures/thumbs/leaves.webp',                     defaultScale: 0.5,  category: 'natural', credit: 'cc0', source: 'https://ambientcg.com/view?id=ScatteredLeaves007' },
   { name: 'Lips',                 url: 'textures/hero-lips.png',                  thumb: 'textures/thumbs/hero-lips.webp',                  defaultScale: 0.9,  category: 'patterns', credit: 'hero' },
   { name: 'Lisbon',               url: 'textures/hero-lisbon.png',                thumb: 'textures/thumbs/hero-lisbon.webp',                defaultScale: 0.6,  category: 'patterns', credit: 'hero' },
+  { name: 'Loader Tire',          url: 'textures/tireLoader.png',                 thumb: 'textures/thumbs/tireLoader.webp',                 defaultScale: 0.4,  category: 'tires' },
   { name: 'Melt',                 url: 'textures/hero-melt.png',                  thumb: 'textures/thumbs/hero-melt.webp',                  defaultScale: 0.2,  category: 'patterns', credit: 'hero' },
+  { name: 'Mud-Terrain Tire',     url: 'textures/tireMudTerrain.png',             thumb: 'textures/thumbs/tireMudTerrain.webp',             defaultScale: 0.4,  category: 'tires' },
   { name: 'Noise',                url: 'textures/noise.png',                      thumb: 'textures/thumbs/noise.webp',                      defaultScale: 0.3,  category: 'organic' },
   { name: 'Pine Bark',            url: 'textures/pineBark.png',                   thumb: 'textures/thumbs/pineBark.webp',                   defaultScale: 0.75, category: 'natural', credit: 'cc0', source: 'https://polyhaven.com/a/pine_bark' },
   { name: 'Plain Weave',          url: 'textures/plainWeave.png',                 thumb: 'textures/thumbs/plainWeave.webp',                 defaultScale: 0.5,  category: 'fabric' },
@@ -118,6 +120,9 @@ const IMAGE_PRESETS = [
   { name: 'Tachiwaki',            url: 'textures/tachiwaki.png',                  thumb: 'textures/thumbs/tachiwaki.webp',                  defaultScale: 0.4,  category: 'patterns' },
   { name: 'Tiles',                url: 'textures/tiles.png',                      thumb: 'textures/thumbs/tiles.webp',                      defaultScale: 0.5,  category: 'geometric' },
   { name: 'Tiny Checkers',        url: 'textures/hero-tiny-checkers.png',         thumb: 'textures/thumbs/hero-tiny-checkers.webp',         defaultScale: 0.1,  category: 'geometric', credit: 'hero' },
+  { name: 'Touring Tire',         url: 'textures/tireTouring.png',                thumb: 'textures/thumbs/tireTouring.webp',                defaultScale: 0.4,  category: 'tires' },
+  { name: 'Tractor Tire',         url: 'textures/tireTractor.png',                thumb: 'textures/thumbs/tireTractor.webp',                defaultScale: 0.4,  category: 'tires' },
+  { name: 'Truck Rib Tire',       url: 'textures/tireTruckRib.png',               thumb: 'textures/thumbs/tireTruckRib.webp',               defaultScale: 0.4,  category: 'tires' },
   { name: 'Twill',                url: 'textures/twill.png',                      thumb: 'textures/thumbs/twill.webp',                      defaultScale: 0.75, category: 'fabric', credit: 'cc0', source: 'https://ambientcg.com/view?id=Fabric004' },
   { name: 'Twill 2',              url: 'textures/twill_02.png',                   thumb: 'textures/thumbs/twill_02.webp',                   defaultScale: 1.0,  category: 'fabric', credit: 'cc0', source: 'https://ambientcg.com/view?id=Fabric015' },
   { name: 'Voronoi',              url: 'textures/voronoi.png',                    thumb: 'textures/thumbs/voronoi.webp',                    defaultScale: 0.5,  category: 'organic' },
@@ -142,6 +147,7 @@ const PRESET_CATEGORIES = [
   { id: 'natural',   label: 'gallery.catNatural' },
   { id: 'grip',      label: 'gallery.catGrip' },
   { id: 'mold',      label: 'gallery.catMold' },
+  { id: 'tires',     label: 'gallery.catTires' },
 ];
 
 // Default panel favourites (a 4×3 grid); users star their own in the gallery, and each extra 4

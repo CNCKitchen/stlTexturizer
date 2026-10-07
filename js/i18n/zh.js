@@ -54,6 +54,7 @@ export default {
   "gallery.catNatural": "自然",
   "gallery.catGrip": "防滑",
   "gallery.catMold": "模具咬花",
+  "gallery.catTires": "轮胎",
   "gallery.hint": "点击纹理即可在模型上试用，用方向键可逐个切换。为纹理加星标即可将其固定到面板上。",
   "gallery.done": "完成",
   "gallery.turntable": "转台",

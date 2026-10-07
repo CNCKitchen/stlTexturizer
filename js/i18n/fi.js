@@ -54,6 +54,7 @@ export default {
   "gallery.catNatural": "Luonto",
   "gallery.catGrip": "Pito",
   "gallery.catMold": "Muottipinnat",
+  "gallery.catTires": "Renkaat",
   "gallery.hint": "Kokeile tekstuuria mallissasi napsauttamalla sitä; nuolinäppäimillä voit selata niitä. Merkitse suosikit tähdellä, niin ne kiinnitetään paneeliin.",
   "gallery.done": "Valmis",
   "gallery.turntable": "Pyöritys",

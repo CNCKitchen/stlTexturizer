@@ -49,6 +49,7 @@ export default {
   "gallery.catNatural": "Naturalne",
   "gallery.catGrip": "Chwyt",
   "gallery.catMold": "Formowane",
+  "gallery.catTires": "Opony",
   "gallery.hint": "Kliknij teksturę, aby wypróbować ją na modelu; strzałkami przełączasz kolejne. Oznacz ulubione gwiazdką, aby przypiąć je w panelu.",
   "gallery.done": "Gotowe",
   "gallery.turntable": "Obrotnica",

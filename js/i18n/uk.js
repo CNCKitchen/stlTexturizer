@@ -54,6 +54,7 @@ export default {
   "gallery.catNatural": "Природа",
   "gallery.catGrip": "Зчеплення",
   "gallery.catMold": "Прес-форми",
+  "gallery.catTires": "Шини",
   "gallery.hint": "Натисніть на текстуру, щоб приміряти її на моделі; стрілки на клавіатурі перемикають текстури. Позначте зірочкою обрані текстури, щоб закріпити їх на панелі.",
   "gallery.done": "Готово",
   "gallery.turntable": "Обертання",
