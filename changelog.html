@@ -279,6 +279,46 @@
          the "Latest" badge follows the first entry automatically. -->
     <ol class="timeline" id="timeline">
 
+      <li class="release" id="v1.4.3">
+        <div class="release-meta">
+          <a class="version" href="#v1.4.3">v1.4.3</a>
+          <time datetime="2026-10-07">7 Oct 2026</time>
+        </div>
+        <h2>Tire treads</h2>
+        <ul>
+          <li>A new <strong>Tires</strong> category in the Texture Gallery with five treads: Touring, Mud-Terrain, Truck Rib, Tractor and Loader.</li>
+          <li>One tile spans the full tread width, with whole tread pitches around the tire. On a tire lying flat, use Cylindrical mapping, unlock the size lock and set Size V to the tire&rsquo;s width to land the tread shoulder to shoulder.</li>
+          <li>This <strong>changelog</strong>, linked from the What&rsquo;s New popup, lists every update since April 2026.</li>
+          <li>A few labels that showed garbled characters, such as the X&deg;, Y&deg; and Z&deg; rotation fields, read correctly again.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.4.2">
+        <div class="release-meta">
+          <a class="version" href="#v1.4.2">v1.4.2</a>
+          <time datetime="2026-10-05">5 Oct 2026</time>
+        </div>
+        <h2>SpaceMouse support and a Standard circle brush</h2>
+        <ul>
+          <li><strong>3Dconnexion SpaceMouse support</strong>, thanks to Alon Mishne: push or pull the puck to zoom, slide it to pan, tilt and twist it to orbit. In Chrome and Edge, it connects once you touch the puck.</li>
+          <li>The circle brush has a <strong>Mode</strong> again: <strong>Standard</strong> marks every whole triangle it touches and highlights them as you hover, a quick way to select the flat faces of a CAD model, while <strong>Precision</strong> (the default) follows the brush outline exactly with an optional soft edge.</li>
+          <li>In the default parallel view, the brush now stays a true circle away from the middle of the screen.</li>
+        </ul>
+      </li>
+
+      <li class="release" id="v1.4.1">
+        <div class="release-meta">
+          <a class="version" href="#v1.4.1">v1.4.1</a>
+          <time datetime="2026-10-05">5 Oct 2026</time>
+        </div>
+        <h2>Surface masks survive project import</h2>
+        <ul>
+          <li><strong>Surface masks come back with your project.</strong> A painted mask could be missing after loading a saved project: projects saved before v1.4.0 lost it, and on some meshes the re-imported model no longer lined up with the saved paint. Both are fixed.</li>
+          <li>A mask now also follows the model through rotation.</li>
+          <li>If a mask ever can&rsquo;t be matched to its model, BumpMesh says so instead of quietly loading without it.</li>
+        </ul>
+      </li>
+
       <li class="release" id="v1.4.0">
         <div class="release-meta">
           <a class="version" href="#v1.4.0">v1.4.0</a>
