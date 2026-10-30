@@ -2013,16 +2013,18 @@ function wireEvents() {
   // buttons do this — programmatic setSelectionMode() calls (project load,
   // session restore) must not activate a paint tool.
   exclModeExcludeBtn.addEventListener('click', () => {
+    const tool = exclusionTool; // changing the mode drops the active tool
     maskModeChosen = true;
     setSelectionMode(false);   // early-returns if already exclude…
     updateMaskModeButtons();   // …so refresh the highlight explicitly
-    if (!exclusionTool) setExclusionTool('bucket');
+    if (!exclusionTool) setExclusionTool(tool || 'bucket');
   });
   exclModeIncludeBtn.addEventListener('click', () => {
+    const tool = exclusionTool;
     maskModeChosen = true;
     setSelectionMode(true);
     updateMaskModeButtons();
-    if (!exclusionTool) setExclusionTool('bucket');
+    if (!exclusionTool) setExclusionTool(tool || 'bucket');
   });
 
   // ── Canvas mouse events for exclusion painting ────────────────────────────
@@ -2160,8 +2162,10 @@ function wireEvents() {
     _scaleStampBy(Math.exp(-dy * 0.0015));
   }, { capture: true, passive: false });
 
-  document.addEventListener('mouseup', () => {
-    if (!isPainting) return;
+  // A stroke belongs to the left button: tapping another one mustn't end it,
+  // or the camera would take over the rest of the drag.
+  document.addEventListener('mouseup', (e) => {
+    if (!isPainting || e.button !== 0) return;
     isPainting = false;
     _strokeLastPoint = null;
     getControls().enabled = true;
@@ -2171,6 +2175,12 @@ function wireEvents() {
     // would otherwise collapse strokes that finish within UNDO_DEBOUNCE_MS.
     _flushUndoCapture();
     _commitUndoCapture();
+  });
+
+  // OrbitControls only suppresses the context menu while enabled, and it's
+  // disabled during a stroke; a menu would swallow the left button's release.
+  document.addEventListener('contextmenu', (e) => {
+    if (isPainting) e.preventDefault();
   });
 
   document.addEventListener('keydown', (e) => {
