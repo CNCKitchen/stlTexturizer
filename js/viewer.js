@@ -626,9 +626,9 @@ const _spaceMouse = {
   onInput: null,      // called on puck input (stops the turntable)
 };
 const _SM_DEADZONE = 0.08;
-const _SM_ROT_RAD_PER_S = 2.4;   // at full deflection
-const _SM_PAN_PER_S = 1.2;       // view heights per second at full deflection
-const _SM_ZOOM_PER_S = 2.5;      // e-folds of zoom per second at full deflection
+const _SM_ROT_RAD_PER_S = 2.0;   // at full deflection
+const _SM_PAN_PER_S = 1.0;       // view heights per second at full deflection
+const _SM_ZOOM_PER_S = 2.0;      // e-folds of zoom per second at full deflection
 
 const _isSpaceMouse = (gp) => !!gp && /3dconnexion|spacemouse|space ?navigator|space ?pilot|space ?explorer|vendor: (256f|046d) product: c6/i.test(gp.id);
 
@@ -648,15 +648,22 @@ function _initSpaceMouse(onInput) {
   });
 }
 
-// Remap |v| in [deadzone, 1] to [0, 1] so motion starts smoothly.
+// Remap |v| in [deadzone, 1] to [0, 1] so motion starts smoothly, then square
+// it: a light touch moves slowly for fine positioning while full deflection
+// keeps the top speed (the 3Dconnexion driver's own speed curve doesn't apply
+// to the raw Gamepad API axes).
 function _smAxis(v = 0) {
   const a = Math.abs(v);
-  return a < _SM_DEADZONE ? 0 : Math.sign(v) * Math.min(1, (a - _SM_DEADZONE) / (1 - _SM_DEADZONE));
+  if (a < _SM_DEADZONE) return 0;
+  const t = Math.min(1, (a - _SM_DEADZONE) / (1 - _SM_DEADZONE));
+  return Math.sign(v) * t * t;
 }
 
 /** Apply one frame of SpaceMouse input: pan (X/Z), zoom (Y push/pull) and a
- *  Z-up turntable orbit around the orbit target (tilt / spin). Roll is ignored
- *  since the viewer always keeps world Z up. */
+ *  Z-up turntable orbit around the orbit target (tilt / spin). Every axis uses
+ *  3Dconnexion's default "object mode": the model follows the cap (slide right
+ *  → model moves right, tilt the cap forward → model tilts away). Roll is
+ *  ignored since the viewer always keeps world Z up. */
 function _stepSpaceMouse() {
   const now = performance.now();
   const dt = Math.min((now - _spaceMouse.lastStep) / 1000, 0.1);
@@ -666,8 +673,10 @@ function _stepSpaceMouse() {
   if (!gp || !gp.connected || !controls.enabled || dt <= 0) return;
 
   const ax = gp.axes;
-  const tx = _smAxis(ax[0]), ty = _smAxis(ax[1]), tz = _smAxis(ax[2]);
-  const rx = _smAxis(ax[3]), rz = _smAxis(ax[5]);
+  // X pan and tilt are negated so they move the model, not the camera, like
+  // the other axes (issues #139, #141).
+  const tx = -_smAxis(ax[0]), ty = _smAxis(ax[1]), tz = _smAxis(ax[2]);
+  const rx = -_smAxis(ax[3]), rz = _smAxis(ax[5]);
   if (!tx && !ty && !tz && !rx && !rz) return;
 
   _spaceMouse.lastActive = now;
@@ -677,7 +686,7 @@ function _stepSpaceMouse() {
   camera.updateMatrixWorld();
 
   // Pan in the screen plane, scaled to what is visible so speed feels the
-  // same at any zoom level. Directions match the 3Dconnexion viewer.
+  // same at any zoom level.
   if (tx || tz) {
     const viewH = _isPerspective
       ? 2 * camera.position.distanceTo(target) * Math.tan(THREE.MathUtils.degToRad(perspCamera.fov / 2))
