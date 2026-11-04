@@ -180,6 +180,33 @@ keep the smooth path on purpose — the groove there is ≤ 10 % and smoothing
 across them keeps coarse cylinders' projection continuous. The GPU
 displacement preview does not mitre.
 
+**Edges to untextured faces** (issue #138). A position touching a face no
+layer textures (user mask or angle mask, `excludeWeight`) or a face the
+layer's hard mask excludes used to be pinned whole, so on a sharp edge the
+textured face sank to 0 over its last row: a bevel along every edge to an
+untextured face, including where walls meet an angle-masked bottom. Now
+pinning is per crease group: only the untextured groups get h = 0, and the
+mitre puts the edge where the displaced textured face meets the untextured
+face's plane (on a 90° edge the untextured face just grows by h). For these
+*released* positions:
+
+* the move is projected exactly onto every untextured group's plane, so the
+  untextured faces stay flat (the 1 % pull otherwise leaves up to ~0.02 mm);
+* `subdivision.js` refines excluded triangles that touch an included one, so
+  the untextured side of a boundary is a strip of normal-sized triangles, not
+  slivers fanned out to the boundary's split points (those turn over when
+  neighbouring edge points rise by different heights);
+* a fold guard checks every triangle touching a released position and halves
+  the move of its released corners while it would face the other way (six
+  rounds, then 0 = the old pinned result);
+* a layer with a mask falloff keeps its creases fully pinned (the fade is
+  what it asked for), and concave edges stay pinned through no-intrusion.
+
+Test harness (local, gitignored): `test-issue138.mjs` (the reporter's plate:
+edge height vs. the face just inside, end-plane flatness, flipped triangles)
+and `test-138-shapes.mjs` (concave L, 60° hex creases, acute wedge,
+symmetric).
+
 ## Paint tree (`js/paintTree.js`)
 
 Surface masks live in a per-triangle split tree over the base mesh, after

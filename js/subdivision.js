@@ -209,13 +209,33 @@ function subdividePass(verts, indices, maxEdgeLength, safetyCap, faceExcluded = 
   };
 
   // ── Step 1: globally mark edges that need splitting ─────────────────────
-  // Excluded triangles do NOT proactively mark their own edges – their
-  // interior edges will never be split, saving triangles on untextured
-  // regions.  Boundary edges are still marked by the included neighbour, so
-  // excluded triangles respond to those splits and T-junctions are avoided.
+  // Excluded triangles away from the mask boundary do NOT proactively mark
+  // their own edges – their interior edges will never be split, saving
+  // triangles on untextured regions.  Boundary edges are still marked by the
+  // included neighbour, so excluded triangles respond to those splits and
+  // T-junctions are avoided.
+  //
+  // Excluded triangles that touch an included one (share a position with it)
+  // do split their own long edges, so the untextured side of the boundary is
+  // a strip of normal-sized triangles rather than long slivers fanned out to
+  // the boundary's split points. On a sharp edge the displacement moves those
+  // boundary points within the untextured face's plane (displacement.js,
+  // issue #138), which would turn such slivers over.
+  let touchesIncluded = null;
+  if (faceExcluded) {
+    touchesIncluded = new Uint8Array(verts.count);
+    for (let t = 0; t < indices.length; t += 3) {
+      if (faceExcluded[t / 3]) continue;
+      for (let k = 0; k < 3; k++) {
+        const v = indices[t + k];
+        touchesIncluded[canonIdx ? canonIdx[v] : v] = 1;
+      }
+    }
+  }
+  const nearBoundary = (v) => touchesIncluded[canonIdx ? canonIdx[v] : v] === 1;
   for (let t = 0; t < indices.length; t += 3) {
-    if (faceExcluded && faceExcluded[t / 3]) continue; // skip excluded faces
     const a = indices[t], b = indices[t + 1], c = indices[t + 2];
+    if (faceExcluded && faceExcluded[t / 3] && !(nearBoundary(a) || nearBoundary(b) || nearBoundary(c))) continue;
     if (edgeLenSq(positions, a, b) > maxSq) markEdge(a, b);
     if (edgeLenSq(positions, b, c) > maxSq) markEdge(b, c);
     if (edgeLenSq(positions, c, a) > maxSq) markEdge(c, a);

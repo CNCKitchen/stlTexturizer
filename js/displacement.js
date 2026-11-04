@@ -213,6 +213,9 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
       l._softMax = l.exclude ? new Float32Array(uniqueCount) : null;
       l._hardPos = l.hardFaces ? new Uint8Array(uniqueCount) : null;
     }
+    // The same per crease group, so a sharp edge between a face the layer
+    // textures and one it leaves alone can hold only the latter at 0.
+    l._hardGroup = l._hardPos && creases ? new Uint8Array(creases.groupCount) : null;
   }
 
   for (let t = 0; t < count; t += 3) {
@@ -312,6 +315,8 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
         creases.inZ[k] += cenZ - c.z;
         creases.area[k] += faceArea;
         if (faceMasked) creases.masked[k] += faceArea;
+        if (userExcluded) creases.excluded[k] = 1;
+        for (const l of layers) if (l._hardGroup && l.hardFaces[t / 3]) l._hardGroup[k] = 1;
       }
     }
   }
@@ -621,14 +626,30 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
     }
     // Crease groups fold the same way; angle masking is per group (a face
     // group is masked or it isn't), everything else is per position.
+    //
+    // Pinning is per group too (issue #138): on a sharp edge between a face
+    // the layer textures and one it leaves alone, only the untextured face is
+    // held at height 0. _creaseMoves then puts the edge where the displaced
+    // textured face meets the untextured face's own plane, so the texture
+    // runs at full height right up to the edge and the untextured face just
+    // grows to meet it, flat and watertight (on a 90° edge it is extended by
+    // exactly the texture height). Pinning the whole position instead pulled
+    // the textured face down to 0 over its last row: a bevel along the edge.
+    // Its no-intrusion guard keeps concave edges pinned as before. With a
+    // mask falloff the layer asked for a fade at its mask edges, so its
+    // creases stay fully pinned.
     if (creases) {
+      const hardGroup = layer._hardGroup;
+      const perGroupPins = !(lset.boundaryFalloff > 0);
       for (let s = 0; s < creases.count; s++) {
         if (!creases.active[s]) continue;
         const vid = creases.vidOf[s];
-        const pinned = isPinned(vid);
+        const posPinned = isPinned(vid);
         const falloffFactor = falloffArr ? falloffArr[vid] : 1.0;
         for (let g = 0; g < creases.groups[s]; g++) {
           const k = creases.start[s] + g;
+          const pinned = posPinned && (!perGroupPins || creases.excluded[k] === 1 || (hardGroup !== null && hardGroup[k] === 1));
+          if (posPinned && !pinned) creases.released[s] = 1;
           const gArea = creases.area[k];
           const maskedFrac = gArea > 0 ? creases.masked[k] / gArea : 0;
           const centeredGrey = symmetric ? (groupGrey[k] - 0.5) : groupGrey[k];
@@ -648,7 +669,7 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
       }
     }
 
-    layer._softMax = null; layer._hardPos = null;
+    layer._softMax = null; layer._hardPos = null; layer._hardGroup = null;
     layer._zoneAreaX = layer._zoneAreaY = layer._zoneAreaZ = null;
     if (onProgress) onProgress(0.5 * (li + 1) / layers.length);
   }
@@ -659,6 +680,7 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
 
   const REPORT_EVERY = 5000;
   const moves = creases ? _creaseMoves(creases, groupAcc, smoothNrmX, smoothNrmY, smoothNrmZ) : null;
+  if (moves) _guardReleasedFolds(creases, moves, posAttr, vertexId, acc, smoothNrmX, smoothNrmY, smoothNrmZ);
 
   for (let i = 0; i < count; i++) {
     tmpPos.fromBufferAttribute(posAttr, i);
@@ -812,6 +834,12 @@ function _findCreases(nrmAttr, vertexId, uniqueCount) {
     nrmX: new Float64Array(n), nrmY: new Float64Array(n), nrmZ: new Float64Array(n),
     inX: new Float64Array(n), inY: new Float64Array(n), inZ: new Float64Array(n),
     area: new Float64Array(n), masked: new Float64Array(n),
+    // 1 where a face of the group is excluded for every layer (excludeWeight:
+    // the user mask and the angle masks) — the group is held at height 0.
+    excluded: new Uint8Array(n),
+    // Per slot: 1 where some layer pins the position but not all of its
+    // groups (the edge between a textured and an untextured face moves).
+    released: new Uint8Array(nCand),
     active: null, extraStart: null, extraNodes: 0,
   };
 }
@@ -987,6 +1015,97 @@ function _creaseMoves(cr, groupAcc, snX, snY, snZ) {
     out[s * 3] = dx; out[s * 3 + 1] = dy; out[s * 3 + 2] = dz;
   }
   return out;
+}
+
+// Released edges (issue #138) move positions that pinning used to hold still,
+// within the plane of the untextured face. That face's triangles can have any
+// shape (untextured regions are only refined next to the mask boundary, and
+// regularizing leaves thin ones there too), and a thin triangle turns over
+// when its edge points rise by different heights. So every triangle touching
+// a released position is checked after the move: one that would face the
+// other way halves the moves of its released corners, up to
+// FOLD_GUARD_ROUNDS times, and whatever still folds then is held at 0, the
+// behaviour before #138. Positions that were never pinned are not touched.
+const FOLD_GUARD_ROUNDS = 6;
+const FOLD_GUARD_MIN_COS = 0.05;   // a triangle tilted past ~87° counts as folded
+function _guardReleasedFolds(cr, moves, posAttr, vertexId, acc, snX, snY, snZ) {
+  let anyReleased = false;
+  for (let s = 0; s < cr.count; s++) if (cr.released[s]) { anyReleased = true; break; }
+  if (!anyReleased) return;
+
+  // Keep the untextured faces exactly flat: the least-squares solve leaves a
+  // little of its pull toward the averaged normal in d·n_g for an untextured
+  // group g (up to a few hundredths of a mm at the texture's peaks). Removing
+  // it moves the point onto the planes of all of them; a few passes settle a
+  // corner where two untextured planes meet at other than 90°.
+  for (let s = 0; s < cr.count; s++) {
+    if (!cr.released[s]) continue;
+    const base = cr.start[s];
+    let dx = moves[s * 3], dy = moves[s * 3 + 1], dz = moves[s * 3 + 2];
+    for (let round = 0; round < 3; round++) {
+      for (let g = 0; g < cr.groups[s]; g++) {
+        const k = base + g;
+        if (cr.excluded[k] !== 1 || !(cr.area[k] > 0)) continue;
+        const nx = cr.nrmX[k], ny = cr.nrmY[k], nz = cr.nrmZ[k];
+        const dn = dx * nx + dy * ny + dz * nz;
+        dx -= dn * nx; dy -= dn * ny; dz -= dn * nz;
+      }
+    }
+    moves[s * 3] = dx; moves[s * 3 + 1] = dy; moves[s * 3 + 2] = dz;
+  }
+
+  const pos = posAttr.array;
+  const triCount = vertexId.length / 3;
+  const cand = [];
+  for (let t = 0; t < triCount; t++) {
+    for (let k = 0; k < 3; k++) {
+      const s = cr.slotOf[vertexId[t * 3 + k]];
+      if (s >= 0 && cr.released[s]) { cand.push(t); break; }
+    }
+  }
+
+  const scale = new Float64Array(cr.count).fill(1);
+  const P = new Float64Array(9);
+  const place = (t) => {
+    for (let k = 0; k < 3; k++) {
+      const i = t * 3 + k, vid = vertexId[i], s = cr.slotOf[vid];
+      let dx, dy, dz;
+      if (s >= 0) {
+        const f = cr.released[s] ? scale[s] : 1;
+        dx = moves[s * 3] * f; dy = moves[s * 3 + 1] * f; dz = moves[s * 3 + 2] * f;
+      } else {
+        dx = snX[vid] * acc[vid]; dy = snY[vid] * acc[vid]; dz = snZ[vid] * acc[vid];
+      }
+      P[k * 3] = pos[i * 3] + dx; P[k * 3 + 1] = pos[i * 3 + 1] + dy; P[k * 3 + 2] = pos[i * 3 + 2] + dz;
+    }
+  };
+  for (let round = 0; round <= FOLD_GUARD_ROUNDS; round++) {
+    let bad = 0;
+    for (const t of cand) {
+      const b = t * 9;
+      const ax = pos[b + 3] - pos[b], ay = pos[b + 4] - pos[b + 1], az = pos[b + 5] - pos[b + 2];
+      const bx = pos[b + 6] - pos[b], by = pos[b + 7] - pos[b + 1], bz = pos[b + 8] - pos[b + 2];
+      const n0x = ay * bz - az * by, n0y = az * bx - ax * bz, n0z = ax * by - ay * bx;
+      const l0 = Math.sqrt(n0x * n0x + n0y * n0y + n0z * n0z);
+      if (!(l0 > 1e-18)) continue;
+      place(t);
+      const cx = P[3] - P[0], cy = P[4] - P[1], cz = P[5] - P[2];
+      const ex = P[6] - P[0], ey = P[7] - P[1], ez = P[8] - P[2];
+      const n1x = cy * ez - cz * ey, n1y = cz * ex - cx * ez, n1z = cx * ey - cy * ex;
+      const l1 = Math.sqrt(n1x * n1x + n1y * n1y + n1z * n1z);
+      if (n0x * n1x + n0y * n1y + n0z * n1z > FOLD_GUARD_MIN_COS * l0 * l1 && l1 > 1e-18) continue;
+      bad++;
+      for (let k = 0; k < 3; k++) {
+        const s = cr.slotOf[vertexId[t * 3 + k]];
+        if (s >= 0 && cr.released[s]) scale[s] = round < FOLD_GUARD_ROUNDS ? scale[s] * 0.5 : 0;
+      }
+    }
+    if (bad === 0) break;
+  }
+  for (let s = 0; s < cr.count; s++) {
+    if (!cr.released[s] || scale[s] === 1) continue;
+    moves[s * 3] *= scale[s]; moves[s * 3 + 1] *= scale[s]; moves[s * 3 + 2] *= scale[s];
+  }
 }
 
 // ── Texture sampling helpers (Pass 2) ────────────────────────────────────────
