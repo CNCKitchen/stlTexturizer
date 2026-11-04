@@ -179,6 +179,28 @@
           <button type="button" class="section-btn" data-section-axis="z" data-i18n-title="ui.sectionZTitle" title="Cut perpendicular to the Z axis">Z</button>
           <button type="button" class="section-btn" id="section-flip" data-i18n="ui.sectionFlip" data-i18n-title="ui.sectionFlipTitle" title="Show the other half">Flip</button>
         </div>
+        <!-- SpaceMouse speed and reversed axes (js/spaceMousePanel.js); shown once a puck has been seen in this browser -->
+        <div id="spacemouse-wrap" class="spacemouse-wrap hidden">
+          <button type="button" id="spacemouse-btn" class="spacemouse-btn" aria-expanded="false" aria-controls="spacemouse-panel"
+            data-i18n="ui.spaceMouse" data-i18n-title="ui.spaceMouseTitle" title="SpaceMouse speed and direction">SpaceMouse</button>
+          <div id="spacemouse-panel" class="spacemouse-panel hidden" role="dialog" data-i18n-aria-label="ui.spaceMouseTitle" aria-label="SpaceMouse speed and direction">
+            <div class="spacemouse-row">
+              <label for="spacemouse-speed" data-i18n="ui.spaceMouseSpeed">Speed</label>
+              <input type="range" id="spacemouse-speed" min="0.25" max="2" step="0.05" value="1" />
+              <output id="spacemouse-speed-val" for="spacemouse-speed">1.00×</output>
+            </div>
+            <div class="spacemouse-label" data-i18n="ui.spaceMouseReverse">Reverse</div>
+            <div class="spacemouse-axes" role="group" data-i18n-aria-label="ui.spaceMouseReverse" aria-label="Reverse">
+              <button type="button" data-sm-axis="tx" aria-pressed="false" data-i18n="ui.spaceMousePanX">Pan left/right</button>
+              <button type="button" data-sm-axis="tz" aria-pressed="false" data-i18n="ui.spaceMousePanY">Pan up/down</button>
+              <button type="button" data-sm-axis="ty" aria-pressed="false" data-i18n="ui.spaceMouseZoom">Zoom</button>
+              <button type="button" data-sm-axis="rx" aria-pressed="false" data-i18n="ui.spaceMouseTilt">Tilt</button>
+              <button type="button" data-sm-axis="rz" aria-pressed="false" data-i18n="ui.spaceMouseSpin">Spin</button>
+            </div>
+            <p id="spacemouse-status" class="spacemouse-note"></p>
+            <p class="spacemouse-note" data-i18n="ui.spaceMouseNote">By default the puck moves the model, like the 3Dconnexion driver does. The browser reads the puck directly, so the driver's own speed and reversed axes don't apply here. Set them here instead.</p>
+          </div>
+        </div>
 
         <div class="viewport-controls-hint" data-i18n="ui.controlsHint">Left drag: orbit &nbsp;·&nbsp; Right drag: pan &nbsp;·&nbsp; Scroll: zoom</div>
       </div>

@@ -619,51 +619,84 @@ function _stepTurntable() {
 // Nothing is polled until the browser reports a matching device, which it only
 // does after the puck or a button has been touched on this page, so the render
 // loop costs ordinary users a single integer comparison.
+//
+// The browser hands over the puck's raw axes (x right, y towards the user,
+// z down, and the turns about them). Read as they come they would fly the
+// camera; the defaults below move the model with the cap instead, like the
+// 3Dconnexion driver's default and ScanRuler (same axes and signs). The
+// driver's own speed and reversed axes never reach the browser, so
+// setSpaceMouseTuning() takes them from the SpaceMouse panel.
 const _spaceMouse = {
   index: -1,          // navigator.getGamepads() slot, -1 = none connected
+  name: null,         // the connected device's gamepad id, null = none
   lastActive: 0,      // performance.now() of the last frame with puck input
   lastStep: 0,        // performance.now() of the previous _stepSpaceMouse()
   onInput: null,      // called on puck input (stops the turntable)
+  watchers: new Set(),// told when a puck connects or goes
 };
 const _SM_DEADZONE = 0.08;
-const _SM_ROT_RAD_PER_S = 2.0;   // at full deflection
-const _SM_PAN_PER_S = 1.0;       // view heights per second at full deflection
-const _SM_ZOOM_PER_S = 2.0;      // e-folds of zoom per second at full deflection
+const _SM_ROT_RAD_PER_S = 2.4;   // at full deflection
+const _SM_PAN_PER_S = 1.2;       // view heights per second at full deflection
+const _SM_ZOOM_PER_S = 2.5;      // e-folds of zoom per second at full deflection
+
+/** The puck axes the viewer uses (roll is ignored: the view keeps world Z up). */
+export const SPACE_MOUSE_AXES = ['tx', 'tz', 'ty', 'rx', 'rz'];
+// Default direction of each raw axis: tx and rx are negated so the model, not
+// the camera, follows the cap (issues #139, #141).
+const _SM_SIGN = { tx: -1, ty: 1, tz: 1, rx: -1, rz: 1 };
+let _smGain = { ..._SM_SIGN };
+
+/**
+ * Speed (times the default) and the axes that move the other way from the
+ * default, as set in the SpaceMouse panel.
+ * @param {{ speed?: number, reversed?: string[] }} tuning
+ */
+export function setSpaceMouseTuning({ speed = 1, reversed = [] } = {}) {
+  const g = {};
+  for (const a of Object.keys(_SM_SIGN)) g[a] = _SM_SIGN[a] * speed * (reversed.includes(a) ? -1 : 1);
+  _smGain = g;
+}
+
+/** The connected SpaceMouse's gamepad id, or null. */
+export function spaceMouseName() { return _spaceMouse.name; }
+
+/** Call `fn` whenever a SpaceMouse connects or disconnects. */
+export function watchSpaceMouse(fn) { _spaceMouse.watchers.add(fn); }
 
 const _isSpaceMouse = (gp) => !!gp && /3dconnexion|spacemouse|space ?navigator|space ?pilot|space ?explorer|vendor: (256f|046d) product: c6/i.test(gp.id);
 
 function _initSpaceMouse(onInput) {
   if (!('getGamepads' in navigator)) return;
   _spaceMouse.onInput = onInput;
+  const changed = () => { for (const fn of _spaceMouse.watchers) fn(_spaceMouse.name); };
   const attach = (gp) => {
     if (_spaceMouse.index !== -1 || !_isSpaceMouse(gp)) return;
     _spaceMouse.index = gp.index;
+    _spaceMouse.name = gp.id;
     _spaceMouse.lastStep = performance.now();
     console.info(`SpaceMouse connected: ${gp.id}`);
+    changed();
   };
   window.addEventListener('gamepadconnected', (e) => attach(e.gamepad));
   for (const gp of navigator.getGamepads()) attach(gp);   // already exposed to this page
   window.addEventListener('gamepaddisconnected', (e) => {
-    if (e.gamepad.index === _spaceMouse.index) _spaceMouse.index = -1;
+    if (e.gamepad.index !== _spaceMouse.index) return;
+    _spaceMouse.index = -1;
+    _spaceMouse.name = null;
+    changed();
   });
 }
 
-// Remap |v| in [deadzone, 1] to [0, 1] so motion starts smoothly, then square
-// it: a light touch moves slowly for fine positioning while full deflection
-// keeps the top speed (the 3Dconnexion driver's own speed curve doesn't apply
-// to the raw Gamepad API axes).
+// Remap |v| in [deadzone, 1] to [0, 1] so motion starts smoothly.
 function _smAxis(v = 0) {
   const a = Math.abs(v);
-  if (a < _SM_DEADZONE) return 0;
-  const t = Math.min(1, (a - _SM_DEADZONE) / (1 - _SM_DEADZONE));
-  return Math.sign(v) * t * t;
+  return a < _SM_DEADZONE ? 0 : Math.sign(v) * Math.min(1, (a - _SM_DEADZONE) / (1 - _SM_DEADZONE));
 }
 
 /** Apply one frame of SpaceMouse input: pan (X/Z), zoom (Y push/pull) and a
- *  Z-up turntable orbit around the orbit target (tilt / spin). Every axis uses
- *  3Dconnexion's default "object mode": the model follows the cap (slide right
- *  → model moves right, tilt the cap forward → model tilts away). Roll is
- *  ignored since the viewer always keeps world Z up. */
+ *  Z-up turntable orbit around the orbit target (tilt / spin), each scaled by
+ *  its gain (speed and direction, setSpaceMouseTuning). Roll is ignored since
+ *  the viewer always keeps world Z up. */
 function _stepSpaceMouse() {
   const now = performance.now();
   const dt = Math.min((now - _spaceMouse.lastStep) / 1000, 0.1);
@@ -672,11 +705,9 @@ function _stepSpaceMouse() {
   const gp = navigator.getGamepads()[_spaceMouse.index];
   if (!gp || !gp.connected || !controls.enabled || dt <= 0) return;
 
-  const ax = gp.axes;
-  // X pan and tilt are negated so they move the model, not the camera, like
-  // the other axes (issues #139, #141).
-  const tx = -_smAxis(ax[0]), ty = _smAxis(ax[1]), tz = _smAxis(ax[2]);
-  const rx = -_smAxis(ax[3]), rz = _smAxis(ax[5]);
+  const ax = gp.axes, g = _smGain;
+  const tx = g.tx * _smAxis(ax[0]), ty = g.ty * _smAxis(ax[1]), tz = g.tz * _smAxis(ax[2]);
+  const rx = g.rx * _smAxis(ax[3]), rz = g.rz * _smAxis(ax[5]);
   if (!tx && !ty && !tz && !rx && !rz) return;
 
   _spaceMouse.lastActive = now;

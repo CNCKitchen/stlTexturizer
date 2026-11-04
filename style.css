@@ -414,6 +414,62 @@ main {
 [data-theme="light"] .section-btn[data-section-axis="y"] { color: #1a7f3c; }
 [data-theme="light"] .section-btn[data-section-axis="z"] { color: #2563eb; }
 
+/* SpaceMouse speed and reversed axes: a footer button (once a puck has been
+   seen in this browser) that opens a small panel above the footer. */
+.spacemouse-wrap { position: relative; display: flex; align-items: center; }
+.spacemouse-wrap.hidden { display: none; }
+.spacemouse-btn {
+  height: 20px;
+  padding: 0 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.spacemouse-btn:hover,
+.spacemouse-btn[aria-expanded="true"] { background: var(--border); color: var(--text); }
+.spacemouse-panel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 280px;
+  max-width: calc(100vw - 32px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+  color: var(--text);
+}
+.spacemouse-panel.hidden { display: none; }
+.spacemouse-row { display: flex; align-items: center; gap: 8px; }
+.spacemouse-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.spacemouse-row output { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.spacemouse-label { font-weight: 600; }
+.spacemouse-axes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: -4px; }
+.spacemouse-axes button {
+  padding: 3px 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.spacemouse-axes button:hover { color: var(--text); }
+.spacemouse-axes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.spacemouse-note { margin: 0; font-size: 11px; line-height: 1.4; color: var(--text-muted); }
+
 .place-on-face-btn {
   display: flex;
   align-items: center;

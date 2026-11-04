@@ -21,6 +21,7 @@ import { loadFullPreset, loadCustomTexture, IMAGE_PRESETS }  from './presetTextu
 import { initTextureGallery } from './textureGallery.js';
 import { getCustomTextureFile } from './customTextures.js';
 import { initSidebarToggle } from './sidebarToggle.js';
+import { initSpaceMousePanel } from './spaceMousePanel.js';
 import { createPreviewMaterial, updateMaterial, MAX_LAYERS } from './previewMaterial.js';
 import { subdivide }          from './subdivision.js';
 import { runExportPipeline }  from './exportPipeline.js';
@@ -1188,6 +1189,7 @@ const gallery = initTextureGallery({
   setTurntable,
 });
 initSidebarToggle();
+initSpaceMousePanel();
 
 // The page itself never scrolls, but a mobile browser may still shift it to lift a focused input above
 // the on-screen keyboard, and overflow:hidden leaves the user no way back. Undo any such shift once the
