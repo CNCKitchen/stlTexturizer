@@ -15,7 +15,7 @@ Load an STL, OBJ, 3MF, or STEP file, pick a texture, tune the parameters, and ex
 - **3Dconnexion SpaceMouse** support (v1.4.2) and **tire tread** textures (v1.4.3)
 - **Section View** (v1.3.8) — texture and mask the inside of hollow parts
 - **Texture Gallery** with 101 textures and saved custom uploads
-- STEP import, project files, undo / redo, 3MF export and 16 languages
+- STEP import, project files, undo / redo, 3MF export and 17 languages
 
 See the **[full changelog](https://bumpmesh.com/changelog.html)** for every update since April 2026.
 

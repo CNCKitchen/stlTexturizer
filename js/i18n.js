@@ -7,6 +7,7 @@
 // Only display names live here; full strings are lazy-loaded per language.
 
 export const TRANSLATIONS = {
+  cs: { 'lang.name': 'Čeština' },
   da: { 'lang.name': 'Dansk' },
   de: { 'lang.name': 'Deutsch' },
   en: { 'lang.name': 'English' },
