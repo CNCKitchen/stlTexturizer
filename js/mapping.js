@@ -10,6 +10,7 @@
  */
 
 import { QuantizedPointMap } from './meshIndex.js';
+import { outlineWrapCapWeight, outlineWrapPlace } from './outlineWrap.js';
 
 export const MODE_PLANAR_XY   = 0;
 export const MODE_PLANAR_XZ   = 1;
@@ -19,6 +20,7 @@ export const MODE_SPHERICAL   = 4;
 export const MODE_TRIPLANAR   = 5;
 export const MODE_CUBIC       = 6;
 export const MODE_SURFACE_NORMAL = 7;   // stamps only: along the surface normal at the stamp centre
+export const MODE_OUTLINE_WRAP = 8;     // along the part's outline around +Z (outlineWrap.js)
 
 const TWO_PI = Math.PI * 2;
 
@@ -33,11 +35,20 @@ const TWO_PI = Math.PI * 2;
  *   cylindrical: circumference of the projection cylinder (U = arc length,
  *     V is normalized by the same C in computeUV)
  *   spherical: equator arc for U, pole-to-pole meridian arc for V
+ *   outline wrap: the mean length of the outline around Z (settings.outlineWrap,
+ *     the tables of buildOutlineWrap) for U and V; without the tables it maps
+ *     as cylindrical, so it measures as cylindrical too
  */
 export function getScaleReferenceLengths(mode, settings, bounds) {
   const { size } = bounds;
   const md = Math.max(size.x, size.y, size.z, 1e-6);
   switch (mode) {
+    case MODE_OUTLINE_WRAP:
+      if (settings.outlineWrap?.meanLength > 0) {
+        const L = settings.outlineWrap.meanLength;
+        return { refU: L, refV: L };
+      }
+      // falls through: without its tables the outline wrap maps as cylindrical
     case MODE_CYLINDRICAL: {
       const r = Math.max(settings.cylinderRadius ?? Math.max(size.x, size.y) * 0.5, 1e-6);
       const C = TWO_PI * r;
@@ -50,6 +61,16 @@ export function getScaleReferenceLengths(mode, settings, bounds) {
     default:
       return { refU: md, refV: md };
   }
+}
+
+/**
+ * The outline wrap's whole number of repeats around each height, for a
+ * relative scale (one repeat of the image along U, the mean outline being 1).
+ * The preview shader takes this count as a uniform, so CPU and GPU never round
+ * a half-way ratio differently.
+ */
+export function outlineWrapRepeats(scaleU) {
+  return Math.max(1, Math.round(1 / scaleU));
 }
 
 /** Convert absolute mm tile sizes to the mode's relative scale factors. */
@@ -310,6 +331,30 @@ export function computeUV(pos, normal, mode, settings, bounds) {
           { u: tYZ.u, v: tYZ.v, w: weights.x },
         ],
       };
+    }
+
+    case MODE_OUTLINE_WRAP: {
+      // Along the outline around +Z (outlineWrap.js), with a whole number of
+      // repeats at every height. One repeat of the image spans scaleU in these
+      // relative units (the mean outline is 1), so n = round(1 / scaleU) and
+      // L = n·scaleU; a point at the share s of its outline takes u = s·L and
+      // v = rise·L, which applyTransform tiles to s·n repeats. Faces within 20°
+      // of Z take planar XY over the mean outline; 20°–30° blend.
+      const wrap = settings.outlineWrap;
+      if (!(wrap?.meanLength > 0)) return computeUV(pos, normal, MODE_CYLINDRICAL, settings, bounds);
+      const n = outlineWrapRepeats(scaleU);
+      const L = n * scaleU;
+      const place = outlineWrapPlace(wrap, pos.x, pos.y, pos.z);
+      const side = applyTransform(place.share * L, place.rise * L, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+      const nl = Math.hypot(normal.x, normal.y, normal.z);
+      const capW = nl > 0 ? outlineWrapCapWeight(normal.z / nl) : 0;
+      if (capW <= 0) return side;
+      const cap = applyTransform((pos.x - min.x) / wrap.meanLength, (pos.y - min.y) / wrap.meanLength, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+      if (capW >= 1) return cap;
+      return { triplanar: true, samples: [
+        { u: side.u, v: side.v, w: 1 - capW },
+        { u: cap.u, v: cap.v, w: capW },
+      ] };
     }
 
     case MODE_TRIPLANAR:

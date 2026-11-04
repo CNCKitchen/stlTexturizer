@@ -600,6 +600,9 @@ main.sidebar-collapsed .gallery-panel { display: none; }
   line-height: 1.4;
 }
 
+/* Outline wrap: the note that it maps as cylindrical where it cannot follow the outline. */
+.projection-note.hidden { display: none; }
+
 /* Lit while the mouse wheel resizes the stamp instead of zooming. */
 .stamp-hint.armed {
   color: var(--accent);

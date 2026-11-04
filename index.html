@@ -302,12 +302,14 @@
             <option value="5" selected data-i18n-opt="projection.triplanar">Triplanar</option>
             <option value="6" data-i18n-opt="projection.cubic">Cubic (Box)</option>
             <option value="3" data-i18n-opt="projection.cylindrical">Cylindrical</option>
+            <option value="8" data-i18n-opt="projection.outlineWrap">Outline wrap</option>
             <option value="4" data-i18n-opt="projection.spherical">Spherical</option>
             <option value="0" data-i18n-opt="projection.planarXY">Planar XY</option>
             <option value="1" data-i18n-opt="projection.planarXZ">Planar XZ</option>
             <option value="2" data-i18n-opt="projection.planarYZ">Planar YZ</option>
           </select>
         </div>
+        <p id="outline-wrap-note" class="advanced-blurb projection-note hidden" data-i18n="ui.outlineWrapFallback">Outline wrap cannot follow this shape's outline, so it maps as Cylindrical.</p>
         <div class="form-row slider-row" style="display:none">
           <label for="seam-blend" data-i18n="labels.seamBlend" data-i18n-title="tooltips.seamBlend" title="Softens the hard seam where projection faces meet. Effective for Cubic and Cylindrical modes.">Seam Blend ⓘ</label>
           <input type="range" id="seam-blend" min="0" max="1" step="0.01" value="1" />

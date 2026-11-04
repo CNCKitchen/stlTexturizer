@@ -4,7 +4,7 @@
  */
 
 import * as THREE from 'three';
-import { scaleMmToRelative, isStampActive, stampFrame } from './mapping.js';
+import { scaleMmToRelative, isStampActive, stampFrame, outlineWrapRepeats } from './mapping.js';
 
 // Mapping mode constants (must match index.html <option value="…">)
 export const MODE_PLANAR_XY   = 0;
@@ -15,6 +15,7 @@ export const MODE_SPHERICAL   = 4;
 export const MODE_TRIPLANAR   = 5;
 export const MODE_CUBIC       = 6;
 export const MODE_SURFACE_NORMAL = 7;   // stamps only
+export const MODE_OUTLINE_WRAP   = 8;   // outline wrap (outlineWrap.js)
 
 /** Texture layers the preview can composite at once (one vec4 attribute channel each). */
 export const MAX_LAYERS = 4;
@@ -60,6 +61,7 @@ const sharedGLSL = /* glsl */`
   uniform float     layerCapAngle[MAX_LAYERS];
   uniform int       layerSymmetric[MAX_LAYERS];
   uniform vec2      layerAspect[MAX_LAYERS];
+  uniform float     layerWrapRepeats[MAX_LAYERS]; // outline wrap: whole repeats around each height (mapping.js outlineWrapRepeats)
   uniform int       layerAdd[MAX_LAYERS];
   uniform vec4      layerStamp[MAX_LAYERS];     // stamp: xyz = centre (model mm), w = facing side ±1; w = 0 → tiled
   uniform vec4      layerStampSize[MAX_LAYERS]; // stamp: xy = footprint (mm), zw = height map size (texels)
@@ -79,6 +81,12 @@ const sharedGLSL = /* glsl */`
   uniform float     topAngleLimit;
   uniform int       noDownwardZ;
   uniform int       useDisplacement;
+  uniform int       outlineWrapReady; // 1 = the mesh's outlineWrap attribute holds its places (outlineWrap.js)
+  uniform float     outlineWrapMean;  // mean outline length (mm), the outline wrap's reference length
+
+  // Outline wrap: the current vertex's share of its outline and its rise, set
+  // by each shader's main() from the outlineWrap attribute (or its varying).
+  vec2 owPlace;
 
   const float PI     = 3.14159265358979;
   const float TWO_PI = 6.28318530717959;
@@ -265,8 +273,22 @@ const sharedGLSL = /* glsl */`
     } else if (mappingMode == 2) {
       return sampleMap(l, vec2((pos.y - boundsMin.y) / md, (pos.z - boundsMin.z) / md));
 
-    } else if (mappingMode == 3) {
-      // Cylinder axis is +Z. Center XY and radius are user-controllable so
+    } else if (mappingMode == 8 && outlineWrapReady == 1) {
+      // Outline wrap — mirrors computeUV in mapping.js: n whole repeats of the
+      // image around every height (one repeat spans layerScale/layerAspect in
+      // these units, the mean outline being 1), caps within 20° of Z planar
+      // XY over the mean outline, 20°–30° blended.
+      float sU = layerScale[l].x / layerAspect[l].x;
+      float hSide = sampleMap(l, owPlace * (layerWrapRepeats[l] * sU));
+      float off = degrees(acos(clamp(abs(normalize(blendN).z), 0.0, 1.0)));
+      float capW = 1.0 - smoothstep(20.0, 30.0, off);
+      if (capW <= 0.0) return hSide;
+      float m = max(outlineWrapMean, 1e-4);
+      float hCap = sampleMap(l, vec2((pos.x - boundsMin.x) / m, (pos.y - boundsMin.y) / m));
+      return mix(hSide, hCap, capW);
+
+    } else if (mappingMode == 3 || mappingMode == 8) {
+      // Cylinder axis is +Z. (The outline wrap maps as cylindrical until its places arrive, or where it cannot follow the part.) Center XY and radius are user-controllable so
       // pie-slice / off-center parts can be projected without distortion.
       vec2 cylRel2 = pos.xy - layerCylCenter[l];
       float r = max(layerCylRadius[l], 1e-4);
@@ -386,7 +408,9 @@ const vertexShader = /* glsl */`
   attribute vec4  layerMask;      // per-layer user mask (0 = excluded, 1 = textured, between = soft brush)
   attribute vec4  layerFalloff;   // per-layer boundary falloff (0 at a mask edge → 1 beyond the falloff distance)
   attribute float boundaryMaskTypeAttr;
+  attribute vec2  outlineWrap;    // outline wrap: (share of the outline, rise) — outlineWrap.js
 
+  varying vec2  vOutlineWrap;
   varying vec3  vModelPos;    // ORIGINAL model-space position → UV computation in fragment
   varying vec3  vModelNormal; // model-space face normal       → stable UV blending
   varying vec3  vViewPos;     // view-space position (possibly displaced) → TBN & specular
@@ -405,6 +429,12 @@ const vertexShader = /* glsl */`
     // smooth/interpolated normals from subdivision don't cause mask bleeding.
     vec3 fN = length(faceNormal) > 1e-6 ? normalize(faceNormal) : safeN;
     vec3 pos = position;
+    // Displacement: the share from 0 to 1, so every copy of a vertex at the seam
+    // moves alike (with a rotation that is not a multiple of 90°, the two sides
+    // of the seam sample different texels). The fragment shader interpolates
+    // the per-triangle unwrapped share.
+    owPlace = vec2(fract(outlineWrap.x), outlineWrap.y);
+    vOutlineWrap = outlineWrap;
 
     // Surface angle masking — hard per-face cutoff using flat face normal
     float surfaceAngle = degrees(acos(clamp(abs(fN.z), 0.0, 1.0)));
@@ -454,6 +484,7 @@ const fragmentShader = /* glsl */`
   uniform int       boundaryFalloffCurve; // 0 = linear, 1 = s-curve, 2 = ease-in
   uniform int       layeredTint;          // 1 = several layers: surfaces the active layer leaves alone are neutral grey
 
+  varying vec2  vOutlineWrap;
   varying vec3  vModelPos;
   varying vec3  vModelNormal;
   varying vec3  vViewPos;
@@ -485,6 +516,7 @@ const fragmentShader = /* glsl */`
   }
 
   void main() {
+    owPlace = vOutlineWrap;
     // Flip normal for back faces so flipped-winding geometry still lights correctly.
     vec3 N = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
 
@@ -655,9 +687,11 @@ export function createPreviewMaterial(layers, settings) {
  *   cylinderRadius, textureAspectU, textureAspectV, blendAdd, stampOnce,
  *   stampCenterX/Y/Z, stampSide, stampNormalX/Y/Z, mapWidth, mapHeight (height map texels),
  *   boundaryFalloff, boundaryFalloffCurve (the stamp's edge fade),
- *   stampDepth ({ depth, texture } occlusion map, main.js _stampDepthFor) }
+ *   stampDepth ({ depth, texture } occlusion map, main.js _stampDepthFor),
+ *   outlineWrap (the outline wrap's tables, for its reference length) }
  * @param {object} settings  { bounds, bottomAngleLimit, topAngleLimit,
  *   noDownwardZ, useDisplacement, activeLayer (index into `layers`),
+ *   outlineWrapReady (the mesh's outlineWrap attribute is current), outlineWrapMean (mm),
  *   boundaryFalloff, boundaryFalloffCurve (the active layer's, for the
  *   per-fragment edge falloff), layeredTint (grey instead of orange for
  *   surfaces outside the active layer) }
@@ -697,6 +731,7 @@ export function updateMaterial(material, layers, settings) {
     u.layerSymmetric.value[l]  = L && L.symmetricDisplacement ? 1 : 0;
     u.layerAspect.value[l * 2]     = L ? (L.textureAspectU ?? 1) : 1;
     u.layerAspect.value[l * 2 + 1] = L ? (L.textureAspectV ?? 1) : 1;
+    u.layerWrapRepeats.value[l]    = outlineWrapRepeats(rel.u / (L ? (L.textureAspectU ?? 1) : 1));
     u.layerAdd.value[l]        = L && L.blendAdd ? 1 : 0;
     const st = L && isStampActive(L) ? stampFrame(L, b) : null;
     u.layerStamp.value[l * 4]     = st ? st.cx : 0;
@@ -730,6 +765,8 @@ export function updateMaterial(material, layers, settings) {
   u.topAngleLimit.value    = settings.topAngleLimit    ?? 0.0;
   u.noDownwardZ.value      = settings.noDownwardZ      ? 1 : 0;
   u.useDisplacement.value  = settings.useDisplacement  ? 1 : 0;
+  u.outlineWrapReady.value = settings.outlineWrapReady ? 1 : 0;
+  u.outlineWrapMean.value  = settings.outlineWrapMean  || 1.0;
   u.boundaryFalloffDist.value  = settings.boundaryFalloff ?? 0.0;
   u.boundaryFalloffCurve.value = FALLOFF_CURVE_INDEX[settings.boundaryFalloffCurve] ?? 0;
   u.layeredTint.value = settings.layeredTint ? 1 : 0;
@@ -757,6 +794,7 @@ function buildUniforms() {
     layerCapAngle:  { value: new Float32Array(MAX_LAYERS) },
     layerSymmetric: { value: new Int32Array(MAX_LAYERS) },
     layerAspect:    { value: new Float32Array(MAX_LAYERS * 2) },
+    layerWrapRepeats: { value: new Float32Array(MAX_LAYERS) },
     layerAdd:       { value: new Int32Array(MAX_LAYERS) },
     layerStamp:     { value: new Float32Array(MAX_LAYERS * 4) },
     layerStampSize: { value: new Float32Array(MAX_LAYERS * 4) },
@@ -776,6 +814,8 @@ function buildUniforms() {
     topAngleLimit:    { value: 0.0 },
     noDownwardZ:      { value: 0 },
     useDisplacement:  { value: 0 },
+    outlineWrapReady: { value: 0 },
+    outlineWrapMean:  { value: 1.0 },
     boundaryEdgeTex:      { value: createFallbackDataTexture() },
     boundaryEdgeCount:    { value: 0 },
     boundaryEdgeTexWidth: { value: 1.0 },
