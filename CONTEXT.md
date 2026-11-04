@@ -134,6 +134,19 @@ refined mesh through the parent-face map like soft paint always was.
 preserve-untextured lock). An unsplit single visible active layer still uses
 the original inputs (`imageData` + `faceWeights` + `softExclude`).
 
+## Outline wrap (`js/outlineWrap.js`, mode 8)
+
+The outline wrap needs tables built from the mesh (one outline per 0.5 mm cut across Z), which neither computeUV
+nor the shader can build per point. `main.js` builds them from the base mesh in `outlineWrapWorker.js` once a layer on
+screen uses mode 8, keyed on the base geometry's uuid and position version (Rotate and Place on Face move the
+vertices in place). They reach the export as `settings.outlineWrap` (structured clone into the export worker). The
+preview gets each vertex's place (share of its outline, rise) as the `outlineWrap` attribute of the mesh on screen,
+unwrapped per triangle across the seam (displacement reads the share from 0 to 1, so the copies of a seam vertex move
+alike); a paint split carries its base faces' places by barycentric weights. The repeat count comes from the CPU
+(`outlineWrapRepeats`) as a uniform, so the two never round a half-way ratio apart. Until the attribute is
+current — and where the outline wrap cannot follow the mesh — mode 8 maps as cylindrical in both, and its reference
+length is the cylinder's, so the two stay in step.
+
 ## Sharp creases (`js/displacement.js`)
 
 Every copy of a welded position must move by the same vector (watertight),

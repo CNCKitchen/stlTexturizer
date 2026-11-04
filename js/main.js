@@ -34,7 +34,8 @@ import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions } from './meshValidation.js';
 import { t, tHtml, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
 import { getScaleReferenceLengths, isStampActive, stampFrame, stampUV, stampUntouchedFaces, buildStampDepth,
-         STAMP_DEPTH_RES, stampAxes, stampSurfaceAt } from './mapping.js';
+         STAMP_DEPTH_RES, stampAxes, stampSurfaceAt, MODE_OUTLINE_WRAP } from './mapping.js';
+import { buildOutlineWrap, outlineWrapPlaces } from './outlineWrap.js';
 import { QuantizedPointMap } from './meshIndex.js';
 import { APP_VERSION } from './version.js';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
@@ -437,6 +438,7 @@ const stampModeBtn           = document.getElementById('stamp-mode-btn');
 const stampPlaceRow          = document.getElementById('stamp-place-row');
 const stampPlaceBtn          = document.getElementById('stamp-place-btn');
 const stampHint              = document.getElementById('stamp-hint');
+const outlineWrapNote        = document.getElementById('outline-wrap-note');
 const boundaryFalloffSlider    = document.getElementById('boundary-falloff');
 const boundaryFalloffVal       = document.getElementById('boundary-falloff-val');
 const falloffCurveButtons      = {
@@ -2487,6 +2489,7 @@ function _refreshPaintGeometry() {
       }
       geo.setAttribute('faceNormal', new THREE.Float32BufferAttribute(fn, 3));
     }
+    _owCarryPlaces(geo, flat.faceParentId);
     if (paintGeometry) paintGeometry.dispose();
     paintGeometry = geo;
     paintFlat = flat;
@@ -2833,6 +2836,7 @@ function _previewLayers() {
       mapWidth: tw, mapHeight: th,
       boundaryFalloff: s.boundaryFalloff, boundaryFalloffCurve: s.boundaryFalloffCurve,
       stampDepth: _stampDepthFor(index, _stampFrameFor(index)),
+      outlineWrap: _owReadyOn(_displayGeometry()) ? _owWrap : null,
     });
   }
   return { list, activeIdx, count: slots.length };
@@ -2933,7 +2937,7 @@ function _pipelineInputs() {
     }
     out.push({
       imageData: entry.imageData, imgWidth: entry.width, imgHeight: entry.height,
-      settings: { ...settings, ...s },
+      settings: _owSettings({ ...settings, ...s }),
       exclude, hardFaces: hardMasked,
       blendAdd: L !== layers[0] && L.blendAdd,
       stampDepth: frame ? frame.depth : null,
@@ -3171,7 +3175,7 @@ const STAMP_NORMAL_RADIUS = 0.5;
 
 /**
  * Stamp mode on/off. Turning it on from a projection that can't stamp
- * (Triplanar, Cubic, Spherical) switches to Surface normal and goes
+ * (Triplanar, Cubic, Spherical, Outline wrap) switches to Surface normal and goes
  * straight to placing; turning it off brings that projection back (or
  * Triplanar, since Surface normal only exists for stamps).
  */
@@ -5261,6 +5265,9 @@ function _materialSettings(preview) {
     // With several layers, surfaces the active layer does not cover are
     // shown in neutral grey instead of the single-layer orange/dark grey.
     layeredTint: preview.count > 1,
+    // Outline wrap: the shader maps it as cylindrical until the mesh on screen has its places.
+    outlineWrapReady: _owReadyOn(_displayGeometry()),
+    outlineWrapMean:  _owWrap ? _owWrap.meanLength : 1,
   };
 }
 
@@ -5295,6 +5302,7 @@ function updatePreview() {
 
   // Ensure the per-layer mask attributes are current before rendering
   updateFaceMask(activeGeo);
+  _syncOutlineWrap(activeGeo);
 
   const preview = _previewLayers();
   if (!previewMaterial) {
@@ -5415,6 +5423,8 @@ async function toggleDisplacementPreview(enable) {
     }
     setMeshGeometry(dispPreviewGeometry);
     setMeshMaterial(previewMaterial);
+    // Its places (outline wrap) come from the worker; the redraw follows them.
+    _syncOutlineWrap(dispPreviewGeometry);
   } catch (err) {
     if (dispPreviewToken !== myToken) return;
     console.error('Displacement preview failed:', err);
@@ -5580,6 +5590,8 @@ async function handleExport(format = 'stl') {
     // displacement will be applied. Soft-brush paint rides along separately.
     // With several visible layers the pipeline composites them per vertex
     // (exportPipeline.js `layers`).
+    await _owTablesForExport();
+    if (exportToken !== myToken) return;
     const inputs = _pipelineInputs();
 
     // Run the heavy pipeline (subdivide → regularize → displace → decimate →
@@ -5595,7 +5607,7 @@ async function handleExport(format = 'stl') {
       imgWidth: inputs.imgWidth,
       imgHeight: inputs.imgHeight,
       layers: inputs.layers,
-      settings,
+      settings: _owSettings(settings),
       bounds: currentBounds,
       regularizeOpts: _regularizeOpts(),
       mode: 'export',
@@ -5839,6 +5851,195 @@ async function runPipeline(input, onEvent, isStale) {
   });
 }
 
+// ── Outline wrap (projection mode 8) ───────────────────────────────────────
+// The tables of the base mesh (outlineWrap.js), built in outlineWrapWorker.js
+// once a layer on screen uses the outline wrap, and the per-vertex places of
+// the mesh on screen (the preview's `outlineWrap` attribute). Keyed on the base
+// geometry's uuid and position version, so Rotate and Place on Face (which
+// move the vertices in place) and a new model rebuild them. When the outline
+// wrap cannot follow the mesh, it maps as cylindrical (mapping.js) and a note
+// under the Projection select says so.
+let _owWorker = null;
+let _owWorkerFailed = false;
+let _owWorkerInit = null;
+let _owSeq = 0;
+const _owWaiting = new Map();   // request id → { resolve, reject }
+let _owKey = null;              // the base mesh the tables (or the error) belong to
+let _owWrap = null;             // its tables, or null
+let _owError = null;            // why the outline wrap cannot follow it, or null
+let _owBuild = null;            // the build in flight for _owKey
+
+const _owKeyOf = (geo) => geo ? `${geo.uuid}:${geo.attributes.position.version}` : null;
+
+/** Whether a layer on screen uses the outline wrap. */
+function _owUsed() {
+  return _layerSlots().some(({ index, isActive }) =>
+    (isActive ? settings : layers[index].settings).mappingMode === MODE_OUTLINE_WRAP);
+}
+
+/** Whether `geo` holds the places of the current tables (the shader may use the outline wrap on it). */
+function _owReadyOn(geo) {
+  return !!(_owWrap && geo && _owKey === _owKeyOf(currentGeometry) && geo.userData.outlineWrapKey === _owKey);
+}
+
+/** `s` with the tables of the current mesh, for computeUV; as it is without them (it then maps as cylindrical). */
+function _owSettings(s) {
+  return _owWrap && _owKey === _owKeyOf(currentGeometry) ? { ...s, outlineWrap: _owWrap } : s;
+}
+
+function ensureOutlineWrapWorker() {
+  if (_owWorkerFailed) return Promise.resolve(null);
+  if (_owWorker) return Promise.resolve(_owWorker);
+  if (!_owWorkerInit) {
+    _owWorkerInit = _initWorker(new URL('./outlineWrapWorker.js', import.meta.url)).then(
+      (w) => {
+        w.onmessage = (e) => {
+          const m = e.data;
+          const asked = m && _owWaiting.get(m.id);
+          if (!asked) return;
+          _owWaiting.delete(m.id);
+          if (m.type === 'done') asked.resolve(m);
+          else asked.reject(new Error(m.message));
+        };
+        w.onerror = (e) => {
+          for (const asked of _owWaiting.values()) asked.reject(new Error((e && e.message) || 'outline wrap worker crashed'));
+          _owWaiting.clear();
+          try { w.terminate(); } catch {}
+          if (_owWorker === w) _owWorker = null;
+        };
+        _owWorker = w;
+        _owWorkerInit = null;
+        return w;
+      },
+      (err) => {
+        _owWorkerFailed = true;
+        _owWorkerInit = null;
+        console.warn('[stlTexturizer] outline wrap worker unavailable — building it on the main thread:', err.message);
+        return null;
+      }
+    );
+  }
+  return _owWorkerInit;
+}
+
+/**
+ * Run a build (tables and places of `positions`) or a places request (on the
+ * tables `wrap`) in the worker, or inline when the worker is unavailable.
+ */
+async function _owRun(cmd, positions, wrap = null) {
+  const w = await ensureOutlineWrapWorker();
+  if (!w) {
+    const tables = cmd === 'build' ? buildOutlineWrap(positions) : wrap;
+    return { wrap: tables, places: outlineWrapPlaces(tables, positions) };
+  }
+  const id = ++_owSeq;
+  return new Promise((resolve, reject) => {
+    _owWaiting.set(id, { resolve, reject });
+    w.postMessage({ cmd, id, positions, wrap }, [positions.buffer]);
+  });
+}
+
+/** The tables of the base mesh: built once per mesh; null when the outline wrap cannot follow it. */
+function _owTables() {
+  const geo = currentGeometry;
+  const key = _owKeyOf(geo);
+  if (!key) return Promise.resolve(null);
+  if (_owKey === key && _owBuild) return _owBuild;
+  if (_owKey === key && (_owWrap || _owError)) return Promise.resolve(_owWrap);
+  _owKey = key;
+  _owWrap = null;
+  _owError = null;
+  _owBuild = _owRun('build', geo.attributes.position.array.slice()).then(
+    (r) => {
+      if (_owKey !== key) return null;
+      _owWrap = r.wrap;
+      _owBuild = null;
+      if (_owKeyOf(geo) === key) _owSetPlaces(geo, r.places, key);
+      return _owWrap;
+    },
+    (err) => {
+      if (_owKey !== key) return null;
+      _owError = err.message;
+      _owBuild = null;
+      console.warn('[stlTexturizer] outline wrap maps as cylindrical:', err.message);
+      return null;
+    }
+  );
+  return _owBuild;
+}
+
+function _owSetPlaces(geo, places, key) {
+  geo.setAttribute('outlineWrap', new THREE.Float32BufferAttribute(places, 2));
+  geo.userData.outlineWrapKey = key;
+}
+
+/**
+ * A paint split's mesh (each leaf in its base face's plane, `faceParentId`)
+ * takes the places of its base faces' corners at each leaf corner's
+ * barycentric weights: what the GPU interpolated across the base face, so the
+ * preview does not change, and with no request to the worker.
+ */
+function _owCarryPlaces(geo, faceParentId) {
+  const base = currentGeometry;
+  const from = base && base.getAttribute('outlineWrap');
+  if (!from || !_owWrap || base.userData.outlineWrapKey !== _owKeyOf(base)) return;
+  const bp = base.attributes.position.array;
+  const lp = geo.attributes.position.array;
+  const out = new Float32Array((lp.length / 3) * 2);
+  for (let c = 0; c < lp.length / 3; c++) {
+    const f = faceParentId[Math.floor(c / 3)];
+    const a = 9 * f;
+    // Barycentric weights of the leaf corner in the base face (a, b, c).
+    const e0x = bp[a + 3] - bp[a], e0y = bp[a + 4] - bp[a + 1], e0z = bp[a + 5] - bp[a + 2];
+    const e1x = bp[a + 6] - bp[a], e1y = bp[a + 7] - bp[a + 1], e1z = bp[a + 8] - bp[a + 2];
+    const px = lp[3 * c] - bp[a], py = lp[3 * c + 1] - bp[a + 1], pz = lp[3 * c + 2] - bp[a + 2];
+    const d00 = e0x * e0x + e0y * e0y + e0z * e0z, d01 = e0x * e1x + e0y * e1y + e0z * e1z, d11 = e1x * e1x + e1y * e1y + e1z * e1z;
+    const d20 = px * e0x + py * e0y + pz * e0z, d21 = px * e1x + py * e1y + pz * e1z;
+    const den = d00 * d11 - d01 * d01;
+    const v = den > 0 ? (d11 * d20 - d01 * d21) / den : 0;
+    const w = den > 0 ? (d00 * d21 - d01 * d20) / den : 0;
+    const u = 1 - v - w;
+    for (let k = 0; k < 2; k++) {
+      out[2 * c + k] = u * from.array[6 * f + k] + v * from.array[6 * f + 2 + k] + w * from.array[6 * f + 4 + k];
+    }
+  }
+  _owSetPlaces(geo, out, base.userData.outlineWrapKey);
+}
+
+/** Before an export or a bake: wait for the tables when a layer uses the outline wrap. */
+async function _owTablesForExport() {
+  if (_owUsed()) await _owTables();
+}
+
+/**
+ * From updatePreview, with the mesh on screen: start the tables' build, put
+ * the places on the mesh on screen once they exist, show the fallback note,
+ * and redraw when each step lands.
+ */
+function _syncOutlineWrap(activeGeo) {
+  const used = _owUsed();
+  const key = _owKeyOf(currentGeometry);
+  // The note sits under the active layer's Projection select.
+  outlineWrapNote.classList.toggle('hidden', !(settings.mappingMode === MODE_OUTLINE_WRAP && _owError && _owKey === key));
+  if (!used || !key) return;
+  if (_owKey !== key || (!_owWrap && !_owError && !_owBuild)) {
+    _owTables().then(() => { if (_owKeyOf(currentGeometry) === key) updatePreview(); });
+    return;
+  }
+  if (!_owWrap || activeGeo.userData.outlineWrapKey === key || activeGeo.userData.outlineWrapPending === key) return;
+  activeGeo.userData.outlineWrapPending = key;
+  _owRun('places', activeGeo.attributes.position.array.slice(), _owWrap).then(
+    (r) => {
+      if (_owKey !== key) return;
+      _owSetPlaces(activeGeo, r.places, key);
+      updatePreview();
+    },
+    (err) => console.warn('[stlTexturizer] outline wrap places failed:', err.message)
+  ).finally(() => {
+    if (activeGeo.userData.outlineWrapPending === key) delete activeGeo.userData.outlineWrapPending;
+  });
+}
+
 // ── 3D-preview worker ──────────────────────────────────────────────────────
 // Its own worker (previewWorker.js) so a preview build never queues behind or
 // gets killed with an export. Started lazily on the first preview build.
@@ -5931,6 +6132,7 @@ async function bakeTextures() {
     // Mirror handleExport's pre-flight: combine user mask + angle masking
     // into per-vertex weights for subdivision, plus soft-brush paint (or the
     // per-layer masks when several layers are visible).
+    await _owTablesForExport();
     const inputs = _pipelineInputs();
     const faceWeights = inputs.faceWeights;
 
@@ -5946,7 +6148,7 @@ async function bakeTextures() {
       imgWidth: inputs.imgWidth,
       imgHeight: inputs.imgHeight,
       layers: inputs.layers,
-      settings,
+      settings: _owSettings(settings),
       bounds: currentBounds,
       regularizeOpts: _regularizeOpts(),
       mode: 'bake',
