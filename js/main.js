@@ -102,6 +102,7 @@ let _stampWheelArmed   = false;       // after a stamp press: the wheel resizes 
 let _stampHoverCursor  = false;       // the 'move' cursor is showing over the stamp's patch
 let rotateActive       = false;       // true while rotate mode is active
 let rotateAngles       = { x: 0, y: 0, z: 0 };  // accumulated rotation in degrees
+let refineLengthUserSet = false;      // true once the user picks an output resolution (slider, field, wheel or Smart) — kept across model loads
 let _rotateOriginalPositions = null;  // Float32Array snapshot before any rotation
 const _raycaster       = new THREE.Raycaster();
 let _lastPaintHitPoint = null;        // THREE.Vector3 — last brush paint position for shift-line
@@ -1706,6 +1707,13 @@ function wireEvents() {
     return v.toFixed(2);
   }, false);
   refineLenVal.addEventListener('change', checkResolutionWarning);
+  // Only genuine user input marks the resolution as chosen; programmatic
+  // restores (undo, reset, project import) dispatch untrusted events.
+  const markRefineLengthUserSet = (e) => { if (e.isTrusted) refineLengthUserSet = true; };
+  refineLenSlider.addEventListener('input', markRefineLengthUserSet);
+  refineLenSlider.addEventListener('dblclick', markRefineLengthUserSet);
+  refineLenVal.addEventListener('change', markRefineLengthUserSet);
+  refineLenVal.addEventListener('wheel', markRefineLengthUserSet);
   linkSlider(maxTriSlider, maxTriVal, v => { settings.maxTriangles = v; return formatM(v); }, false);
   linkSlider(bottomAngleLimitSlider, bottomAngleLimitVal, v => {
     settings.bottomAngleLimit = v; _falloffDirty = true;
@@ -3698,12 +3706,7 @@ function handlePlaceOnFaceClick(e) {
   _rebuildPaintTreeKeepingPaint(adjData);
 
   // Update edge length for new bounds
-  const diag = Math.sqrt(currentBounds.size.x ** 2 + currentBounds.size.y ** 2 + currentBounds.size.z ** 2);
-  const defaultEdge = Math.max(0.05, Math.min(5.0, +(diag / 300).toFixed(2)));
-  settings.refineLength = defaultEdge;
-  refineLenSlider.value = defaultEdge;
-  refineLenVal.value = defaultEdge;
-  checkResolutionWarning();
+  _applyDefaultRefineLength(currentBounds, 300);
 
   // Update mesh info
   const triCount = getTriangleCount(currentGeometry);
@@ -4401,18 +4404,13 @@ async function handleModelFile(file, stepSettings = null) {
 
     // Carry scale, offset, rotation, and all other tuning across model swaps —
     // they're normalized to the bounding box so they apply meaningfully to the
-    // new mesh. Output resolution is the one exception: it's recomputed below
-    // from the new model's diagonal so a default-sized edge length still makes
-    // sense whether the user just loaded a thumb-sized part or a 1m piece.
+    // new mesh. Output resolution is recomputed from the new model's diagonal
+    // (so a default edge length suits a thumb-sized part and a 1m piece alike)
+    // unless the user has set it themselves — then their value is kept.
     triLimitWarning.classList.add('hidden');
 
     // Default edge length = 1/250 of the bounding box diagonal
-    const diag = Math.sqrt(bounds.size.x ** 2 + bounds.size.y ** 2 + bounds.size.z ** 2);
-    const defaultEdge = Math.max(0.05, Math.min(5.0, +(diag / 250).toFixed(2)));
-    settings.refineLength = defaultEdge;
-    refineLenSlider.value = defaultEdge;
-    refineLenVal.value = defaultEdge;
-    checkResolutionWarning();
+    _applyDefaultRefineLength(bounds, 250);
 
     const triCount = getTriangleCount(currentGeometry);
     const mb = ((currentGeometry.attributes.position.array.byteLength) / 1024 / 1024).toFixed(2);
@@ -4617,6 +4615,22 @@ function updateMeshDiagnostics(adjData, triCount) {
   meshDiagRunBtn.disabled = false;
 }
 
+/**
+ * Seed the output resolution from the model size (1/divisor of the bounding-box
+ * diagonal, clamped to [0.05, 5.0] mm) — unless the user already picked one,
+ * which then carries over to the next model like every other setting.
+ */
+function _applyDefaultRefineLength(bounds, divisor) {
+  if (!refineLengthUserSet) {
+    const diag = Math.sqrt(bounds.size.x ** 2 + bounds.size.y ** 2 + bounds.size.z ** 2);
+    const defaultEdge = Math.max(0.05, Math.min(5.0, +(diag / divisor).toFixed(2)));
+    settings.refineLength = defaultEdge;
+    refineLenSlider.value = defaultEdge;
+    refineLenVal.value = defaultEdge;
+  }
+  checkResolutionWarning();
+}
+
 function checkResolutionWarning() {
   if (!currentBounds) return;
   const diag = Math.sqrt(
@@ -4655,6 +4669,7 @@ function applySmartResolution() {
   // chosen edge assumes decimation will land near `recommendedMaxTri`.
   // Setting them in lockstep means clicking Smart twice is idempotent.
   const d = result.diagnostics;
+  refineLengthUserSet = true;
   settings.refineLength = result.edge;
   refineLenSlider.value = result.edge;
   refineLenVal.value    = result.edge;
@@ -6553,6 +6568,8 @@ function resetSettingsToDefaults() {
       snapshot.refineLength = Math.max(0.05, Math.min(5.0, +(diag / 250).toFixed(2)));
     }
     applySettingsSnapshot(snapshot);
+    // A reset hands the resolution back to the per-model default.
+    refineLengthUserSet = false;
 
     // Back to a single layer with no paint, in Exclude mode.
     layers = [_newLayer({ includeOnly: false, maskModeChosen: false })];
