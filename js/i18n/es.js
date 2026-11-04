@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Desfase U",
   "labels.offsetV": "Desfase V",
   "labels.rotation": "Rotación",
+  "labels.rotateAroundZ": "Girar caras laterales alrededor de Z ⓘ",
+  "tooltips.rotateAroundZ": "Triplanar / Cúbica: gira las proyecciones laterales alrededor del eje vertical según el ángulo de Rotación, en lugar de girar la textura dentro de cada cara lateral. Así los patrones direccionales, como la veta de la madera, siguen la misma dirección en las caras superiores y laterales.",
   "tooltips.proportionalScaling": "Escalado proporcional (U = V)",
   "tooltips.proportionalScalingAria": "Escalado proporcional (U = V)",
   "sections.displacement": "Profundidad de textura",

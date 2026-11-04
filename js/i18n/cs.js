@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Posun U",
   "labels.offsetV": "Posun V",
   "labels.rotation": "Otočení",
+  "labels.rotateAroundZ": "Otáčet boční plochy kolem Z ⓘ",
+  "tooltips.rotateAroundZ": "Triplanární / Kubická: boční projekce se otočí kolem svislé osy o úhel Otočení, místo aby se textura otáčela v rovině každé boční plochy. Směrové vzory jako dřevěná léta pak vedou stejným směrem na horních i bočních plochách.",
   "tooltips.proportionalScaling": "Proporcionální měřítko (U = V)",
   "tooltips.proportionalScalingAria": "Proporcionální měřítko (U = V)",
   "sections.displacement": "Hloubka textury",

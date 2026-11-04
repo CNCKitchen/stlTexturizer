@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "U Offseti",
   "labels.offsetV": "V Offseti",
   "labels.rotation": "Rotasyon Açısı",
+  "labels.rotateAroundZ": "Yan yüzleri Z etrafında döndür ⓘ",
+  "tooltips.rotateAroundZ": "Üç düzlemli / Kübik: dokuyu her yan yüzün içinde döndürmek yerine yan projeksiyonları Rotasyon Açısı kadar dikey eksen etrafında döndürür. Ahşap damarı gibi yönlü desenler böylece üst ve yan yüzlerde aynı yönde akar.",
   "tooltips.proportionalScaling": "Orantılı Boyut Ayarı (U = V)",
   "tooltips.proportionalScalingAria": "Orantılı Boyut Ayarı (U = V)",
   "sections.displacement": "Kabartma Derinliği",

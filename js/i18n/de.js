@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Versatz U",
   "labels.offsetV": "Versatz V",
   "labels.rotation": "Rotation",
+  "labels.rotateAroundZ": "Seitenflächen um Z drehen ⓘ",
+  "tooltips.rotateAroundZ": "Triplanar / Kubisch: dreht die Seitenprojektionen um die senkrechte Achse um den Rotationswinkel, statt die Textur in jeder Seitenfläche zu drehen. Gerichtete Muster wie Holzmaserung laufen dann auf Ober- und Seitenflächen in dieselbe Richtung.",
   "tooltips.proportionalScaling": "Proportionale Skalierung (U = V)",
   "tooltips.proportionalScalingAria": "Proportionale Skalierung (U = V)",
   "sections.displacement": "Texturtiefe",

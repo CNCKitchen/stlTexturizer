@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Décalage U",
   "labels.offsetV": "Décalage V",
   "labels.rotation": "Rotation",
+  "labels.rotateAroundZ": "Tourner les faces latérales autour de Z ⓘ",
+  "tooltips.rotateAroundZ": "Triplanaire / Cubique : tourne les projections latérales autour de l'axe vertical selon l'angle de Rotation, au lieu de faire tourner la texture dans chaque face latérale. Les motifs orientés comme le fil du bois suivent alors la même direction sur les faces du dessus et les faces latérales.",
   "tooltips.proportionalScaling": "Mise à l'échelle proportionnelle (U = V)",
   "tooltips.proportionalScalingAria": "Mise à l'échelle proportionnelle (U = V)",
   "sections.displacement": "Profondeur de texture",

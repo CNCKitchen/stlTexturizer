@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "U 오프셋",
   "labels.offsetV": "V 오프셋",
   "labels.rotation": "회전",
+  "labels.rotateAroundZ": "측면을 Z축 기준으로 회전 ⓘ",
+  "tooltips.rotateAroundZ": "트라이플래너 / 큐빅: 각 측면 안에서 텍스처를 회전하는 대신, 측면 투영을 회전 각도만큼 수직축을 기준으로 돌립니다. 나뭇결 같은 방향성 패턴이 윗면과 측면에서 같은 방향으로 이어집니다.",
   "tooltips.proportionalScaling": "비율 유지 스케일링 (U = V)",
   "tooltips.proportionalScalingAria": "비율 유지 스케일링 (U = V)",
   "sections.displacement": "텍스처 깊이",

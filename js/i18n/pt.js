@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Deslocamento U",
   "labels.offsetV": "Deslocamento V",
   "labels.rotation": "Rotação",
+  "labels.rotateAroundZ": "Rodar faces laterais em torno de Z ⓘ",
+  "tooltips.rotateAroundZ": "Triplanar / Cúbica: roda as projeções laterais em torno do eixo vertical pelo ângulo de Rotação, em vez de rodar a textura dentro de cada face lateral. Padrões direcionais como o veio da madeira seguem então a mesma direção nas faces superiores e laterais.",
   "tooltips.proportionalScaling": "Escala proporcional (U = V)",
   "tooltips.proportionalScalingAria": "Escala proporcional (U = V)",
   "sections.displacement": "Profundidade da textura",

@@ -91,6 +91,8 @@ export default {
   "labels.offsetU": "Przesunięcie U",
   "labels.offsetV": "Przesunięcie V",
   "labels.rotation": "Obrót",
+  "labels.rotateAroundZ": "Obracaj ściany boczne wokół Z ⓘ",
+  "tooltips.rotateAroundZ": "Trójpłaszczyznowy / Sześcienny: obraca rzuty boczne wokół osi pionowej o kąt Obrotu, zamiast obracać teksturę w płaszczyźnie każdej ściany bocznej. Wzory kierunkowe, takie jak słoje drewna, biegną wtedy w tę samą stronę na ścianach górnych i bocznych.",
   "tooltips.proportionalScaling": "Skalowanie proporcjonalne (U = V)",
   "tooltips.proportionalScalingAria": "Skalowanie proporcjonalne (U = V)",
   "sections.displacement": "Głębokość tekstury",

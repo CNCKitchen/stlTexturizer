@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Siirtymä U",
   "labels.offsetV": "Siirtymä V",
   "labels.rotation": "Kierto",
+  "labels.rotateAroundZ": "Kierrä sivupintoja Z-akselin ympäri ⓘ",
+  "tooltips.rotateAroundZ": "Triplanaarinen / Kuutio: sivuprojektiot kierretään pystyakselin ympäri Kierto-kulman verran sen sijaan, että tekstuuria kierrettäisiin kunkin sivupinnan tasossa. Suunnalliset kuviot, kuten puunsyy, kulkevat silloin samaan suuntaan ylä- ja sivupinnoilla.",
   "tooltips.proportionalScaling": "Lukitse U- ja V-koko samaksi",
   "tooltips.proportionalScalingAria": "Lukitse U- ja V-koko samaksi",
   "sections.displacement": "Tekstuurin syvyys",

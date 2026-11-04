@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "オフセット U",
   "labels.offsetV": "オフセット V",
   "labels.rotation": "回転",
+  "labels.rotateAroundZ": "側面をZ軸まわりに回転 ⓘ",
+  "tooltips.rotateAroundZ": "トライプラナー / キュービック：各側面の中でテクスチャを回転させる代わりに、側面の投影を回転角だけ垂直軸まわりに回します。木目のような方向性のあるパターンが、上面と側面で同じ向きに流れます。",
   "tooltips.proportionalScaling": "比例スケーリング (U = V)",
   "tooltips.proportionalScalingAria": "比例スケーリング (U = V)",
   "sections.displacement": "テクスチャの深さ",

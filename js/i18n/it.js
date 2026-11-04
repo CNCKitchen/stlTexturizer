@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Offset U",
   "labels.offsetV": "Offset V",
   "labels.rotation": "Rotazione",
+  "labels.rotateAroundZ": "Ruota le facce laterali attorno a Z ⓘ",
+  "tooltips.rotateAroundZ": "Triplanare / Cubica: ruota le proiezioni laterali attorno all'asse verticale dell'angolo di Rotazione, invece di ruotare la texture dentro ogni faccia laterale. I motivi direzionali come la venatura del legno seguono così la stessa direzione sulle facce superiori e laterali.",
   "tooltips.proportionalScaling": "Scala proporzionale (U = V)",
   "tooltips.proportionalScalingAria": "Scala proporzionale (U = V)",
   "sections.displacement": "Profondità Texture",

@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Відступ U",
   "labels.offsetV": "Відступ V",
   "labels.rotation": "Обертання",
+  "labels.rotateAroundZ": "Обертати бічні грані навколо Z ⓘ",
+  "tooltips.rotateAroundZ": "Трипланарна / Кубічна: бічні проєкції повертаються навколо вертикальної осі на кут обертання, замість обертання текстури в площині кожної бічної грані. Спрямовані візерунки, як-от волокна деревини, тоді йдуть однаково на верхніх і бічних гранях.",
   "tooltips.proportionalScaling": "Пропорційне масштабування (U = V)",
   "tooltips.proportionalScalingAria": "Пропорційне масштабування (U = V)",
   "sections.displacement": "Глибина текстури",

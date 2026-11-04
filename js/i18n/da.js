@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Forskydning U",
   "labels.offsetV": "Forskydning V",
   "labels.rotation": "Rotation",
+  "labels.rotateAroundZ": "Drej sideflader om Z ⓘ",
+  "tooltips.rotateAroundZ": "Triplanar / Kubisk: drej sideprojektionerne om den lodrette akse med Rotation-vinklen i stedet for at dreje teksturen inden i hver sideflade. Retningsbestemte mønstre som træårer løber så samme vej på top- og sideflader.",
   "tooltips.proportionalScaling": "Proportionel skalering (U = V)",
   "tooltips.proportionalScalingAria": "Proportionel skalering (U = V)",
   "sections.displacement": "Teksturdybde",

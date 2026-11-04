@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Offset U",
   "labels.offsetV": "Offset V",
   "labels.rotation": "Rotatie",
+  "labels.rotateAroundZ": "Zijvlakken om Z draaien ⓘ",
+  "tooltips.rotateAroundZ": "Triplanair / Kubisch: draait de zijprojecties om de verticale as met de Rotatie-hoek, in plaats van de textuur binnen elk zijvlak te draaien. Gerichte patronen zoals houtnerf lopen dan dezelfde kant op op boven- en zijvlakken.",
   "tooltips.proportionalScaling": "Proportioneel schalen (U = V)",
   "tooltips.proportionalScalingAria": "Proportioneel schalen (U = V)",
   "sections.displacement": "Textuurdiepte",

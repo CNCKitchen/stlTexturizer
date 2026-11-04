@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "偏移 U",
   "labels.offsetV": "偏移 V",
   "labels.rotation": "旋转",
+  "labels.rotateAroundZ": "侧面绕 Z 轴旋转 ⓘ",
+  "tooltips.rotateAroundZ": "三平面投影 / 立方体：将侧面投影按旋转角度绕垂直轴转动，而不是在每个侧面内旋转纹理。这样木纹等有方向的图案在顶面和侧面上走向一致。",
   "tooltips.proportionalScaling": "等比例缩放 (U = V)",
   "tooltips.proportionalScalingAria": "等比例缩放 (U = V)",
   "sections.displacement": "纹理深度",
