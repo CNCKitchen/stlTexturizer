@@ -123,6 +123,11 @@ const settings = {
   offsetU:       0.0,
   offsetV:       0.0,
   rotation:      0,
+  // Triplanar / Cubic: turn the side projections around Z by `rotation`
+  // instead of spinning the texture inside each side plane (mapping.js
+  // isRotateAroundZ) — keeps directional patterns heading the same way on
+  // top and side faces.
+  rotateAroundZ: false,
   refineLength:  1.0,
   maxTriangles:  750_000,
   lockScale:     true,
@@ -204,7 +209,7 @@ const settings = {
 // bottom handling, regularize knobs) stays global.
 const LAYER_KEYS = [
   'mappingMode', 'scaleU', 'scaleV', 'lockScale',
-  'offsetU', 'offsetV', 'rotation',
+  'offsetU', 'offsetV', 'rotation', 'rotateAroundZ',
   'amplitude', 'textureHeight', 'invertDisplacement', 'invertTexture', 'textureSmoothing',
   'symmetricDisplacement', 'mappingBlend', 'seamBandWidth', 'capAngle',
   'boundaryFalloff', 'boundaryFalloffCurve',
@@ -418,6 +423,8 @@ const invertTextureCheckbox = document.getElementById('invert-texture');
 const capAngleSlider         = document.getElementById('cap-angle');
 const capAngleVal            = document.getElementById('cap-angle-val');
 const capAngleRow            = document.getElementById('cap-angle-row');
+const rotateAroundZRow       = document.getElementById('rotate-around-z-row');
+const rotateAroundZCheckbox  = document.getElementById('rotate-around-z');
 const cylinderSnapRow        = document.getElementById('cylinder-snap-row');
 const cylinderSnapToggle     = document.getElementById('cylinder-snap-toggle');
 const cylinderAxisRow        = document.getElementById('cylinder-axis-row');
@@ -1589,6 +1596,8 @@ function wireEvents() {
     settings.mappingMode = parseInt(mappingSelect.value, 10);
     if (settings.mappingMode === 7 /* MODE_SURFACE_NORMAL */ && prevMode !== 7) _faceStampSurface(prevMode);
     capAngleRow.style.display = settings.mappingMode === 3 ? '' : 'none';
+    // Only the box-style projections (Triplanar, Cubic) have side projections to turn.
+    rotateAroundZRow.style.display = settings.mappingMode === 5 || settings.mappingMode === 6 ? '' : 'none';
     updateCylinderUIVisibility();
     if (stampPlaceActive && !isStampActive(settings)) toggleStampPlace(false);
     updateStampUIVisibility();
@@ -1727,6 +1736,10 @@ function wireEvents() {
   linkSlider(textureSmoothingSlider, textureSmoothingVal, v => { settings.textureSmoothing = v; return v.toFixed(1); });
   invertTextureCheckbox.addEventListener('change', () => {
     settings.invertTexture = invertTextureCheckbox.checked;
+    updatePreview();
+  });
+  rotateAroundZCheckbox.addEventListener('change', () => {
+    settings.rotateAroundZ = rotateAroundZCheckbox.checked;
     updatePreview();
   });
   linkSlider(capAngleSlider,          capAngleVal,          v => { settings.capAngle         = v; return Math.round(v); });
@@ -6139,7 +6152,7 @@ try { localStorage.removeItem(PROJECT_STORAGE_KEY); } catch { /* ignore */ }
 // Persisted setting keys — excludes `useDisplacement` (transient UI state).
 const PERSISTED_KEYS = [
   'mappingMode', 'scaleU', 'scaleV', 'lockScale',
-  'offsetU', 'offsetV', 'rotation',
+  'offsetU', 'offsetV', 'rotation', 'rotateAroundZ',
   'amplitude', 'textureHeight', 'invertDisplacement',
   'invertTexture',
   'symmetricDisplacement', 'noDownwardZ', 'smoothBottom', 'harvestFlatFaces', 'harvestTol', 'preserveUntextured', 'textureSmoothing',
@@ -6370,6 +6383,9 @@ function applySettingsSnapshot(snap) {
   setLinkedVal(offsetUVal,          snap.offsetU);
   setLinkedVal(offsetVVal,          snap.offsetV);
   setLinkedVal(rotationVal,         snap.rotation);
+  // Older projects predate the option and rotated side faces in-plane.
+  rotateAroundZCheckbox.checked = snap.rotateAroundZ ?? false;
+  rotateAroundZCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
   setLinkedVal(amplitudeVal,        snap.textureHeight);
   setLinkedVal(textureSmoothingVal, snap.textureSmoothing);
   setLinkedVal(seamBlendVal,        snap.mappingBlend);
@@ -6528,7 +6544,7 @@ for (const btn of Object.values(falloffCurveButtons)) {
 // edge" mm for whatever model is currently loaded (the per-model default).
 const DEFAULT_SETTINGS_SNAPSHOT = Object.freeze({
   mappingMode: 5, scaleU: 0.5, scaleV: 0.5, lockScale: true,
-  offsetU: 0, offsetV: 0, rotation: 0,
+  offsetU: 0, offsetV: 0, rotation: 0, rotateAroundZ: false,
   amplitude: 0.5, textureHeight: 0.5, invertDisplacement: false,
   invertTexture: false,
   symmetricDisplacement: false, noDownwardZ: false, smoothBottom: true, harvestFlatFaces: true, harvestTol: 0.005, preserveUntextured: true, textureSmoothing: 0,

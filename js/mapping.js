@@ -61,6 +61,38 @@ export function scaleMmToRelative(mode, settings, bounds) {
 }
 const CUBIC_AXIS_EPSILON = 1e-4;
 
+/**
+ * "Rotate around Z" for the box-style projections (Triplanar, Cubic).
+ *
+ * By default the Rotation setting spins the texture inside every projection
+ * plane, so on side faces a 90° turn stands the pattern on end (wood grain
+ * goes vertical) instead of following the new direction it takes on top
+ * faces. With settings.rotateAroundZ the side (XZ / YZ) projections are
+ * instead turned around the vertical axis by the same angle — the top
+ * projection is unchanged — so a directional pattern keeps one consistent
+ * heading on top and side faces alike.
+ */
+export function isRotateAroundZ(settings) {
+  return !!settings.rotateAroundZ && ((settings.rotation ?? 0) % 360) !== 0;
+}
+
+/**
+ * Side-projection frame for rotateAroundZ: the position (relative to the
+ * bbox, identical to pos - bounds.min at 0°) and normal turned about the
+ * bbox's vertical centre line by the Rotation angle. Turning by +angle here
+ * matches the heading the in-plane rotation gives the top projection.
+ */
+export function rotateSideFrame(px, py, nx, ny, bounds, cosR, sinR) {
+  const rx = px - bounds.center.x;
+  const ry = py - bounds.center.y;
+  return {
+    x:  cosR * rx - sinR * ry + 0.5 * bounds.size.x,
+    y:  sinR * rx + cosR * ry + 0.5 * bounds.size.y,
+    nx: cosR * nx - sinR * ny,
+    ny: sinR * nx + cosR * ny,
+  };
+}
+
 export function getDominantCubicAxis(normal) {
   const ax = Math.abs(normal.x);
   const ay = Math.abs(normal.y);
@@ -285,17 +317,23 @@ export function computeUV(pos, normal, mode, settings, bounds) {
     }
 
     case MODE_CUBIC: {
-      const weights = getCubicBlendWeights(normal, settings.mappingBlend ?? 0.0, settings.seamBandWidth ?? 0.35);
+      // rotateAroundZ: side projections work in the Z-rotated frame and get
+      // no in-plane rotation (see isRotateAroundZ).
+      const aroundZ = isRotateAroundZ(settings);
+      const sf = aroundZ ? rotateSideFrame(pos.x, pos.y, normal.x, normal.y, bounds, cosR, sinR) : null;
+      const sideNormal = aroundZ ? { x: sf.nx, y: sf.ny, z: normal.z } : normal;
+      const sideCos = aroundZ ? 1 : cosR, sideSin = aroundZ ? 0 : sinR;
+      const weights = getCubicBlendWeights(sideNormal, settings.mappingBlend ?? 0.0, settings.seamBandWidth ?? 0.35);
       // Flip U based on normal sign so opposite faces show correct (non-mirrored) text.
       // Derived from camera right = view_dir × up_dir for each face orientation (Z-up).
-      let yzU = (pos.y - min.y) / md;
-      if (normal.x < 0) yzU = -yzU;
-      let xzU = (pos.x - min.x) / md;
-      if (normal.y > 0) xzU = -xzU;
+      let yzU = (aroundZ ? sf.y : pos.y - min.y) / md;
+      if (sideNormal.x < 0) yzU = -yzU;
+      let xzU = (aroundZ ? sf.x : pos.x - min.x) / md;
+      if (sideNormal.y > 0) xzU = -xzU;
       let xyU = (pos.x - min.x) / md;
       if (normal.z < 0) xyU = -xyU;
-      const tYZ = applyTransform(yzU, (pos.z - min.z) / md, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
-      const tXZ = applyTransform(xzU, (pos.z - min.z) / md, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
+      const tYZ = applyTransform(yzU, (pos.z - min.z) / md, scaleU, scaleV, offsetU, offsetV, sideCos, sideSin);
+      const tXZ = applyTransform(xzU, (pos.z - min.z) / md, scaleU, scaleV, offsetU, offsetV, sideCos, sideSin);
       const tXY = applyTransform(xyU, (pos.y - min.y) / md, scaleU, scaleV, offsetU, offsetV, cosR, sinR);
 
       if (weights.x > 0.999) return tYZ;
@@ -314,9 +352,15 @@ export function computeUV(pos, normal, mode, settings, bounds) {
 
     case MODE_TRIPLANAR:
     default: {
+      // rotateAroundZ: side projections work in the Z-rotated frame and get
+      // no in-plane rotation (see isRotateAroundZ).
+      const aroundZ = isRotateAroundZ(settings);
+      const sf = aroundZ ? rotateSideFrame(pos.x, pos.y, normal.x, normal.y, bounds, cosR, sinR) : null;
+      const snx = aroundZ ? sf.nx : normal.x, sny = aroundZ ? sf.ny : normal.y;
+      const sideCos = aroundZ ? 1 : cosR, sideSin = aroundZ ? 0 : sinR;
       // World-space normal blending
-      const ax = Math.abs(normal.x);
-      const ay = Math.abs(normal.y);
+      const ax = Math.abs(snx);
+      const ay = Math.abs(sny);
       const az = Math.abs(normal.z);
       const ax2 = ax * ax, ay2 = ay * ay, az2 = az * az;
       const bx = ax2 * ax2;
@@ -328,10 +372,10 @@ export function computeUV(pos, normal, mode, settings, bounds) {
       const wz = bz / sum;
 
       // Flip U based on normal sign so opposite faces show correct (non-mirrored) text.
-      let yzU = (pos.y - min.y) / md;
-      if (normal.x < 0) yzU = -yzU;
-      let xzU = (pos.x - min.x) / md;
-      if (normal.y > 0) xzU = -xzU;
+      let yzU = (aroundZ ? sf.y : pos.y - min.y) / md;
+      if (snx < 0) yzU = -yzU;
+      let xzU = (aroundZ ? sf.x : pos.x - min.x) / md;
+      if (sny > 0) xzU = -xzU;
       let xyU = (pos.x - min.x) / md;
       if (normal.z < 0) xyU = -xyU;
       const uvXY = {
@@ -355,8 +399,8 @@ export function computeUV(pos, normal, mode, settings, bounds) {
         triplanar: true,
         samples: [
           { ...applyTransform(uvXY.u, uvXY.v, scaleU, scaleV, offsetU, offsetV, cosR, sinR), w: uvXY.w },
-          { ...applyTransform(uvXZ.u, uvXZ.v, scaleU, scaleV, offsetU, offsetV, cosR, sinR), w: uvXZ.w },
-          { ...applyTransform(uvYZ.u, uvYZ.v, scaleU, scaleV, offsetU, offsetV, cosR, sinR), w: uvYZ.w },
+          { ...applyTransform(uvXZ.u, uvXZ.v, scaleU, scaleV, offsetU, offsetV, sideCos, sideSin), w: uvXZ.w },
+          { ...applyTransform(uvYZ.u, uvYZ.v, scaleU, scaleV, offsetU, offsetV, sideCos, sideSin), w: uvYZ.w },
         ],
       };
     }

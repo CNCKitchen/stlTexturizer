@@ -96,6 +96,8 @@ export default {
   "labels.offsetU": "Offset U",
   "labels.offsetV": "Offset V",
   "labels.rotation": "Rotation",
+  "labels.rotateAroundZ": "Rotate side faces around Z ⓘ",
+  "tooltips.rotateAroundZ": "Triplanar / Cubic: turn the side projections around the vertical axis by the Rotation angle instead of rotating the texture inside each side face. Directional patterns like wood grain then run the same way on top and side faces.",
   "tooltips.proportionalScaling": "Proportional scaling (U = V)",
   "tooltips.proportionalScalingAria": "Proportional scaling (U = V)",
   "sections.displacement": "Texture Depth",

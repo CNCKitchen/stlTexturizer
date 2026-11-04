@@ -4,7 +4,7 @@
  */
 
 import * as THREE from 'three';
-import { scaleMmToRelative, isStampActive, stampFrame } from './mapping.js';
+import { scaleMmToRelative, isStampActive, stampFrame, isRotateAroundZ } from './mapping.js';
 
 // Mapping mode constants (must match index.html <option value="…">)
 export const MODE_PLANAR_XY   = 0;
@@ -53,6 +53,7 @@ const sharedGLSL = /* glsl */`
   uniform float     layerAmp[MAX_LAYERS];
   uniform vec2      layerOffset[MAX_LAYERS];
   uniform float     layerRot[MAX_LAYERS];
+  uniform int       layerRotZ[MAX_LAYERS];   // 1 = side projections turn around Z (mapping.js isRotateAroundZ)
   uniform vec2      layerCylCenter[MAX_LAYERS];
   uniform float     layerCylRadius[MAX_LAYERS];
   uniform float     layerBlend[MAX_LAYERS];
@@ -135,14 +136,20 @@ const sharedGLSL = /* glsl */`
     return h;
   }
 
-  // Sample layer l after applying scale + tiling (aspect-corrected)
-  float sampleMap(int l, vec2 rawUV) {
+  // Sample layer l after applying scale + tiling (aspect-corrected) and an
+  // in-plane rotation by angle (radians)
+  float sampleMapAngle(int l, vec2 rawUV, float angle) {
     vec2 uv = (rawUV * layerAspect[l]) / layerScale[l] + layerOffset[l];
-    float c = cos(layerRot[l]); float s = sin(layerRot[l]);
+    float c = cos(angle); float s = sin(angle);
     uv -= 0.5;
     uv  = vec2(c * uv.x - s * uv.y, s * uv.x + c * uv.y);
     uv += 0.5;
     return sampleTex(l, uv);
+  }
+
+  // Sample layer l with its own Rotation applied in-plane
+  float sampleMap(int l, vec2 rawUV) {
+    return sampleMapAngle(l, rawUV, layerRot[l]);
   }
 
   // Stamp ("place once") — mirrors stampUV in mapping.js. Returns the
@@ -239,6 +246,24 @@ const sharedGLSL = /* glsl */`
     return cover;
   }
 
+  // Side (XZ / YZ) projection frame for the box-style modes. With layerRotZ
+  // the side projections are turned around the vertical axis by the layer's
+  // Rotation instead of rotating the texture inside each plane — mirrors
+  // rotateSideFrame in mapping.js. Returns the bbox-relative XY position;
+  // the normals are rotated in place and sideAngle gets the in-plane angle.
+  vec2 sideFrame(int l, vec3 pos, inout vec3 projN, inout vec3 blendN, out float sideAngle) {
+    if (layerRotZ[l] == 0) {
+      sideAngle = layerRot[l];
+      return pos.xy - boundsMin.xy;
+    }
+    float c = cos(layerRot[l]); float s = sin(layerRot[l]);
+    mat2 R = mat2(c, s, -s, c);   // column-major: R * v = (c*x - s*y, s*x + c*y)
+    projN.xy  = R * projN.xy;
+    blendN.xy = R * blendN.xy;
+    sideAngle = 0.0;
+    return R * (pos.xy - boundsCenter.xy) + 0.5 * boundsSize.xy;
+  }
+
   // Compute layer l's raw height (0..1 grey) at a world-space point.
   // projN  = face-stable projection normal (for axis selection)
   // blendN = smooth / interpolated normal  (for blend weights)
@@ -316,31 +341,35 @@ const sharedGLSL = /* glsl */`
       return sampleMap(l, vec2(u_sph, v_sph));
 
     } else if (mappingMode == 5) {
+      float sideAngle;
+      vec2 sideXY = sideFrame(l, pos, projN, blendN, sideAngle);
       vec3 blend = abs(projN);
       blend = pow(blend, vec3(4.0));
       blend /= dot(blend, vec3(1.0)) + 1e-4;
       // Flip U based on normal sign so opposite faces show correct (non-mirrored) text.
-      float yzU = (pos.y - boundsMin.y) / md;
+      float yzU = sideXY.y / md;
       if (projN.x < 0.0) yzU = -yzU;
-      float xzU = (pos.x - boundsMin.x) / md;
+      float xzU = sideXY.x / md;
       if (projN.y > 0.0) xzU = -xzU;
       float xyU = (pos.x - boundsMin.x) / md;
       if (projN.z < 0.0) xyU = -xyU;
       float hXY = sampleMap(l, vec2(xyU, (pos.y - boundsMin.y) / md));
-      float hXZ = sampleMap(l, vec2(xzU, (pos.z - boundsMin.z) / md));
-      float hYZ = sampleMap(l, vec2(yzU, (pos.z - boundsMin.z) / md));
+      float hXZ = sampleMapAngle(l, vec2(xzU, (pos.z - boundsMin.z) / md), sideAngle);
+      float hYZ = sampleMapAngle(l, vec2(yzU, (pos.z - boundsMin.z) / md), sideAngle);
       return hXY * blend.z + hXZ * blend.y + hYZ * blend.x;
 
     } else {
+      float sideAngle;
+      vec2 sideXY = sideFrame(l, pos, projN, blendN, sideAngle);
       // Flip U based on normal sign so opposite faces show correct (non-mirrored) text.
-      float yzU = (pos.y - boundsMin.y) / md;
+      float yzU = sideXY.y / md;
       if (projN.x < 0.0) yzU = -yzU;
-      float xzU = (pos.x - boundsMin.x) / md;
+      float xzU = sideXY.x / md;
       if (projN.y > 0.0) xzU = -xzU;
       float xyU = (pos.x - boundsMin.x) / md;
       if (projN.z < 0.0) xyU = -xyU;
-      float hYZ = sampleMap(l, vec2(yzU, (pos.z - boundsMin.z) / md));
-      float hXZ = sampleMap(l, vec2(xzU, (pos.z - boundsMin.z) / md));
+      float hYZ = sampleMapAngle(l, vec2(yzU, (pos.z - boundsMin.z) / md), sideAngle);
+      float hXZ = sampleMapAngle(l, vec2(xzU, (pos.z - boundsMin.z) / md), sideAngle);
       float hXY = sampleMap(l, vec2(xyU, (pos.y - boundsMin.y) / md));
       vec3 bN = blendN;
       vec3 absFaceN = abs(projN);
@@ -688,6 +717,7 @@ export function updateMaterial(material, layers, settings) {
     u.layerOffset.value[l * 2]     = L ? (L.offsetU ?? 0) : 0;
     u.layerOffset.value[l * 2 + 1] = L ? (L.offsetV ?? 0) : 0;
     u.layerRot.value[l]            = L ? (L.rotation ?? 0) * Math.PI / 180 : 0;
+    u.layerRotZ.value[l]           = L && isRotateAroundZ(L) ? 1 : 0;
     u.layerCylCenter.value[l * 2]     = L ? (L.cylinderCenterX ?? b.center.x) : 0;
     u.layerCylCenter.value[l * 2 + 1] = L ? (L.cylinderCenterY ?? b.center.y) : 0;
     u.layerCylRadius.value[l]  = L ? (L.cylinderRadius ?? Math.max(b.size.x, b.size.y) * 0.5) : 1;
@@ -750,6 +780,7 @@ function buildUniforms() {
     layerAmp:       { value: new Float32Array(MAX_LAYERS) },
     layerOffset:    { value: new Float32Array(MAX_LAYERS * 2) },
     layerRot:       { value: new Float32Array(MAX_LAYERS) },
+    layerRotZ:      { value: new Int32Array(MAX_LAYERS) },
     layerCylCenter: { value: new Float32Array(MAX_LAYERS * 2) },
     layerCylRadius: { value: new Float32Array(MAX_LAYERS) },
     layerBlend:     { value: new Float32Array(MAX_LAYERS) },

@@ -4,7 +4,8 @@
  */
 
 import { THREE } from './threeCompat.js';
-import { computeUV, getDominantCubicAxis, getCubicBlendWeights, scaleMmToRelative, isStampActive, stampFrame, stampUV } from './mapping.js';
+import { computeUV, getDominantCubicAxis, getCubicBlendWeights, scaleMmToRelative, isStampActive, stampFrame, stampUV,
+         isRotateAroundZ, rotateSideFrame } from './mapping.js';
 import { QuantizedPointMap } from './meshIndex.js';
 
 // ── Sharp-crease handling (see _findCreases / _creaseMoves) ─────────────────
@@ -177,6 +178,7 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
     l._zoneAreaX = new Float64Array(uniqueCount);
     l._zoneAreaY = new Float64Array(uniqueCount);
     l._zoneAreaZ = new Float64Array(uniqueCount);
+    l._sideNrm = _sideNormalFn(l.settings);
   }
 
   // maskedFrac: [maskedArea, totalArea] per unique vertex (replaces maskedFracMap)
@@ -255,7 +257,8 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
       for (const l of cubicLayers) {
         const cubicBlend = l.settings.mappingBlend ?? 0;
         const cubicBandWidth = l.settings.seamBandWidth ?? 0.35;
-        const w = getCubicBlendWeights(unitFaceNrm, cubicBlend, cubicBandWidth);
+        const w = getCubicBlendWeights(l._sideNrm(unitFaceNrm.x, unitFaceNrm.y, unitFaceNrm.z),
+          cubicBlend, cubicBandWidth);
         l._czX = w.x * faceArea;
         l._czY = w.y * faceArea;
         l._czZ = w.z * faceArea;
@@ -491,6 +494,9 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
     const cubicGrey = (wX, wY, wZ, fx, fy, fz) => _cubicGrey(
       imageData.data, imgWidth, imgHeight, tmpPos, wX, wY, wZ, fx, fy, fz,
       bounds, md, relScale, lset, rotRad, aspectU, aspectV);
+    // Normal used for the cubic blend weights: the Z-rotated one when the
+    // layer rotates its side projections around Z (identity otherwise).
+    const sideNrm = _sideNormalFn(lset);
 
     for (let i = 0; i < count; i++) {
       const vid = vertexId[i];
@@ -514,7 +520,7 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
             groupCov[k] = st.cover;
           } else if (lset.mappingMode === 6 /* MODE_CUBIC */) {
             const w = getCubicBlendWeights(
-              { x: blendNrmX[node], y: blendNrmY[node], z: blendNrmZ[node] }, cubicBlend, cubicBandWidth);
+              sideNrm(blendNrmX[node], blendNrmY[node], blendNrmZ[node]), cubicBlend, cubicBandWidth);
             groupGrey[k] = cubicGrey(w.x, w.y, w.z, creases.nrmX[k], creases.nrmY[k], creases.nrmZ[k]);
           } else {
             tmpNrm.set(blendNrmX[node], blendNrmY[node], blendNrmZ[node]);
@@ -551,7 +557,7 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
       if (lset.mappingMode === 6 /* MODE_CUBIC */) {
         let wX = 0, wY = 0, wZ = 0;
         if (smoothNrmReliability[vid] > 0.5) {
-          const sn = { x: blendNrmX[vid], y: blendNrmY[vid], z: blendNrmZ[vid] };
+          const sn = sideNrm(blendNrmX[vid], blendNrmY[vid], blendNrmZ[vid]);
           const w = getCubicBlendWeights(sn, cubicBlend, cubicBandWidth);
           wX = w.x; wY = w.y; wZ = w.z;
         } else {
@@ -989,16 +995,23 @@ function _creaseMoves(cr, groupAcc, snX, snY, snZ) {
  *  sign of (fx, fy, fz) picks each projection's mirror side. */
 function _cubicGrey(data, w, h, pos, wX, wY, wZ, fx, fy, fz, bounds, md, relScale, settings, rotRad, aspectU, aspectV) {
   let grey = 0;
+  // Side projections: either in-plane rotation (default) or the Z-rotated
+  // frame with no in-plane rotation (rotateAroundZ) — see mapping.js.
+  let sideX = pos.x - bounds.min.x, sideY = pos.y - bounds.min.y, sideFx = fx, sideFy = fy, sideRot = rotRad;
+  if ((wX > 0 || wY > 0) && isRotateAroundZ(settings)) {
+    const sf = rotateSideFrame(pos.x, pos.y, fx, fy, bounds, Math.cos(rotRad), Math.sin(rotRad));
+    sideX = sf.x; sideY = sf.y; sideFx = sf.nx; sideFy = sf.ny; sideRot = 0;
+  }
   if (wX > 0) { // X-dominant → YZ projection
-    let rawU = (pos.y-bounds.min.y)/md;
-    if (fx < 0) rawU = -rawU;
-    const uv = _cubicUV(rawU, (pos.z-bounds.min.z)/md, relScale, settings, rotRad, aspectU, aspectV);
+    let rawU = sideY/md;
+    if (sideFx < 0) rawU = -rawU;
+    const uv = _cubicUV(rawU, (pos.z-bounds.min.z)/md, relScale, settings, sideRot, aspectU, aspectV);
     grey += sampleBilinear(data, w, h, uv.u, uv.v) * wX;
   }
   if (wY > 0) { // Y-dominant → XZ projection
-    let rawU = (pos.x-bounds.min.x)/md;
-    if (fy > 0) rawU = -rawU;
-    const uv = _cubicUV(rawU, (pos.z-bounds.min.z)/md, relScale, settings, rotRad, aspectU, aspectV);
+    let rawU = sideX/md;
+    if (sideFy > 0) rawU = -rawU;
+    const uv = _cubicUV(rawU, (pos.z-bounds.min.z)/md, relScale, settings, sideRot, aspectU, aspectV);
     grey += sampleBilinear(data, w, h, uv.u, uv.v) * wY;
   }
   if (wZ > 0) { // Z-dominant → XY projection
@@ -1020,6 +1033,18 @@ function _stampGrey(data, w, h, st) {
   return sampleBilinear(data, w, h,
     Math.min(Math.max(st.u, hu), 1 - hu),
     Math.min(Math.max(st.v, hv), 1 - hv));
+}
+
+/**
+ * Normal → normal used for a cubic layer's blend weights: rotated about Z by
+ * the layer's Rotation when it rotates its side projections around Z (so the
+ * projection zones turn with the texture), the plain normal otherwise.
+ */
+function _sideNormalFn(settings) {
+  if (!isRotateAroundZ(settings)) return (x, y, z) => ({ x, y, z });
+  const r = (settings.rotation ?? 0) * Math.PI / 180;
+  const c = Math.cos(r), s = Math.sin(r);
+  return (x, y, z) => ({ x: c * x - s * y, y: s * x + c * y, z });
 }
 
 /** Every other mode: computeUV (mapping.js) with `nrm` as the blend normal. */
