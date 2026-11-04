@@ -279,6 +279,22 @@
          the "Latest" badge follows the first entry automatically. -->
     <ol class="timeline" id="timeline">
 
+      <li class="release" id="v1.5.2">
+        <div class="release-meta">
+          <a class="version" href="#v1.5.2">v1.5.2</a>
+          <time datetime="2026-11-04">4 Nov 2026</time>
+        </div>
+        <h2>Textures up to the edge, Outline wrap</h2>
+        <ul>
+          <li>Where a textured face meets an untextured one on a sharp edge, the texture now keeps its full height right up to the edge instead of sloping down to it. The untextured face grows to meet it and stays flat. This also applies where walls meet the untextured bottom.</li>
+          <li><strong>Outline wrap</strong> projection: wraps the texture along the part&rsquo;s outline around Z, so a pattern keeps its size around the corners of box-like parts and closes without a seam. Thanks to Michail Yasonik.</li>
+          <li><strong>Rotate side faces around Z</strong> (Triplanar and Cubic): the Rotation turns the side projections around the vertical axis, so a directional pattern like wood grain runs the same way on top and side faces. Thanks to Vladyslav Kovalenko.</li>
+          <li>An output resolution you set yourself now carries over when you load the next model. Thanks to Vladyslav Kovalenko.</li>
+          <li>3Dconnexion SpaceMouse: the model now follows the cap on every axis (left/right pan and tilt were reversed), and a SpaceMouse button in the bottom bar sets the speed and reverses single axes.</li>
+          <li>Czech translation, thanks to Peter K.</li>
+        </ul>
+      </li>
+
       <li class="release" id="v1.5.1">
         <div class="release-meta">
           <a class="version" href="#v1.5.1">v1.5.1</a>
