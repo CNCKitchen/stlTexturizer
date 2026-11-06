@@ -31,6 +31,7 @@ import { buildAdjacency, bucketFill,
          buildExclusionOverlayGeo, buildFaceWeights } from './exclusion.js';
 import { buildSoftExclusion, softPaintedFaces } from './softMask.js';
 import { PaintTree } from './paintTree.js';
+import { planPatternEntry, planPatternPick, patternStrokeTargets } from './patternBrush.js';
 import { runFastDiagnostics, runExpensiveDiagnostics,
          getEdgePositions } from './meshValidation.js';
 import { t, tHtml, initLang, setLang, getLang, applyTranslations, TRANSLATIONS } from './i18n.js';
@@ -93,6 +94,10 @@ let bucketThreshold    = 20;
 let isPainting         = false;
 let selectionMode      = false;       // false = exclude painted faces; true = include only painted faces
 let maskModeChosen     = false;       // false until the user (or a loaded/seeded mask) engages surface masking — neither mode button is highlighted
+// "Paint pattern" mode (js/patternBrush.js), null while off:
+// { eraser, entered: what entering changed ('convert' | 'layer' | null), layerId, restore3D }
+let patternBrush       = null;
+let _patternHold       = 0;           // > 0 while a layer change drops the tool on the way: the mode survives it
 let _lastHoverTriIdx   = -1;          // last triangle index used for hover preview
 let _lastHoverKey      = '';          // Standard circle brush: erase flag + faces of the last hover preview
 let placeOnFaceActive  = false;       // true while "Place on Face" mode is active
@@ -474,6 +479,12 @@ const exclHardnessRow       = document.getElementById('excl-hardness-row');
 const exclBrushHardnessSlider = document.getElementById('excl-brush-hardness-slider');
 const exclBrushHardnessVal    = document.getElementById('excl-brush-hardness-val');
 const exclThresholdRow    = document.getElementById('excl-threshold-row');
+const patternBrushBtn     = document.getElementById('pattern-brush-btn');
+const patternBar          = document.getElementById('pattern-bar');
+const patternBarSliders   = document.getElementById('pattern-bar-sliders');
+const patternPaintBtn     = document.getElementById('pattern-paint-btn');
+const patternEraseBtn     = document.getElementById('pattern-erase-btn');
+const patternDoneBtn      = document.getElementById('pattern-done-btn');
 const exclThresholdSlider = document.getElementById('excl-threshold-slider');
 const exclThresholdVal    = document.getElementById('excl-threshold-val');
 const exclCount           = document.getElementById('excl-count');
@@ -1184,8 +1195,8 @@ PRESETS = IMAGE_PRESETS.map(p => ({ name: p.name, defaultScale: p.defaultScale }
 // Picks can come from the keyboard (gallery arrow keys), which the pointerup undo hook never sees.
 // Capture once the texture has loaded: the snapshot's activeMapName follows activeMapEntry.
 const gallery = initTextureGallery({
-  onSelect: (idx) => selectPreset(idx).then(_scheduleUndoCapture),
-  onSelectCustom: (id) => selectCustomTexture(id).then(_scheduleUndoCapture),
+  onSelect: (idx) => _pickMap(() => selectPreset(idx), { name: PRESETS[idx]?.name }),
+  onSelectCustom: (id) => _pickMap(() => selectCustomTexture(id), { customId: id }),
   setTurntable,
 });
 initSidebarToggle();
@@ -1243,6 +1254,12 @@ function resetTextureSmoothing() {
 }
 
 let _selectGeneration = 0;   // debounce rapid preset clicks
+
+/** A texture picked in the gallery: `apply` loads it, unless the pattern brush handled the pick itself. */
+async function _pickMap(apply, key) {
+  if (_preparePatternPick(key)) await apply();
+  _scheduleUndoCapture();
+}
 
 /** Un-highlight every preset (a custom map became the active map). */
 function _clearPresetActive() {
@@ -1381,7 +1398,8 @@ function _hideCustomMapThumb() {
 
 /** Promote the kept-aside custom map back to the active map. No defaults reset. */
 function _activateCustomMap() {
-  if (_lastCustomMap) _useCustomMap(_lastCustomMap, false);
+  if (!_lastCustomMap) return;
+  if (_preparePatternPick({ name: _lastCustomMap.name, customId: _lastCustomMap.customId })) _useCustomMap(_lastCustomMap, false);
 }
 
 if (customMapSwatch) {
@@ -1574,6 +1592,11 @@ function wireEvents() {
     try {
       const entry = await loadCustomTexture(file);
       entry.isCustom = true;
+      if (!_preparePatternPick(null)) {
+        entry.texture.dispose();
+        textureInput.value = '';
+        return;
+      }
       _useCustomMap(entry, true);
       // Keep the original in the gallery's "Your textures" (best effort — the map works either way).
       gallery.rememberUpload(file, entry.fullCanvas).then((id) => {
@@ -1893,6 +1916,15 @@ function wireEvents() {
   // ── Texture layers ──
   if (layerAddBtn) layerAddBtn.addEventListener('click', _addLayer);
 
+  // ── Pattern brush ──
+  patternBrushBtn.addEventListener('click', () => {
+    if (patternBrush) _exitPatternBrush({ restore3D: true });
+    else _enterPatternBrush();
+  });
+  patternDoneBtn.addEventListener('click', () => _exitPatternBrush({ restore3D: true }));
+  patternPaintBtn.addEventListener('click', () => _setPatternEraser(false));
+  patternEraseBtn.addEventListener('click', () => _setPatternEraser(true));
+
   // ── Wireframe ──
   wireframeToggle.addEventListener('change', () => setWireframe(wireframeToggle.checked));
 
@@ -1923,10 +1955,13 @@ function wireEvents() {
 
   // Shift key toggles erase mode
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Shift' && exclusionTool) eraseMode = true;
+    if (e.key === 'Shift' && exclusionTool) { eraseMode = true; _syncPatternBar(); }
+    // Alt navigates while the brush is out; a lone tap must not open the browser's menu.
+    if (e.key === 'Alt' && patternBrush) e.preventDefault();
   });
   document.addEventListener('keyup', (e) => {
-    if (e.key === 'Shift') eraseMode = false;
+    if (e.key === 'Shift') { eraseMode = false; _syncPatternBar(); }
+    if (e.key === 'Alt' && patternBrush) e.preventDefault();
   });
 
   exclBrushSingleBtn.addEventListener('click', () => {
@@ -2043,6 +2078,7 @@ function wireEvents() {
     setSelectionMode(false);   // early-returns if already exclude…
     updateMaskModeButtons();   // …so refresh the highlight explicitly
     if (!exclusionTool) setExclusionTool(tool || 'bucket');
+    updatePreview();           // the tint of unpainted surfaces follows the mode
   });
   exclModeIncludeBtn.addEventListener('click', () => {
     const tool = exclusionTool;
@@ -2050,6 +2086,7 @@ function wireEvents() {
     setSelectionMode(true);
     updateMaskModeButtons();
     if (!exclusionTool) setExclusionTool(tool || 'bucket');
+    updatePreview();
   });
 
   // ── Canvas mouse events for exclusion painting ────────────────────────────
@@ -2094,6 +2131,9 @@ function wireEvents() {
     }
 
     if (!exclusionTool || !paintTree) return;
+
+    // A model filling the view leaves no empty spot to orbit from: Alt+drag always orbits.
+    if (patternBrush && e.altKey) return;
 
     if (exclusionTool === 'bucket') {
       e.preventDefault();
@@ -2187,6 +2227,19 @@ function wireEvents() {
     _scaleStampBy(Math.exp(-dy * 0.0015));
   }, { capture: true, passive: false });
 
+  // Alt+wheel sizes the pattern brush. Captured like the stamp's wheel above, so it doesn't zoom.
+  canvas.parentElement.addEventListener('wheel', (e) => {
+    if (!patternBrush || !e.altKey || e.target !== canvas) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const diam = brushRadius * 2;
+    // At least one slider step, or the small sizes would round back to where they were.
+    const next = e.deltaY < 0 ? Math.max(diam + 0.2, diam * 1.15) : Math.min(diam - 0.2, diam / 1.15);
+    exclBrushRadiusSlider.value = next;
+    exclBrushRadiusSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    updateBrushCursor(e);
+  }, { capture: true, passive: false });
+
   // A stroke belongs to the left button: tapping another one mustn't end it,
   // or the camera would take over the rest of the drag.
   document.addEventListener('mouseup', (e) => {
@@ -2210,6 +2263,7 @@ function wireEvents() {
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (patternBrush) _exitPatternBrush({ restore3D: true });
       if (rotateActive) toggleRotateMode(false);
       if (placeOnFaceActive) togglePlaceOnFace(false);
       if (stampPlaceActive || _stampWheelArmed) toggleStampPlace(false);
@@ -2313,6 +2367,8 @@ function setExclusionTool(tool) {
     }
     if (paintTree) paintTree.compactIfNeeded();
   }
+  // Anything that takes the brush away ends the mode, except a layer change.
+  if (patternBrush && !_patternHold && exclusionTool !== 'brush') _exitPatternBrush();
 }
 
 const _ndcResult = new THREE.Vector2();
@@ -2590,19 +2646,23 @@ function _brushEdgeLimit() {
 // segment from there to hit.point, so fast strokes stay continuous.
 function _paintSingleHit(hit, mesh, strokeFrom = null) {
   if (!paintTree) return;
-  const slot = _activeSlot();
   const seedFace = _baseFaceOf(hit.faceIndex, mesh.geometry);
-  if (brushIsRadius) {
-    paintTree.paintStroke({
-      slot, seedFace,
-      from: strokeFrom || hit.point, to: hit.point,
-      radius: brushRadius, view: _viewDirFor(hit.point),
-      hardness: brushHardness, erase: eraseMode,
-      edgeLimit: _brushEdgeLimit(), whole: !brushPrecision,
-    });
-  } else {
-    paintTree.paintFaces(slot, [seedFace], eraseMode);
+  const targets = patternBrush ? _patternTargets() : [{ slot: _activeSlot(), erase: eraseMode }];
+  for (const { slot, erase } of targets) {
+    if (brushIsRadius) {
+      paintTree.paintStroke({
+        slot, seedFace,
+        from: strokeFrom || hit.point, to: hit.point,
+        radius: brushRadius, view: _viewDirFor(hit.point),
+        hardness: brushHardness, erase,
+        edgeLimit: _brushEdgeLimit(), whole: !brushPrecision,
+      });
+    } else {
+      paintTree.paintFaces(slot, [seedFace], erase);
+    }
   }
+  // _layerPaintOn trusts inactive layers until the structure changes.
+  if (targets.length > 1) _paintCoverCache = new Map();
 }
 
 /** Legacy project mask (face list + soft corners on the base mesh) → tree paint. */
@@ -2678,7 +2738,9 @@ function _mapEntryInUse(entry) {
  * Make layers[idx] the active layer: store the live state, then load the
  * other layer's settings, map and mask into the sidebar.
  */
-function _activateLayer(idx, { commitUndo = true } = {}) {
+function _activateLayer(idx, opts) { _holdPatternBrush(() => _activateLayerNow(idx, opts)); }
+
+function _activateLayerNow(idx, { commitUndo = true } = {}) {
   if (idx === activeLayer || idx < 0 || idx >= layers.length) return;
   _flushUndoCapture();
   if (exclusionTool) setExclusionTool(null);
@@ -2725,7 +2787,9 @@ function _applyLayerMap(L) {
 }
 
 /** Add a layer above the current ones (same texture and settings), in Include Only mode with nothing selected. */
-function _addLayer() {
+function _addLayer() { _holdPatternBrush(_addLayerNow); }
+
+function _addLayerNow() {
   if (layers.length >= MAX_LAYERS) return;
   _flushUndoCapture();
   if (exclusionTool) setExclusionTool(null);
@@ -2739,14 +2803,16 @@ function _addLayer() {
   // first click on a face gives the layer its surface.
   maskModeChosen = true;
   updateMaskModeButtons();
-  if (!exclusionTool) setExclusionTool('bucket');
+  if (!exclusionTool && !patternBrush) setExclusionTool('bucket');
   _renderLayerStrip();
   updatePreview();
   _autoSaveSettings();
   _commitUndoCapture();
 }
 
-function _removeLayer(idx) {
+function _removeLayer(idx) { _holdPatternBrush(() => _removeLayerNow(idx)); }
+
+function _removeLayerNow(idx) {
   if (layers.length <= 1 || idx < 0 || idx >= layers.length) return;
   _flushUndoCapture();
   if (idx === activeLayer) {
@@ -2962,6 +3028,148 @@ function _mapLabel(entry) {
 /** True when the pipeline has something to texture with. */
 function _hasTexturedLayer() {
   return layers.some((L, i) => L.visible && (i === activeLayer ? !!activeMapEntry : !!L.mapEntry));
+}
+
+// ── Pattern brush ────────────────────────────────────────────────────────────
+// Paints the selected texture onto the model. The paint is an Include Only
+// layer like any other; js/patternBrush.js decides what to do with the layers,
+// the brush itself is the mask tool with its size and hardness rows moved into
+// the viewport bar (one set of controls, nothing to keep in sync).
+
+/** The eraser button flips the meaning of Shift, so either way Shift gives the other tool. */
+function _patternErasing() { return !!patternBrush && eraseMode !== patternBrush.eraser; }
+
+function _setPatternEraser(on) {
+  if (!patternBrush) return;
+  patternBrush.eraser = on;
+  _syncPatternBar();
+}
+
+function _syncPatternBar() {
+  const on = !!patternBrush;
+  const erasing = _patternErasing();
+  patternBrushBtn.classList.toggle('active', on);
+  patternBrushBtn.setAttribute('aria-pressed', String(on));
+  patternBar.classList.toggle('hidden', !on);
+  patternPaintBtn.classList.toggle('active', on && !erasing);
+  patternEraseBtn.classList.toggle('active', erasing);
+  patternPaintBtn.setAttribute('aria-pressed', String(on && !erasing));
+  patternEraseBtn.setAttribute('aria-pressed', String(erasing));
+  brushCursorEl.classList.toggle('erase', erasing);
+}
+
+function _patternTargets() {
+  return patternStrokeTargets({
+    layers: layers.map((L, i) => ({
+      slot: _slotOf(i), visible: L.visible, blendAdd: L.blendAdd,
+      includeOnly: i === activeLayer ? selectionMode : !!L.includeOnly,
+    })),
+    activeIdx: activeLayer,
+    erase: _patternErasing(),
+  });
+}
+
+/** Run a layer change that passes through "no tool" without ending the mode. */
+function _holdPatternBrush(fn) {
+  _patternHold++;
+  try {
+    return fn();
+  } finally {
+    if (--_patternHold === 0) _resumePatternBrush();
+  }
+}
+
+/** After a layer change: back to the brush, or out if the layer can't take a pattern (undo past the start). */
+function _resumePatternBrush() {
+  if (!patternBrush) return;
+  if (!selectionMode) { _exitPatternBrush({ revert: false }); return; }
+  if (exclusionTool !== 'brush') setExclusionTool('brush');
+  if (!layers[activeLayer].visible) _setLayerVisible(activeLayer, true);
+  _syncPatternBar();
+}
+
+function _enterPatternBrush() {
+  if (patternBrush || !currentGeometry || !paintTree) return;
+  if (!activeMapEntry) { alert(t('pattern.noTexture')); return; }
+  _storeActiveLayer();
+  const plan = planPatternEntry({
+    layers, activeIdx: activeLayer,
+    activeHasPaint: paintTree.hasPaint(_activeSlot()),
+    maxLayers: MAX_LAYERS,
+  });
+  if (plan.action === 'full') { alert(t('pattern.noRoom', { n: MAX_LAYERS })); return; }
+
+  _flushUndoCapture();
+  patternBrush = { eraser: false, entered: null, layerId: null, restore3D: settings.useDisplacement };
+  _holdPatternBrush(() => {
+    if (plan.action === 'convert') {
+      setSelectionMode(true, { clear: false });
+      patternBrush.entered = 'convert';
+    } else if (plan.action === 'addLayer') {
+      _addLayer();
+      patternBrush.entered = 'layer';
+      patternBrush.layerId = layers[activeLayer].id;
+    } else if (plan.action === 'activate') {
+      _activateLayer(plan.idx);
+    }
+    if (exclusionTool) setExclusionTool(null);
+    // The pattern follows the stroke, not the triangles: circle brush, Precision.
+    exclBrushRadiusBtn.click();
+    exclBrushPrecisionBtn.click();
+    patternBarSliders.append(exclRadiusRow, exclHardnessRow);
+  });
+  updatePreview();
+  _scheduleUndoCapture();
+}
+
+/**
+ * Leave the mode. Trying it out and painting nothing leaves the model as it
+ * was (`revert`); `restore3D` brings back the 3D preview the brush switched off.
+ */
+function _exitPatternBrush({ revert = true, restore3D = false } = {}) {
+  const b = patternBrush;
+  if (!b) return;
+  patternBrush = null;   // first: the steps below drop the tool, which ends the mode
+  exclThresholdRow.before(exclRadiusRow, exclHardnessRow);
+  _syncPatternBar();
+  if (exclusionTool === 'brush') setExclusionTool(null);
+
+  if (revert && paintTree && selectionMode) {
+    if (b.entered === 'convert' && !paintTree.hasPaint(_activeSlot())) {
+      setSelectionMode(false, { clear: false });
+      maskModeChosen = false;
+      updateMaskModeButtons();
+    } else if (b.entered === 'layer') {
+      const idx = layers.findIndex(L => L.id === b.layerId);
+      if (idx >= 0 && !paintTree.hasPaint(_slotOf(idx))) _removeLayer(idx);
+    }
+  }
+  updatePreview();
+  _scheduleUndoCapture();
+  if (restore3D && b.restore3D && !settings.useDisplacement) {
+    dispPreviewToggle.checked = true;
+    toggleDisplacementPreview(true);
+  }
+}
+
+/**
+ * A texture was picked. While the brush is out the pick loads the brush, it
+ * doesn't swap the pattern already painted (js/patternBrush.js planPatternPick).
+ * Returns true when the caller should go on and apply the map to the active layer.
+ */
+function _preparePatternPick(key) {
+  if (!patternBrush || !paintTree) return true;
+  _storeActiveLayer();
+  const plan = planPatternPick({
+    layers, activeIdx: activeLayer,
+    activeHasPaint: paintTree.hasPaint(_activeSlot()),
+    key, maxLayers: MAX_LAYERS,
+  });
+  if (plan.action === 'keep') return false;
+  if (plan.action === 'activate') { _activateLayer(plan.idx); return false; }
+  if (plan.action === 'full') { alert(t('pattern.noRoom', { n: MAX_LAYERS })); return false; }
+  if (plan.action === 'addLayer') _addLayer();
+  return true;
 }
 
 // ── Texture layers: strip UI ─────────────────────────────────────────────────
@@ -3703,6 +3911,7 @@ function handlePlaceOnFaceClick(e) {
   dispPreviewToggle.checked = false;
 
   // Deactivate tools but keep the paint (face indices are stable after rotation)
+  _exitPatternBrush({ revert: false });
   exclusionTool     = null;
   eraseMode         = false;
   isPainting        = false;
@@ -4161,6 +4370,7 @@ function loadDefaultCube() {
   dispPreviewToggle.checked = false;
 
   // Reset the paint (every layer's strokes indexed the previous mesh)
+  _exitPatternBrush({ revert: false });
   _dropPaintGeometry();
   paintTree         = null;
   exclusionTool     = null;
@@ -4386,6 +4596,7 @@ async function handleModelFile(file, stepSettings = null) {
     clearDiagHighlight();
 
     // Reset the paint for the new mesh (every layer's strokes indexed the previous one)
+    _exitPatternBrush({ revert: false });
     _dropPaintGeometry();
     paintTree         = null;
     exclusionTool     = null;
@@ -5266,7 +5477,8 @@ function _materialSettings(preview) {
     boundaryFalloffCurve: settings.boundaryFalloffCurve,
     // With several layers, surfaces the active layer does not cover are
     // shown in neutral grey instead of the single-layer orange/dark grey.
-    layeredTint: preview.count > 1,
+    // Include Only too: there grey is the bare model, not a warning.
+    layeredTint: preview.count > 1 || selectionMode,
     // Outline wrap: the shader maps it as cylindrical until the mesh on screen has its places.
     outlineWrapReady: _owReadyOn(_displayGeometry()),
     outlineWrapMean:  _owWrap ? _owWrap.meanLength : 1,
@@ -6265,6 +6477,7 @@ function adoptBakedGeometry(geometry, bounds, opts = {}) {
   // faces"). If the user was in include-only mode pre-bake, that mode would
   // invert the meaning to "only texture these faces" — exactly backwards. So
   // force exclude mode (the old paint is gone with the old mesh anyway).
+  _exitPatternBrush({ revert: false });
   _dropPaintGeometry();
   paintTree = null;
   if (selectionMode) setSelectionMode(false, { clear: false });
@@ -7339,7 +7552,9 @@ function _clearUndoStacks() {
   _updateUndoButtons();
 }
 
-function _applyUndoSnapshot(snap) {
+function _applyUndoSnapshot(snap) { _holdPatternBrush(() => _applyUndoSnapshotNow(snap)); }
+
+function _applyUndoSnapshotNow(snap) {
   _undoApplyDepth++;
   try {
     layers = snap.layers.map(l => ({

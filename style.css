@@ -217,6 +217,12 @@ main {
   border-radius: 50%;
 }
 
+/* Pattern brush eraser */
+#brush-cursor.erase {
+  border-style: dashed;
+  border-color: #ff9d8a;
+}
+
 #viewport-section {
   flex: 1 1 0;
   min-width: 0;
@@ -934,6 +940,91 @@ main.sidebar-collapsed .gallery-panel { display: none; }
 }
 
 .layer-add-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* ── Pattern brush ───────────────────────────────────────────────────── */
+.pattern-brush-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.pattern-brush-btn:hover { background: var(--border); }
+
+.pattern-brush-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.pattern-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  z-index: 23;
+}
+
+.pattern-bar.hidden { display: none; }
+
+.pattern-bar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.pattern-bar-sliders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.pattern-bar-sliders .form-row {
+  width: 170px;
+  margin: 0;
+}
+
+.pattern-bar-sliders .form-row label { flex: 0 0 auto; width: auto; }
+
+.pattern-done-btn {
+  padding: 5px 14px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pattern-done-btn:hover { background: var(--accent-hover); }
+
+.pattern-bar-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
 
 /* ── Texture gallery side panel ──────────────────────────────────────── */
 /* Non-modal: it takes the settings panel's slot (and width, see #settings-panel), so the viewport
