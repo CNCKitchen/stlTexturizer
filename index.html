@@ -120,6 +120,18 @@
         </div>
         <canvas id="viewport" role="img" aria-label="3D model preview"></canvas>
         <div id="brush-cursor"></div>
+        <!-- Pattern brush bar: the size and hardness rows move in here while it's open (js/main.js _enterPatternBrush) -->
+        <div id="pattern-bar" class="pattern-bar hidden" role="toolbar" data-i18n-aria-label="pattern.paint" aria-label="Paint pattern">
+          <div class="pattern-bar-row">
+            <div class="excl-seg" role="group">
+              <button id="pattern-paint-btn" class="excl-seg-btn" type="button" aria-pressed="false" data-i18n="pattern.brush">Paint</button>
+              <button id="pattern-erase-btn" class="excl-seg-btn" type="button" aria-pressed="false" data-i18n="pattern.eraser">Erase</button>
+            </div>
+            <div id="pattern-bar-sliders" class="pattern-bar-sliders"></div>
+            <button id="pattern-done-btn" class="pattern-done-btn" type="button" data-i18n="pattern.done">Done</button>
+          </div>
+          <p class="pattern-bar-hint" data-i18n="pattern.hint">Drag on the model to paint · pick a texture to change the pattern · Shift erases · Alt+drag rotates · Alt+wheel sizes the brush</p>
+        </div>
         <div id="mesh-diagnostics" class="mesh-diagnostics hidden">
           <button id="mesh-diag-dismiss" class="mesh-diag-dismiss" aria-label="Dismiss">&times;</button>
           <div id="mesh-diag-fast" class="mesh-diag-results"></div>
@@ -274,6 +286,14 @@
             <span data-i18n="layers.add">Add layer</span>
           </button>
         </div>
+
+        <!-- Pattern brush: paint the selected texture onto the model (js/patternBrush.js) -->
+        <button id="pattern-brush-btn" class="pattern-brush-btn" type="button" aria-pressed="false"
+          data-i18n-title="pattern.paintTitle"
+          title="Paint the selected texture onto the model with a brush. Pick another texture at any time to paint with it next to the first.">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
+          <span data-i18n="pattern.paint">Paint pattern</span>
+        </button>
 
         <!-- Favourites grid (4 wide, grows by rows), filled by js/textureGallery.js -->
         <div id="preset-grid" class="preset-grid"></div>
