@@ -202,6 +202,9 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
   //   _softMax  Float32Array|null  max exclusion amount over a position's copies
   //   _hardPos  Uint8Array|null    position belongs to a face the layer's hard
   //                                mask excludes (pins the layer's boundary)
+  //   _texPos   Uint8Array|null    position belongs to a face the layer textures
+  //                                (only with a Smooth Mask: a pinned position
+  //                                that also has one lies ON the mask boundary)
   for (const l of layers) {
     if (l.legacy) {
       const seAttr = geometry.attributes.softExclude || null;
@@ -216,6 +219,7 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
     // The same per crease group, so a sharp edge between a face the layer
     // textures and one it leaves alone can hold only the latter at 0.
     l._hardGroup = l._hardPos && creases ? new Uint8Array(creases.groupCount) : null;
+    l._texPos = (l.settings.boundaryFalloff ?? 0) > 0 ? new Uint8Array(uniqueCount) : null;
   }
 
   for (let t = 0; t < count; t += 3) {
@@ -284,6 +288,7 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
           if (se > l._softMax[vid]) l._softMax[vid] = se;
         }
         if (l._hardPos && l.hardFaces[t / 3]) l._hardPos[vid] = 1;
+        if (l._texPos && !userExcluded && !(l.hardFaces && l.hardFaces[t / 3])) l._texPos[vid] = 1;
       }
       // Use the buffer normal (from subdivision) weighted by face area.
       // The subdivision pipeline splits indexed vertices at sharp dihedral
@@ -473,8 +478,16 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
     const hardPos = layer._hardPos;
     const isPinned = (id) => (excludedPos && excludedPos[id] === 1) || (hardPos && hardPos[id] === 1);
 
+    // The Smooth Mask ramps up from the mask boundary: positions where a face
+    // the layer leaves alone meets one it textures — not every pinned position.
+    // Inside a masked region, a pinned position can lie closer than the falloff
+    // distance to a textured face without sharing an edge with it (through a
+    // thin wall, issue #150); counting it carved dents into that face. Same
+    // boundary as the preview (computeBoundaryFalloff in main.js).
+    const texPos = layer._texPos;
+    const onMaskBoundary = (id) => isPinned(id) && (texPos === null || texPos[id] === 1);
     const falloffArr = _buildFalloffField(
-      layer, lset, uniqueCount, maskedFracMasked, maskedFracTotal, isPinned, idPosX, idPosY, idPosZ);
+      lset, uniqueCount, maskedFracMasked, maskedFracTotal, isPinned, onMaskBoundary, idPosX, idPosY, idPosZ);
 
     // ── Pass 2: sample displacement texture once per unique position ────────
     const dispCacheVal = new Float64Array(uniqueCount);
@@ -669,7 +682,7 @@ export function applyDisplacementLayers(geometry, layers, settings, bounds, onPr
       }
     }
 
-    layer._softMax = null; layer._hardPos = null; layer._hardGroup = null;
+    layer._softMax = null; layer._hardPos = null; layer._hardGroup = null; layer._texPos = null;
     layer._zoneAreaX = layer._zoneAreaY = layer._zoneAreaZ = null;
     if (onProgress) onProgress(0.5 * (li + 1) / layers.length);
   }
@@ -1179,12 +1192,13 @@ function _projectedGrey(data, w, h, pos, nrm, mode, settings, bounds) {
 
 // ── Boundary falloff distance field ──────────────────────────────────────────
 // When the layer's boundaryFalloff > 0, identify boundary positions (vertices
-// adjacent to both masked and unmasked faces, or on the layer's exclusion
-// seam) and compute the Euclidean distance from every fully-textured vertex
-// to its nearest boundary position.  The result is Float64Array[uniqueCount]
-// where 0 means "at the boundary" and 1 means "at or beyond the falloff
-// distance" — or null when the layer has no falloff.
-function _buildFalloffField(layer, lset, uniqueCount, maskedFracMasked, maskedFracTotal, isPinned, idPosX, idPosY, idPosZ) {
+// adjacent to both angle-masked and unmasked faces, or on the layer's
+// exclusion boundary: `onMaskBoundary`) and compute the Euclidean distance
+// from every fully-textured vertex to its nearest boundary position.  The
+// result is Float64Array[uniqueCount] where 0 means "at the boundary" and 1
+// means "at or beyond the falloff distance" — or null when the layer has no
+// falloff. `isPinned` marks the positions held at 0 anyway (no ramp needed).
+function _buildFalloffField(lset, uniqueCount, maskedFracMasked, maskedFracTotal, isPinned, onMaskBoundary, idPosX, idPosY, idPosZ) {
   const boundaryFalloff = lset.boundaryFalloff ?? 0;
   if (!(boundaryFalloff > 0)) return null;
 
@@ -1199,8 +1213,7 @@ function _buildFalloffField(layer, lset, uniqueCount, maskedFracMasked, maskedFr
   for (let id = 0; id < uniqueCount; id++) {
     const mfTotal = maskedFracTotal[id];
     const maskedFrac = mfTotal > 0 ? maskedFracMasked[id] / mfTotal : 0;
-    const isOnExclBoundary = isPinned(id);
-    if (isOnExclBoundary || (maskedFrac > 0 && maskedFrac < 1)) {
+    if (onMaskBoundary(id) || (maskedFrac > 0 && maskedFrac < 1)) {
       const x = idPosX[id], y = idPosY[id], z = idPosZ[id];
       bpXFull[bpCount] = x; bpYFull[bpCount] = y; bpZFull[bpCount] = z;
       if (x < gMinX) gMinX = x; if (x > gMaxX) gMaxX = x;
@@ -1265,9 +1278,8 @@ function _buildFalloffField(layer, lset, uniqueCount, maskedFracMasked, maskedFr
   for (let id = 0; id < uniqueCount; id++) {
     const mfTotal = maskedFracTotal[id];
     const maskedFrac = mfTotal > 0 ? maskedFracMasked[id] / mfTotal : 0;
-    const isOnExclBoundary = isPinned(id);
-    // Only compute falloff for fully-textured, non-boundary positions
-    if (maskedFrac > 0 || isOnExclBoundary) continue;
+    // Only compute falloff for fully-textured positions (pinned ones stay at 0)
+    if (maskedFrac > 0 || isPinned(id)) continue;
 
     const px = idPosX[id], py = idPosY[id], pz = idPosZ[id];
     let cix = (px - gMinX) * invDx | 0; if (cix < 0) cix = 0; else if (cix > gResMax) cix = gResMax;
