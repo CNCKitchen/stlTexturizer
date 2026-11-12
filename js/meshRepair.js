@@ -271,3 +271,141 @@ export function resolveTJunctions(geometry, opts = {}) {
   g.setAttribute('normal',   new THREE.BufferAttribute(nrm, 3));
   return g;
 }
+
+/**
+ * Needle cleanup before refinement.
+ *
+ * A needle is a long triangle whose short edge is a tiny fraction of its long
+ * ones (CAD exports leave them, e.g. a 67 mm strip 0.35 µm wide at its foot).
+ * Refinement fills it with vertices in a strip narrower than the refinement
+ * spacing: with longest edge L split down to refineLength, the strip of width w
+ * is cut into about L / refineLength parts across, so distinct new vertices can
+ * lie only w · refineLength / L apart. Below the 10 nm weld cell of subdivision
+ * and displacement they merge, and the needle turns into degenerate triangles,
+ * non-manifold edges and a visible scar along its length.
+ *
+ * In every triangle that will be refined (longest edge L > refineLength), each
+ * edge shorter than `cell · safety · L / refineLength` (micrometres) is
+ * collapsed: both ends move onto one of them. The triangles that become
+ * degenerate are dropped. A flat triangle without a short edge (a cap: two
+ * acute angles, one near 180°) is left alone; it would need an edge flip.
+ *
+ * Returns null when there is no needle, or when the collapse would leave an
+ * edge with more than two faces the input did not have (then the input is
+ * used unchanged).
+ *
+ * @param {Float32Array} positions  non-indexed triangle soup (9 floats per triangle)
+ * @param {number} refineLength     the refinement's maximum edge length (mm)
+ * @param {number} [cell=1e-5]      weld cell of subdivision/displacement (mm)
+ * @param {number} [safety=4]       margin over the weld cell
+ * @returns {{ positions: Float32Array, keep: Uint32Array, collapsed: number } | null}
+ *          keep: the kept input triangle per output triangle, for the per-face and
+ *          per-corner arrays that index the input
+ */
+export function collapseNeedleEdges(positions, refineLength, cell = 1e-5, safety = 4) {
+  const corners = Math.floor(positions.length / 3);
+  const tris = Math.floor(corners / 3);
+  if (!(refineLength > 0) || tris === 0) return null;
+
+  // Weld the corners on the subdivision grid (1e5 = the 10 nm cell).
+  const map = new QuantizedPointMap(1 / cell, Math.min(corners, 1 << 22));
+  const id = new Int32Array(corners);
+  let nv = 0;
+  for (let c = 0; c < corners; c++) {
+    id[c] = map.getOrSet(positions[c * 3], positions[c * 3 + 1], positions[c * 3 + 2], nv);
+    if (map.inserted) nv++;
+  }
+
+  const parent = new Int32Array(nv);
+  for (let v = 0; v < nv; v++) parent[v] = v;
+  const find = (v) => { while (parent[v] !== v) { parent[v] = parent[parent[v]]; v = parent[v]; } return v; };
+
+  const len = (a, b) => Math.hypot(positions[a * 3] - positions[b * 3],
+    positions[a * 3 + 1] - positions[b * 3 + 1], positions[a * 3 + 2] - positions[b * 3 + 2]);
+  let collapsed = 0;
+  for (let t = 0; t < tris; t++) {
+    const c = t * 3;
+    const e0 = len(c, c + 1), e1 = len(c + 1, c + 2), e2 = len(c + 2, c);
+    const L = Math.max(e0, e1, e2);
+    if (L <= refineLength) continue;                  // not refined: no needle problem
+    const limit = cell * safety * L / refineLength;
+    const es = [[e0, c, c + 1], [e1, c + 1, c + 2], [e2, c + 2, c]];
+    for (const [e, a, b] of es) {
+      if (e >= limit) continue;
+      const ra = find(id[a]), rb = find(id[b]);
+      if (ra === rb) continue;
+      parent[rb] = ra;
+      collapsed++;
+    }
+  }
+  if (collapsed === 0) return null;
+
+  // Rebuild: merged corners take their root's position; degenerate triangles go.
+  const rootCorner = new Int32Array(nv).fill(-1);
+  for (let c = 0; c < corners; c++) if (find(id[c]) === id[c] && rootCorner[id[c]] < 0) rootCorner[id[c]] = c;
+  const keepList = [];
+  for (let t = 0; t < tris; t++) {
+    const a = find(id[t * 3]), b = find(id[t * 3 + 1]), c = find(id[t * 3 + 2]);
+    if (a !== b && b !== c && a !== c) keepList.push(t);
+  }
+  const keep = Uint32Array.from(keepList);
+  const out = new Float32Array(keep.length * 9);
+  for (let k = 0; k < keep.length; k++) {
+    for (let j = 0; j < 3; j++) {
+      const c = keep[k] * 3 + j;
+      const r = find(id[c]);
+      const src = r === id[c] ? c : rootCorner[r];
+      out[k * 9 + j * 3] = positions[src * 3];
+      out[k * 9 + j * 3 + 1] = positions[src * 3 + 1];
+      out[k * 9 + j * 3 + 2] = positions[src * 3 + 2];
+    }
+  }
+
+  // Safety: the collapse must not add edges with three or more faces.
+  const overfull = (triIds, rootOf) => {
+    const edges = new IntPairMap(Math.min(triIds.length * 3, 1 << 23));
+    const count = new Uint8Array(triIds.length * 3 + 1);
+    let next = 0, bad = 0;
+    for (const t of triIds) {
+      for (let j = 0; j < 3; j++) {
+        const a = rootOf(t * 3 + j), b = rootOf(t * 3 + (j + 1) % 3);
+        const slot = edges.getOrSet(Math.min(a, b), Math.max(a, b), next);
+        if (edges.inserted) next++;
+        if (++count[slot] === 3) bad++;
+      }
+    }
+    return bad;
+  };
+  const all = { length: tris, [Symbol.iterator]: function* () { for (let t = 0; t < tris; t++) yield t; } };
+  if (overfull(keep, (c) => find(id[c])) > overfull(all, (c) => id[c])) return null;
+
+  return { positions: out, keep, collapsed };
+}
+
+/**
+ * The pipeline input with the triangles `keep` lists (collapseNeedleEdges): new
+ * positions, and every per-face and per-corner array cut down to match.
+ */
+export function remapPipelineInput(input, positions, keep) {
+  const perCorner = (arr) => {
+    if (!arr) return arr;
+    const out = new arr.constructor(keep.length * 3);
+    for (let k = 0; k < keep.length; k++) for (let j = 0; j < 3; j++) out[k * 3 + j] = arr[keep[k] * 3 + j];
+    return out;
+  };
+  const perFace = (arr) => {
+    if (!arr) return arr;
+    const out = new arr.constructor(keep.length);
+    for (let k = 0; k < keep.length; k++) out[k] = arr[keep[k]];
+    return out;
+  };
+  return {
+    ...input,
+    positions,
+    faceWeights: perCorner(input.faceWeights),
+    softExclude: perCorner(input.softExclude),
+    layers: Array.isArray(input.layers)
+      ? input.layers.map((l) => ({ ...l, hardFaces: perFace(l.hardFaces), exclude: perCorner(l.exclude) }))
+      : input.layers,
+  };
+}
