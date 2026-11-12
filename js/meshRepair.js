@@ -284,16 +284,15 @@ export function resolveTJunctions(geometry, opts = {}) {
  * and displacement they merge, and the needle turns into degenerate triangles,
  * non-manifold edges and a visible scar along its length.
  *
- * A triangle counts as flat when its height over its longest edge,
- * h = |AB × AC| / L, is below `cell · safety · L / refineLength` (micrometres).
- * The height is used rather than a+b−c or the semi-perimeter minus L: those
- * shrink like h²/L and drown in float32 rounding long before h does.
- * In a flat triangle, each edge shorter than that limit is collapsed (both
- * ends move onto one of them) and the triangles that become degenerate are
- * dropped. A flat triangle without a short edge (a cap: two acute angles, one
- * near 180°) is left alone; it would need an edge flip. Returns null when there is no needle, or when the
- * collapse would leave an edge with more than two faces the input did not have
- * (then the input is used unchanged).
+ * In every triangle that will be refined (longest edge L > refineLength), each
+ * edge shorter than `cell · safety · L / refineLength` (micrometres) is
+ * collapsed: both ends move onto one of them. The triangles that become
+ * degenerate are dropped. A flat triangle without a short edge (a cap: two
+ * acute angles, one near 180°) is left alone; it would need an edge flip.
+ *
+ * Returns null when there is no needle, or when the collapse would leave an
+ * edge with more than two faces the input did not have (then the input is
+ * used unchanged).
  *
  * @param {Float32Array} positions  non-indexed triangle soup (9 floats per triangle)
  * @param {number} refineLength     the refinement's maximum edge length (mm)
@@ -330,12 +329,6 @@ export function collapseNeedleEdges(positions, refineLength, cell = 1e-5, safety
     const L = Math.max(e0, e1, e2);
     if (L <= refineLength) continue;                  // not refined: no needle problem
     const limit = cell * safety * L / refineLength;
-    // Height over the longest edge: twice the area (|AB × AC|) over L.
-    const o = c * 3;
-    const ux = positions[o + 3] - positions[o], uy = positions[o + 4] - positions[o + 1], uz = positions[o + 5] - positions[o + 2];
-    const vx = positions[o + 6] - positions[o], vy = positions[o + 7] - positions[o + 1], vz = positions[o + 8] - positions[o + 2];
-    const h = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / L;
-    if (h >= limit) continue;                         // not flat
     const es = [[e0, c, c + 1], [e1, c + 1, c + 2], [e2, c + 2, c]];
     for (const [e, a, b] of es) {
       if (e >= limit) continue;
