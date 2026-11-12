@@ -57,7 +57,7 @@ import { subdivide } from './subdivision.js';
 import { regularizeMesh } from './regularize.js';
 import { applyDisplacement, applyDisplacementLayers } from './displacement.js';
 import { decimate } from './decimation.js';
-import { resolveTJunctions, countEdgeDefects, countAreaSlivers } from './meshRepair.js';
+import { resolveTJunctions, countEdgeDefects, countAreaSlivers, collapseNeedleEdges, remapPipelineInput } from './meshRepair.js';
 import { interpolateFromParents } from './softMask.js';
 
 const yieldFrame = () => new Promise(r => setTimeout(r, 0));
@@ -209,8 +209,13 @@ export function snapBottomToFlat(geometry, bottomZ, tol = 0.1) {
   return dirtyTris;
 }
 
-export async function runExportPipeline(input, onEvent = () => {}, shouldAbort = () => false) {
-  const { settings, regularizeOpts } = input;
+export async function runExportPipeline(rawInput, onEvent = () => {}, shouldAbort = () => false) {
+  const { settings, regularizeOpts } = rawInput;
+  // Needles (a long triangle a fraction of a micrometre wide) would refine into
+  // vertices closer than the weld cell: degenerate triangles, non-manifold
+  // edges and a scar along the needle. Collapse their short edges first.
+  const needles = collapseNeedleEdges(rawInput.positions, settings.refineLength);
+  const input = needles ? remapPipelineInput(rawInput, needles.positions, needles.keep) : rawInput;
   const mode = input.mode === 'bake' ? 'bake' : 'export';
   const bounds = reviveBounds(input.bounds);
 
@@ -397,6 +402,11 @@ export async function runExportPipeline(input, onEvent = () => {}, shouldAbort =
         tris: after.tris,
       };
       if (shouldAbort()) return null;
+    }
+
+    // Bake parents index the caller's triangles, not the needle-cleaned ones.
+    if (mode === 'bake' && needles && faceParentId) {
+      for (let i = 0; i < faceParentId.length; i++) faceParentId[i] = needles.keep[faceParentId[i]];
     }
 
     done = true;
